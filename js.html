@@ -144,15 +144,17 @@
         // Level Progress
         const progressText = document.getElementById('exp-progress-text');
         const progressBar = document.getElementById('exp-progress-bar');
-        if (d.profile.progress.isMax) {
-            progressText.textContent = "MAX レベル！";
-            progressBar.style.width = "100%";
-            progressBar.classList.add('bg-warning');
-            progressBar.classList.remove('bg-info');
-        } else {
-            progressText.textContent = `${d.profile.progress.current} / ${d.profile.progress.required}`;
-            const percent = Math.min(100, Math.floor((d.profile.progress.current / d.profile.progress.required) * 100));
+
+        let percent = 0;
+        if (typeof d.profile.progress === 'number') {
+            percent = d.profile.progress;
+            progressText.textContent = `進捗 ${percent}%`;
             progressBar.style.width = `${percent}%`;
+            if (percent >= 100) {
+                progressText.textContent = "MAX レベル！";
+                progressBar.classList.add('bg-warning');
+                progressBar.classList.remove('bg-info');
+            }
         }
 
         // Cost configs
@@ -287,16 +289,18 @@
 
         const html = logs.map(log => {
             const d = new Date(log.timestamp);
-            const dStr = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
-            let icon = 'bi-info-circle text-primary';
-            if (log.action.includes('EXP')) icon = 'bi-star-fill text-warning';
-            if (log.action.includes('GACHA')) icon = 'bi-magic text-purple';
+            const minutes = String(d.getMinutes()).padStart(2, "0");
+            const dStr = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${minutes}`;
+            let icon = "bi-info-circle text-primary";
+            const msg = log.message || "";
+            if (msg.includes("EXP")) icon = "bi-star-fill text-warning";
+            if (msg.includes("ガチャ")) icon = "bi-magic text-purple";
 
             return `
       <div class="d-flex align-items-start mb-2 border-bottom pb-1">
         <i class="bi ${icon} mt-1 me-2"></i>
         <div>
-          <div class="small fw-bold">${log.details}</div>
+          <div class="small fw-bold">${msg}</div>
           <div class="text-muted" style="font-size:0.75rem;">${dStr}</div>
         </div>
       </div>
@@ -337,7 +341,7 @@
             const imgId = item['画像ID'];
             if (imgId) {
                 const img = document.createElement('img');
-                img.src = "https://drive.google.com/uc?id=" + imgId;
+                img.src = "https://lh3.googleusercontent.com/d/" + imgId;
                 img.className = 'w-100 h-100 object-fit-contain p-1';
                 div.appendChild(img);
             } else {
@@ -389,7 +393,7 @@
         layersInfo.forEach(item => {
             const img = document.createElement('img');
             const picId = item['画像ID'];
-            img.src = "https://drive.google.com/uc?id=" + picId;
+            img.src = "https://lh3.googleusercontent.com/d/" + picId;
             img.className = 'avatar-part'; // css class for absolute positioning
             previewBox.appendChild(img);
         });
