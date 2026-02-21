@@ -1,0 +1,1118 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Noto+Sans+JP:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* 基本フォント設定 */
+body { font-family: 'Noto Sans JP', sans-serif; }
+h1, h2, h3, .font-mplus { font-family: 'Mochiy+Pop+One', sans-serif; }
+
+/* アプリ全体の配色テーマ */
+.bg-fantasy { background-color: #f3e9d2; }
+.text-fantasy-deep { color: #4a403a; }
+.text-fantasy-brown { color: #8c6b5d; }
+.bg-fantasy-card { background-color: #fffaf0; }
+.border-fantasy-brown { border-color: #c7a99a; }
+
+/* ボタン共通スタイル */
+.btn-primary, .btn-secondary, .btn-gacha, .btn-gacha10, .btn-claim {
+color: white;
+font-family: 'Mochiy Pop One', sans-serif;
+padding: 10px 20px;
+border-radius: 8px;
+transition: all 0.2s ease;
+cursor: pointer;
+border-bottom-width: 4px;
+}
+.btn-primary { background-color: #5a9c5a; border-color: #3e6b3e; }
+.btn-primary:hover:not(:disabled) { background-color: #4a8c4a; transform: translateY(2px); border-bottom-width: 2px; }
+.btn-secondary { background-color: #a98a78; border-color: #8c6b5d; }
+.btn-secondary:hover:not(:disabled) { background-color: #9a7c6c; transform: translateY(2px); border-bottom-width: 2px; }
+.btn-gacha { background-color: #8b5cf6; border-color: #6d28d9; }
+.btn-gacha:hover:not(:disabled) { background-color: #7c3aed; transform: translateY(2px); border-bottom-width: 2px; }
+.btn-gacha10 { background-color: #f59e0b; border-color: #b45309; }
+.btn-gacha10:hover:not(:disabled) { background-color: #d97706; transform: translateY(2px); border-bottom-width: 2px; }
+.btn-claim { background-color: #2563eb; border-color: #1d4ed8; }
+.btn-claim:hover:not(:disabled) { background-color: #1e40af; transform: translateY(2px); border-bottom-width: 2px; }
+button:disabled { background-color: #9ca3af; border-color: #6b7280; cursor: not-allowed; }
+.btn-mission { padding: 4px 10px; font-size: 12px; border-radius: 6px; }
+
+/* その他UI要素のスタイル */
+.exp-bar-bg { background-color: #e0d8c7; }
+.exp-bar-fill { background: linear-gradient(90deg, #ffd700, #ffec80); }
+.nav-item.active { background-color: #d4bfaa; color: #fff; }
+.view { display: none; }
+.view.active { display: block; }
+.tooltip { position: relative; display: inline-block; }
+.tooltip .tooltip-text { visibility: hidden; width: 200px; background-color: #555; color: #fff; text-align: center; border-radius: 6px; padding: 5px 0; position: absolute; z-index: 1; bottom: 125%; left: 50%; margin-left: -100px; opacity: 0; transition: opacity 0.3s; }
+.tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #f1f1f1; }
+::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+.gacha-results-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; max-height: 50vh; overflow-y: auto; padding: 8px; background-color: #f9fafb; border-radius: 8px; }
+.gacha-item-card { position: relative; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white; padding: 4px; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.gacha-item-card.is-sr { background: linear-gradient(45deg, #fde68a, #f59e0b); box-shadow: 0 0 10px #f59e0b; }
+.gacha-item-card.is-r { background: linear-gradient(45deg, #93c5fd, #3b82f6); box-shadow: 0 0 10px #3b82f6; }
+.gacha-item-card img { max-width: 90%; max-height: 90%; object-fit: contain; }
+.duplicate-overlay { position: absolute; inset: 0; background-color: rgba(0, 0, 0, 0.6); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 8px; text-align: center; font-size: 0.875rem; font-weight: 600; }
+
+/* レベルアップ演出のスタイル */
+#level-up-modal { z-index: 100; }
+.celebrate-title { animation: zoom-in-out 1s ease-in-out forwards; }
+.celebrate-level { animation: scale-up 1s ease-in-out 0.5s forwards; transform: scale(0); }
+@keyframes zoom-in-out {
+ 0% { transform: scale(0); opacity: 0; }
+ 50% { transform: scale(1.2); opacity: 1; }
+ 100% { transform: scale(1); opacity: 1; }
+}
+@keyframes scale-up {
+ 0% { transform: scale(0); opacity: 0; }
+ 100% { transform: scale(1); opacity: 1; }
+}
+/* 紙吹雪のスタイル */
+.confetti-piece { position: absolute; width: 8px; height: 16px; background: #f00; top: -20px; opacity: 0; }
+@keyframes confetti-fall {
+   0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+   100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+
+/* ガチャ読み込み画面のスタイル */
+#gacha-loading-modal { z-index: 90; }
+.gacha-capsule {
+ width: 100px;
+ height: 100px;
+ background: linear-gradient(180deg, #fde047 50%, #f1f5f9 50%);
+ border-radius: 50%;
+ border: 4px solid #4b5563;
+ position: relative;
+ animation: shake-spin 1.5s cubic-bezier(.36,.07,.19,.97) infinite;
+}
+.gacha-capsule::before {
+ content: '';
+ position: absolute;
+ top: 50%;
+ left: 0;
+ right: 0;
+ height: 8px;
+ background: #4b5563;
+ transform: translateY(-50%);
+}
+@keyframes shake-spin {
+ 0% { transform: translate(0, 0) rotate(0deg); }
+ 20% { transform: translate(-2px, 2px) rotate(-5deg); }
+ 40% { transform: translate(2px, -2px) rotate(5deg); }
+ 60% { transform: translate(-2px, 2px) rotate(-5deg); }
+ 80% { transform: translate(2px, -2px) rotate(5deg); }
+ 100% { transform: translate(0, 0) rotate(360deg); }
+}
+</style>
+</head>
+<body class="bg-fantasy text-fantasy-deep">
+
+<!-- =================================================================
+HTML構造 (HTML Structure)
+================================================================= -->
+
+<!-- ローディング画面 -->
+<div id="loading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+<div class="text-white text-center">
+  <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mx-auto"></div>
+  <p class="mt-4 text-xl font-mplus">データを読み込み中...</p>
+</div>
+</div>
+
+<!-- メインアプリケーション -->
+<div id="app" class="hidden">
+<header class="bg-fantasy-card p-4 shadow-md flex justify-between items-center">
+  <h1 class="text-3xl"><ruby>学習冒険記録<rt>がくしゅうぼうけんきろく</rt></ruby></h1>
+  <div id="user-profile-header" class="text-right"></div>
+</header>
+
+<nav class="bg-fantasy-brown text-white flex justify-around">
+  <button data-view="dashboard" class="nav-item flex-1 py-3 font-mplus active"><ruby>冒険の書<rt>ぼうけんのしょ</rt></ruby></button>
+  <button data-view="my-room" class="nav-item flex-1 py-3 font-mplus">マイルーム</button>
+  <button data-view="plaza" class="nav-item flex-1 py-3 font-mplus">みんなの<ruby>広場<rt>ひろば</rt></ruby></button>
+</nav>
+
+<main class="p-4">
+    <!-- ダッシュボード画面 -->
+  <div id="dashboard" class="view active">
+    <div class="grid md:grid-cols-3 gap-6" style="height: calc(100vh - 140px);">
+      <div class="md:col-span-1 flex flex-col gap-6">
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg">
+          <h2 class="text-2xl text-center mb-2">マイアバター</h2>
+          <div id="avatar-preview-main" class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden"></div>
+        </div>
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-grow">
+          <h3 class="text-xl font-bold">ステータス</h3>
+          <div id="user-status"></div>
+        </div>
+      </div>
+      <div class="md:col-span-1 flex flex-col">
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col flex-grow min-h-0">
+          <h2 class="text-2xl mb-2 flex-shrink-0">ミッション</h2>
+          <div id="missions-board" class="space-y-1 overflow-y-auto pr-2 flex-grow"></div>
+        </div>
+      </div>
+      <div class="md:col-span-1 flex flex-col gap-6">
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col">
+          <h2 class="text-2xl mb-2 flex-shrink-0">お知らせ</h2>
+          <div id="announcements-board" class="space-y-2 pr-2"></div>
+        </div>
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col">
+          <h2 class="text-2xl mb-2 flex-shrink-0">ランキング</h2>
+          <div id="rankings-board" class="pr-2"></div>
+        </div>
+        <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col">
+          <h2 class="text-2xl mb-2 flex-shrink-0"><ruby>最近の記録<rt>さいきんのきろく</rt></ruby></h2>
+          <div id="recent-activity-log" class="space-y-2 overflow-y-auto pr-2" style="height: 16.5rem;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+    <!-- マイルーム画面 -->
+  <div id="my-room" class="view"></div>
+     <!-- みんなの広場画面 -->
+  <div id="plaza" class="view">
+    <h2 class="text-3xl text-center mb-4">みんなの<ruby>広場<rt>ひろば</rt></ruby></h2>
+    <div id="plaza-container" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+  </div>
+</main>
+</div>
+
+<!-- モーダルウィンドウ -->
+<div id="modal" class="hidden fixed inset-0 bg-gray-800 bg-opacity-75 flex items-center justify-center z-50 p-4">
+<div id="modal-content" class="bg-fantasy-card p-6 rounded-lg shadow-xl w-full max-w-lg text-center border-4 border-fantasy-brown"></div>
+</div>
+
+<!-- レベルアップ演出用モーダル -->
+<div id="level-up-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center overflow-hidden">
+ <div id="confetti-container" class="absolute inset-0"></div>
+ <div class="text-center text-white">
+   <h2 class="text-6xl font-mplus celebrate-title" style="text-shadow: 0 0 15px #ffd700, 0 0 25px #ffd700;">レベルアップ！</h2>
+   <p id="level-up-text" class="text-8xl font-mplus celebrate-level mt-8" style="text-shadow: 0 0 15px #fff, 0 0 25px #fff;"></p>
+ </div>
+</div>
+
+<!-- ガチャ読み込み画面用モーダル -->
+<div id="gacha-loading-modal" class="hidden fixed inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center">
+ <div class="gacha-capsule"></div>
+ <p class="text-white mt-6 text-2xl font-mplus animate-pulse">ガチャを<ruby>回<rt>まわ</rt></ruby>しています...</p>
+</div>
+
+
+<!-- =================================================================
+JavaScriptコード (JavaScript Code)
+================================================================= -->
+<script>
+// =================================================================
+// 1. グローバル変数・状態管理 (Global State)
+// =================================================================
+
+/** @type {Object|null} サーバーから取得した全てのゲームデータを格納するオブジェクト */
+let gameData = null;
+
+/** @type {Object} 現在編集中のアバター構成を保持するオブジェクト */
+let currentAvatarComposition = {};
+
+/** @type {string|null} マイルームで現在選択されているアイテムカテゴリまたはアクセサリタブ */
+let currentActiveTab = null;
+
+
+// =================================================================
+// 2. 初期化処理 (Initialization)
+// =================================================================
+
+/**
+* @summary ページの読み込み完了時に実行されるメインの初期化関数
+*/
+document.addEventListener('DOMContentLoaded', initialize);
+
+/**
+* @summary サーバーから初期データを取得し、アプリケーションの描画を開始する
+*/
+function initialize() {
+google.script.run
+  .withSuccessHandler(response => {
+    if (response && response.success) {
+      gameData = response;
+      currentAvatarComposition = { ...gameData.avatar };
+      renderAll();
+      document.getElementById('app').classList.remove('hidden');
+
+      if (response.bonusApplied) {
+        showModal( `<h3>ログインボーナス！</h3><p class="text-xl my-4">+ ${response.bonusPoints} <ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>獲得<rt>かくとく</rt></ruby>！</p>` );
+      }
+      if (response.newlyAwardedBadges && response.newlyAwardedBadges.length > 0) {
+        showNewBadgeModal(response.newlyAwardedBadges);
+      }
+      if (response.latestLevelUp) {
+        checkAndShowLevelUp(response.latestLevelUp);
+      }
+    } else {
+      showError(response ? response.message : 'サーバーから無効な応答を受け取りました。' );
+    }
+    hideLoading();
+  })
+  .withFailureHandler(showError)
+  .getGameData();
+}
+
+
+// =================================================================
+// 3. UIメイン描画関数 (Main Rendering Functions)
+// =================================================================
+
+/**
+* @summary アプリケーションの全てのUI要素を描画する
+*/
+function renderAll() {
+renderHeader();
+renderDashboard();
+setupEventListeners();
+}
+
+/**
+* @summary ヘッダーのユーザー情報を描画する
+*/
+function renderHeader() {
+const p = gameData.profile;
+document.getElementById('user-profile-header').innerHTML = `
+  <div class="font-mplus">${p.nickname} さん</div>
+  <div>Lv. ${p.level} | <ruby>経験値<rt>けいけんち</rt></ruby>: ${p.exp} | <ruby>交換<rt>こうかん</rt></ruby>Pt: ${p.exchangePoints}</div>
+`;
+}
+
+/**
+* @summary ダッシュボード画面（冒険の書）のUIを描画する
+*/
+function renderDashboard() {
+const p = gameData.profile;
+document.getElementById('user-status').innerHTML = `
+  <p><strong>レベル:</strong> ${p.level}</p>
+  <p><strong><ruby>経験値<rt>けいけんち</rt></ruby>:</strong> ${p.exp}</p>
+  <p><strong><ruby>累計<rt>るいけい</rt></ruby>:</strong> ${p.totalExp}</p>
+  <div class="mt-2">
+    <p class="text-sm">次のレベルまで</p>
+    <div class="w-full exp-bar-bg rounded-full h-4"><div class="exp-bar-fill h-4 rounded-full" style="width: ${p.progress || 0}%"></div></div>
+  </div>
+`;
+renderAvatarPreview('avatar-preview-main', gameData.avatar);
+
+let mvpHtml = '<h4 class="font-bold text-amber-600">今日のMVP！</h4>' ;
+if (gameData.rankings.mvp && gameData.rankings.mvp.length > 0) {
+  mvpHtml += '<ol class="list-decimal list-inside text-sm">';
+  gameData.rankings.mvp.forEach(r => { mvpHtml += `<li>${r.nickname} (+${r.gainedExp} EXP)</li>`; });
+  mvpHtml += '</ol>';
+} else {
+  mvpHtml += '<p class="text-sm text-fantasy-brown">まだ今日の<ruby>冒険者<rt>ぼうけんしゃ</rt></ruby>はいないようです。</p>' ;
+}
+
+let top5Html = `<h4 class="font-bold mt-3"><ruby>総合<rt>そうごう</rt></ruby>レベルランキング</h4><ol class="list-decimal list-inside text-sm">` ;
+gameData.rankings.top5.forEach(r => {
+  top5Html += `<li>${r.nickname} (Lv.${r.level})</li>`;
+});
+top5Html += '</ol>';
+document.getElementById('rankings-board').innerHTML = mvpHtml + top5Html;
+
+document.getElementById('missions-board').innerHTML = `
+  <div id="daily-missions"></div>
+  <div id="weekly-missions" class="mt-4"></div>
+  <div id="coop-missions" class="mt-4"></div>
+`;
+renderMissions();
+renderRecentActivity();
+renderAnnouncements();
+}
+
+/**
+* @summary マイルーム画面のUIを描画する
+*/
+function renderMyRoom() {
+const myRoomContainer = document.getElementById('my-room');
+myRoomContainer.innerHTML = `
+<div class="grid md:grid-cols-3 gap-6" style="height: 85vh;">
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col">
+        <h2 class="text-2xl font-semibold mb-2 text-center flex-shrink-0">アバター<ruby>編集<rt>へんしゅう</rt></ruby></h2>
+        <div id="avatar-preview-editor" class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mx-auto"></div>
+        <div class="text-center mt-4 space-y-2">
+            <button id="save-avatar-button" class="btn-primary w-full">このスタイルで<ruby>保存<rt>ほぞん</rt></ruby></button>
+            <button id="gacha-button" class="btn-gacha w-full"></button>
+            <button id="gacha-10-button" class="btn-gacha10 w-full"></button>
+        </div>
+    </div>
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col min-h-0">
+        <h2 class="text-2xl font-semibold mb-2 text-center flex-shrink-0">アイテム</h2>
+        <div id="category-tabs" class="border-b border-fantasy-brown mb-2 flex-wrap flex-shrink-0"></div>
+        <div id="item-list" class="grid grid-cols-3 gap-2 flex-grow overflow-y-auto p-1"></div>
+    </div>
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col space-y-4">
+        <div class="flex-grow flex flex-col h-1/2 min-h-0">
+            <h2 class="text-2xl font-semibold mb-2 text-center"><ruby>獲得<rt>かくとく</rt></ruby>したバッジ</h2>
+            <div id="badge-collection" class="grid grid-cols-4 gap-4 overflow-y-auto p-2 flex-grow"></div>
+        </div>
+        <div class="flex-grow flex flex-col h-1/2 min-h-0 mt-4">
+            <h2 class="text-2xl font-semibold mb-2 text-center">プロフィール</h2>
+            <div class="space-y-2 flex-grow flex flex-col">
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-motto" class="block text-sm font-bold text-fantasy-brown">ひとこと</label>
+                   <textarea id="profile-motto" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-favorite" class="block text-sm font-bold text-fantasy-brown">すきなもの</label>
+                   <textarea id="profile-favorite" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-goal" class="block text-sm font-bold text-fantasy-brown">がんばりたいこと</label>
+                   <textarea id="profile-goal" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+            </div>
+            <button id="save-profile-button" class="btn-primary w-full mt-3 flex-shrink-0">プロフィールを<ruby>保存<rt>ほぞん</rt></ruby></button>
+        </div>
+    </div>
+</div>
+`;
+const userProfile = gameData.userProfile;
+document.getElementById('profile-motto').value = userProfile.motto;
+document.getElementById('profile-favorite').value = userProfile.favorite;
+document.getElementById('profile-goal').value = userProfile.goal;
+
+document.getElementById('save-avatar-button').addEventListener('click', handleSaveAvatar);
+document.getElementById('gacha-button').addEventListener('click', handleGacha);
+document.getElementById('gacha-10-button').addEventListener('click', handleGacha10);
+document.getElementById('save-profile-button').addEventListener('click', handleSaveProfile);
+
+renderAvatarPreview('avatar-preview-editor', currentAvatarComposition);
+renderCategoryTabs();
+// ★ 修正: 初回表示のタブを決定
+const firstTab = document.querySelector('#category-tabs button');
+if (firstTab) {
+    handleCategoryClick(firstTab.dataset.tab);
+}
+
+document.getElementById('gacha-button').textContent = `ガチャ (${gameData.gachaCost} EXP)`;
+document.getElementById('gacha-10-button').innerHTML = `10<ruby>連<rt>れん</rt></ruby>ガチャ (${gameData.gacha10Cost} EXP)`;
+
+renderBadges();
+}
+
+/**
+* @summary みんなの広場画面のUIを描画する
+*/
+function renderPlaza() {
+const container = document.getElementById('plaza-container');
+if (!gameData.plazaData || gameData.plazaData.length === 0) {
+  container.innerHTML = '<p>まだ<ruby>誰<rt>だれ</rt></ruby>もいないようです...</p>' ;
+  return;
+}
+
+container.innerHTML = gameData.plazaData.map((user, index) => {
+  const userJson = encodeURIComponent(JSON.stringify(user));
+  return `
+    <div class="bg-fantasy-card p-2 rounded-lg shadow text-center cursor-pointer hover:shadow-xl transition-shadow" onclick='showPlazaProfileModal(JSON.parse(decodeURIComponent("${userJson}")))'>
+      <div id="plaza-avatar-${index}" class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mb-2"></div>
+      <p class="font-bold text-sm">${user.nickname}</p>
+      <p class="text-xs text-fantasy-brown">Lv. ${user.level}</p>
+    </div>
+  `;
+}).join('');
+
+gameData.plazaData.forEach((user, index) => {
+  renderAvatarPreview(`plaza-avatar-${index}`, user.avatar);
+});
+}
+
+// =================================================================
+// 4. UIコンポーネント描画関数 (Component Rendering Functions)
+// =================================================================
+
+/**
+* @summary お知らせ欄を描画する
+*/
+function renderAnnouncements() {
+const container = document.getElementById('announcements-board');
+if (!gameData.announcements || gameData.announcements.length === 0) {
+  container.innerHTML = '<p class="text-sm text-fantasy-brown">いまは、お知らせはありません。</p>' ;
+  return;
+}
+container.innerHTML = gameData.announcements.map(item => {
+  const date = new Date(item.timestamp);
+  const formattedDate = `${date.getMonth() + 1}/${date.getDate()}`;
+  return `
+    <div class="border-b-2 border-dashed border-fantasy-brown pb-2 mb-2">
+      <p class="text-base font-semibold text-fantasy-deep">${item.message}</p>
+      <p class="text-xs text-right text-fantasy-brown mt-1">${formattedDate} by ${item.author}</p>
+    </div>
+  `;
+}).join('');
+}
+
+/**
+* @summary 「最近の記録」欄を描画する
+*/
+function renderRecentActivity() {
+const container = document.getElementById('recent-activity-log');
+if (!gameData.recentActivity || gameData.recentActivity.length === 0) {
+  container.innerHTML = '<p class="text-sm text-fantasy-brown">まだ<ruby>記録<rt>きろく</rt></ruby>はありません。</p>' ;
+  return;
+}
+container.innerHTML = gameData.recentActivity.map(log => {
+  const date = new Date(log.timestamp);
+  const formattedDate = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+  return `
+    <div class="text-sm border-b border-fantasy-brown pb-1 mb-1">
+      <p class="text-fantasy-deep">${log.message}</p>
+      <p class="text-xs text-right text-fantasy-brown">${formattedDate}</p>
+    </div>
+  `;
+}).join('');
+}
+
+/**
+* @summary ミッションボードを種類別に描画する
+*/
+function renderMissions() {
+const dailyContainer = document.getElementById('daily-missions');
+const weeklyContainer = document.getElementById('weekly-missions');
+const coopContainer = document.getElementById('coop-missions');
+
+const dailyMissions = gameData.missions.filter(m => m.type === 'デイリー' );
+const weeklyMissions = gameData.missions.filter(m => m.type === 'ウィークリー' );
+const coopMissions = gameData.missions.filter(m => m.type === '協力' );
+
+dailyContainer.innerHTML = '<h3>今日のミッション</h3>' + (dailyMissions.length > 0 ? dailyMissions.map(renderMissionCard).join('') : '<p class="text-sm text-fantasy-brown">今日のミッションはありません。</p>' );
+weeklyContainer.innerHTML = `<h3><ruby>今週<rt>こんしゅう</rt></ruby>のミッション</h3>` + (weeklyMissions.length > 0 ? weeklyMissions.map(renderMissionCard).join('') : `<p class="text-sm text-fantasy-brown"><ruby>今週<rt>こんしゅう</rt></ruby>のミッションはありません。</p>` );
+coopContainer.innerHTML = `<h3><ruby>協力<rt>きょうりょく</rt></ruby>ミッション</h3>` + (coopMissions.length > 0 ? coopMissions.map(renderMissionCard).join('') : `<p class="text-sm text-fantasy-brown"><ruby>協力<rt>きょうりょく</rt></ruby>ミッションはありません。</p>` );
+}
+
+/**
+* @summary ミッションカード1枚のHTMLを生成する
+* @param {Object} mission - ミッションデータオブジェクト
+* @returns {string} ミッションカードのHTML文字列
+*/
+function renderMissionCard(mission) {
+let buttonHtml;
+if (mission.isClaimed) {
+  buttonHtml = `<button class="btn-secondary btn-mission" disabled><ruby>受取済<rt>うけとりずみ</rt></ruby></button>` ;
+} else if (mission.isComplete) {
+  buttonHtml = `<button class="btn-claim btn-mission" onclick="handleClaimMission('${mission.id}')"><ruby>受<rt>う</rt></ruby>け<ruby>取<rt>と</rt></ruby>る</button>` ;
+} else {
+  buttonHtml = `<button class="btn-secondary btn-mission" disabled><ruby>挑戦中<rt>ちょうせんちゅう</rt></ruby></button>` ;
+}
+
+const progressPercentage = mission.target > 0 ? Math.min(100, (mission.progress / mission.target) * 100) : 0;
+
+return `
+  <div class="border border-fantasy-brown rounded-lg p-2 bg-white mt-1">
+    <div class="flex justify-between items-start">
+      <div class="mr-2 flex-grow">
+        <p class="font-bold text-sm leading-tight">${mission.content}</p>
+        <p class="text-xs text-fantasy-brown"><ruby>報酬<rt>ほうしゅう</rt></ruby>: ${mission.rewardType} +${mission.rewardAmount}</p>
+      </div>
+      <div class="flex-shrink-0">${buttonHtml}</div>
+    </div>
+    <div class="relative w-full h-4 mt-1.5">
+      <div class="absolute w-full h-full exp-bar-bg rounded-full"></div>
+      <div class="absolute h-full exp-bar-fill rounded-full" style="width: ${progressPercentage}%"></div>
+      <div class="absolute w-full h-full text-center text-xs text-black font-semibold leading-4 flex items-center justify-center">
+        <span>${mission.progress} / ${mission.target}</span>
+      </div>
+    </div>
+  </div>
+`;
+}
+
+/**
+* @summary 獲得済みバッジの一覧を描画する
+*/
+function renderBadges() {
+const container = document.getElementById('badge-collection');
+if (!container) return;
+if (!gameData.badges || gameData.badges.length === 0) {
+  container.innerHTML = '<p class="text-center text-fantasy-brown">まだバッジはありません。</p>' ;
+  return;
+}
+container.innerHTML = gameData.badges.map(badge => {
+  const iconHtml = badge.imageUrl
+    ? `<img src="${badge.imageUrl}" alt="${badge.name}" class="w-12 h-12 object-contain">`
+    : '<span class="text-5xl">🏆</span>';
+
+  return `
+  <div class="tooltip bg-gray-200 p-2 rounded-lg aspect-square flex flex-col items-center justify-center text-center">
+    ${iconHtml}
+    <span class="text-xs font-bold mt-1">${badge.name}</span>
+    <span class="tooltip-text">${badge.description}</span>
+  </div>
+`;
+}).join('');
+}
+
+/**
+* @summary 指定された要素IDにアバターのプレビューを描画する
+* @param {string} elementId - 描画先の要素のID
+* @param {Object} composition - 描画するアバターの構成オブジェクト
+*/
+function renderAvatarPreview(elementId, composition) {
+const previewArea = document.getElementById(elementId);
+if (!previewArea) return;
+previewArea.innerHTML = '';
+const itemIds = Object.values(composition).filter(id => id !== null && String(id).trim() !== '');
+const items = itemIds.map(id => gameData.allItems.find(item => item[ 'アイテムID' ] == id)).filter(item => item);
+items.sort((a, b) => (a[ 'レイヤー' ] || 0) - (b[ 'レイヤー' ] || 0));
+
+if (items.length === 0) {
+  previewArea.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">アイテムを<ruby>選<rt>えら</rt></ruby>ぼう</div>' ;
+  return;
+}
+items.forEach(item => {
+  if (item.imageUrl) {
+    const img = document.createElement('img');
+    img.src = item.imageUrl;
+    img.className = 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full object-contain';
+    img.style.zIndex = item[ 'レイヤー' ] || 0;
+    previewArea.appendChild(img);
+  }
+});
+}
+
+/**
+* @summary マイルームのアイテムカテゴリタブを描画する
+*/
+function renderCategoryTabs() {
+    const tabsContainer = document.getElementById('category-tabs');
+    if (!tabsContainer) return;
+
+    // ★ 変更: 「アクセサリ」以外の通常のカテゴリを取得
+    const normalCategories = gameData.itemCategories.filter(c => c !== 'アクセサリ');
+    
+    // ★ 変更: 表示するタブのリストを定義
+    const tabsToDisplay = [
+        ...normalCategories,
+        'アクセ1', 'アクセ2', 'アクセ3' 
+    ];
+
+    tabsContainer.innerHTML = '';
+    const nav = document.createElement('nav');
+    nav.className = '-mb-px flex space-x-2 flex-wrap text-sm';
+
+    tabsToDisplay.forEach(tabName => {
+        const tab = document.createElement('button');
+        tab.textContent = tabName;
+        tab.dataset.tab = tabName; // data-category から data-tab に変更
+        tab.className = 'whitespace-nowrap pb-2 px-1 border-b-2 font-medium border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors';
+        tab.onclick = () => handleCategoryClick(tabName);
+        nav.appendChild(tab);
+    });
+
+    tabsContainer.appendChild(nav);
+}
+
+/**
+* @summary 指定されたカテゴリのアイテム一覧を描画する
+* @param {string} displayCategory - 表示するカテゴリ名（'アクセサリ'など）
+*/
+function renderItemList(displayCategory) {
+    const listContainer = document.getElementById('item-list');
+    if (!listContainer) return;
+    listContainer.innerHTML = '';
+
+    // ★ 変更: 表示カテゴリ名から実際にフィルタリングするカテゴリ名を取得
+    const filterCategory = ['アクセ1', 'アクセ2', 'アクセ3'].includes(displayCategory) 
+        ? 'アクセサリ' 
+        : displayCategory;
+
+    const filteredItems = gameData.allItems.filter(item => item['カテゴリ'] === filterCategory);
+
+    // ★ 変更: 現在装備中のアクセサリIDのリストを作成
+    const equippedAccessoryIds = ['アクセ1_アイテムID', 'アクセ2_アイテムID', 'アクセ3_アイテムID']
+        .map(key => currentAvatarComposition[key])
+        .filter(id => id);
+
+    filteredItems.forEach(item => {
+        const isInitialItem = String(item['必要交換ポイント']) === '0';
+        const hasItem = gameData.inventory.includes(item['アイテムID']) || isInitialItem;
+        
+        // ★ 変更: 装備中かどうかの判定ロジックを更新
+        let isEquipped = false;
+        if (filterCategory === 'アクセサリ') {
+            isEquipped = equippedAccessoryIds.includes(item['アイテムID']);
+        } else {
+            const categoryKey = `${filterCategory}_アイテムID`;
+            isEquipped = currentAvatarComposition[categoryKey] === item['アイテムID'];
+        }
+
+        const exchangeCost = Number(item['必要交換ポイント'] || 0);
+
+        const card = document.createElement('div');
+        card.className = `group relative border rounded-lg p-2 cursor-pointer transition-all ${isEquipped ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200'} ${hasItem ? 'bg-white' : 'bg-gray-100'}`;
+        card.onclick = () => handleItemClick(item);
+
+        let overlay = '';
+        if (!hasItem) {
+            if (exchangeCost > 0) {
+                overlay = `<div class="absolute inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-center text-white p-1 rounded-lg"><span class="font-bold text-sm">${exchangeCost} Ptで<ruby>交換<rt>こうかん</rt></ruby></span></div>`;
+            } else if (item['レアリティー']) {
+                overlay = `<div class="absolute inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center text-white p-1 rounded-lg"><span class="font-semibold text-xs text-center">ガチャで<ruby>入手<rt>にゅうしゅ</rt></ruby></span></div>`;
+            }
+        }
+
+        card.innerHTML = `
+            <div class="aspect-square flex items-center justify-center">
+                <img src="${item.imageUrl || ''}" alt="${item['アイテム名']}" class="max-w-full max-h-full object-contain ${hasItem ? '' : 'opacity-50'}">
+            </div>
+            <p class="text-xs text-center mt-1 h-4 truncate group-hover:whitespace-normal group-hover:text-clip">${item['アイテム名'] || ''}</p>
+            ${overlay}
+        `;
+        listContainer.appendChild(card);
+    });
+}
+
+
+// =================================================================
+// 5. イベントリスナーとハンドラ (Event Listeners & Handlers)
+// =================================================================
+
+/**
+* @summary アプリケーション全体のイベントリスナーを設定する
+*/
+function setupEventListeners() {
+document.querySelectorAll('.nav-item').forEach(item => {
+  item.addEventListener('click', e => {
+    const viewName = e.target.dataset.view;
+    document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+    e.target.classList.add('active');
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.getElementById(viewName).classList.add('active');
+
+    if (viewName === 'my-room') {
+      renderMyRoom();
+    } else if (viewName === 'plaza') {
+      renderPlaza();
+    }
+  });
+});
+}
+
+/**
+* @summary ミッションの報酬受け取りボタンがクリックされた時の処理
+* @param {string} missionId - 報酬を受け取るミッションのID
+*/
+function handleClaimMission(missionId) {
+ const cleanedMissionId = missionId.trim();
+ showLoading();
+ google.script.run
+   .withSuccessHandler(res => {
+     hideLoading();
+     if (res.success) {
+       gameData.profile.exp = res.newExp;
+       gameData.profile.totalExp = res.newTotalExp;
+       gameData.profile.exchangePoints = res.newExchangePoints;
+       const mission = gameData.missions.find(m => m.id === cleanedMissionId);
+       if (mission) {
+         mission.isClaimed = true;
+       }
+       renderHeader();
+       renderDashboard();
+       showModal( `<h3>ミッション<ruby>達成<rt>たっせい</rt></ruby>！</h3><p>${res.message}</p>`);
+     } else {
+       showError(res.message);
+     }
+   })
+   .withFailureHandler(showError)
+   .claimMissionReward(cleanedMissionId);
+}
+
+/**
+* @summary マイルームでアイテムカテゴリタブがクリックされた時の処理
+* @param {string} tabName - 選択されたタブ名
+*/
+function handleCategoryClick(tabName) {
+    currentActiveTab = tabName;
+    document.querySelectorAll('#category-tabs button').forEach(button => {
+        button.classList.toggle('border-blue-500', button.dataset.tab === tabName);
+        button.classList.toggle('text-blue-600', button.dataset.tab === tabName);
+    });
+    // ★ 変更: どのタブがクリックされても renderItemList を呼び出す
+    renderItemList(tabName);
+}
+
+/**
+* @summary マイルームでアイテムカードがクリックされた時の処理
+* @param {Object} item - クリックされたアイテムのデータ
+*/
+function handleItemClick(item) {
+    const isInitialItem = String(item['必要交換ポイント']) === '0';
+    const hasItem = gameData.inventory.includes(item['アイテムID']) || isInitialItem;
+
+    if (hasItem) {
+        // ★★★★★ ここから大幅に変更 ★★★★★
+        if (item['カテゴリ'] === 'アクセサリ') {
+            const clickedItemId = item['アイテムID'];
+            const accessorySlots = ['アクセ1_アイテムID', 'アクセ2_アイテムID', 'アクセ3_アイテムID'];
+            const activeSlotKey = `${currentActiveTab}_アイテムID`;
+
+            // 他のスロットで既に同じアイテムを装備しているかチェック
+            const isDuplicate = accessorySlots.some(slotKey => 
+                slotKey !== activeSlotKey && currentAvatarComposition[slotKey] === clickedItemId
+            );
+
+            if (isDuplicate) {
+                showModal('<h3>エラー</h3><p>このアクセサリは、すでに別のばしょにつけています。</p>', true);
+                return;
+            }
+
+            // 現在のアクティブなスロットで装備/解除
+            if (currentAvatarComposition[activeSlotKey] === clickedItemId) {
+                // 同じアイテムをクリックしたので解除
+                delete currentAvatarComposition[activeSlotKey];
+            } else {
+                // 新しいアイテムを装備
+                currentAvatarComposition[activeSlotKey] = clickedItemId;
+            }
+
+        } else {
+            // アクセサリ以外の通常のアイテムの処理
+            const itemCategoryKey = `${item['カテゴリ'].trim()}_アイテムID`;
+            if (currentAvatarComposition[itemCategoryKey] === item['アイテムID']) {
+                delete currentAvatarComposition[itemCategoryKey];
+            } else {
+                currentAvatarComposition[itemCategoryKey] = item['アイテムID'];
+            }
+        }
+        // ★★★★★ ここまで大幅に変更 ★★★★★
+
+        renderAvatarPreview('avatar-preview-editor', currentAvatarComposition);
+        renderItemList(currentActiveTab);
+
+    } else if (Number(item['必要交換ポイント'] || 0) > 0) {
+        showModal(`
+    <h3>アイテム<ruby>交換<rt>こうかん</rt></ruby></h3>
+    <p class="my-4">${item['アイテム名']}を${item['必要交換ポイント']}<ruby>交換<rt>こうかん</rt></ruby>ポイントで<ruby>交換<rt>こうかん</rt></ruby>しますか？</p>
+    <div class="flex justify-center gap-4">
+      <button id="confirm-exchange" class="btn-primary"><ruby>交換<rt>こうかん</rt></ruby>する</button>
+      <button id="cancel-exchange" class="btn-secondary">やめる</button>
+    </div>`, false);
+        document.getElementById('confirm-exchange').onclick = () => { hideModal(); runExchangeItem(item['アイテムID']); };
+        document.getElementById('cancel-exchange').onclick = hideModal;
+    }
+}
+
+
+/**
+* @summary アバターの保存ボタンがクリックされた時の処理
+*/
+function handleSaveAvatar() {
+showLoading();
+google.script.run
+  .withSuccessHandler(res => {
+    hideLoading();
+    if (res.success) {
+      gameData.avatar = { ...currentAvatarComposition };
+      renderAvatarPreview('avatar-preview-main', gameData.avatar);
+      showModal( '<h3><ruby>成功<rt>せいこう</rt></ruby></h3><p>アバターを<ruby>保存<rt>ほぞん</rt></ruby>しました！</p>' );
+    } else {
+      showError(res.message);
+    }
+  })
+  .withFailureHandler(showError)
+  .saveAvatar(currentAvatarComposition);
+}
+
+/**
+* @summary プロフィールの保存ボタンがクリックされた時の処理
+*/
+function handleSaveProfile() {
+showLoading();
+const profileData = {
+  motto: document.getElementById('profile-motto').value,
+  favorite: document.getElementById('profile-favorite').value,
+  goal: document.getElementById('profile-goal').value,
+};
+google.script.run
+  .withSuccessHandler(res => {
+    hideLoading();
+    if (res.success) {
+      gameData.userProfile = profileData;
+      showModal( '<h3><ruby>成功<rt>せいこう</rt></ruby></h3><p>プロフィールを<ruby>保存<rt>ほぞん</rt></ruby>しました！</p>' );
+    } else {
+      showError(res.message);
+    }
+  })
+  .withFailureHandler(showError)
+  .saveProfile(profileData);
+}
+
+/**
+* @summary ガチャボタンがクリックされた時の処理
+*/
+function handleGacha() {
+showModal(`
+  <h3>ガチャ</h3><p class="my-4">${gameData.gachaCost}<ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>消費<rt>しょうひ</rt></ruby>してガチャを<ruby>回<rt>まわ</rt></ruby>しますか？</p>
+  <div class="flex justify-center gap-4"> <button id="confirm" class="btn-gacha"><ruby>回<rt>まわ</rt></ruby>す</button> <button id="cancel" class="btn-secondary">やめる</button></div>` , false);
+document.getElementById('confirm').onclick = () => { hideModal(); runGacha('playGacha'); };
+document.getElementById('cancel').onclick = hideModal;
+}
+
+/**
+* @summary 10連ガチャボタンがクリックされた時の処理
+*/
+function handleGacha10() {
+showModal(`
+  <h3>10<ruby>連<rt>れん</rt></ruby>ガチャ</h3><p class="my-4">${gameData.gacha10Cost}<ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>消費<rt>しょうひ</rt></ruby>して10<ruby>連<rt>れん</rt></ruby>ガチャを<ruby>回<rt>まわ</rt></ruby>しますか？</p>
+  <div class="flex justify-center gap-4"><button id="confirm" class="btn-gacha10"><ruby>回<rt>まわ</rt></ruby>す</button><button id="cancel" class="btn-secondary">やめる</button></div>` , false);
+document.getElementById('confirm').onclick = () => { hideModal(); runGacha('playGacha10'); };
+document.getElementById('cancel').onclick = hideModal;
+}
+
+// =================================================================
+// 6. サーバー通信実行関数 (Server Call Executors)
+// =================================================================
+
+/**
+* @summary アイテム交換処理をサーバーにリクエストする
+* @param {string} itemId - 交換するアイテムのID
+*/
+function runExchangeItem(itemId) {
+showLoading();
+google.script.run
+  .withSuccessHandler(res => {
+    hideLoading();
+    if (res.success) {
+      gameData.profile.exchangePoints = res.newExchangePoints;
+      gameData.inventory.push(itemId);
+      renderHeader();
+      renderItemList(currentActiveTab);
+      showModal( `<h3><ruby>交換完了<rt>こうかんかんりょう</rt></ruby></h3><p>${res.message}</p>`);
+    } else {
+      showModal( `<h3><ruby>失敗<rt>しっぱい</rt></ruby></h3><p>${res.message}</p>`);
+    }
+  })
+  .withFailureHandler(showError)
+  .exchangeItem(itemId);
+}
+
+/**
+* @summary ガチャまたは10連ガチャの実行をサーバーにリクエストする
+* @param {'playGacha' | 'playGacha10'} functionName - 実行するサーバー側関数名
+*/
+function runGacha(functionName) {
+showGachaLoading();
+google.script.run
+  .withSuccessHandler(res => {
+    hideGachaLoading();
+    if (res.success) {
+      gameData.profile.exp = res.newPoints;
+      if (res.newExchangePoints !== undefined) gameData.profile.exchangePoints = res.newExchangePoints;
+
+      if (functionName === 'playGacha10') {
+        res.results.forEach(item => { if (!item.isDuplicate) gameData.inventory.push(item[ 'アイテムID' ]); });
+        showGacha10Result(res);
+      } else {
+        if (!res.isDuplicate) gameData.inventory.push(res.wonItem[ 'アイテムID' ]);
+        showGachaResult(res);
+      }
+      renderHeader();
+      if (currentActiveTab) renderItemList(currentActiveTab);
+    } else {
+      showModal( `<h3><ruby>失敗<rt>しっぱい</rt></ruby></h3><p>${res.message}</p>`);
+    }
+  })
+  .withFailureHandler(showError)
+  [functionName]();
+}
+
+// =================================================================
+// 7. UIヘルパー関数 (UI Helpers)
+// =================================================================
+
+/**
+* @summary ローディング画面を表示する
+*/
+function showLoading() { document.getElementById('loading').classList.remove('hidden'); }
+
+/**
+* @summary ローディング画面を非表示にする
+*/
+function hideLoading() { document.getElementById('loading').classList.add('hidden'); }
+
+/**
+* @summary モーダルウィンドウを非表示にする
+*/
+function hideModal() { document.getElementById('modal').classList.add('hidden'); }
+
+/**
+* @summary エラーメッセージをモーダルで表示する
+* @param {Error|string} error - 表示するエラーオブジェクトまたはメッセージ
+*/
+function showError(error) {
+hideLoading();
+hideGachaLoading();
+const message = error.message || JSON.stringify(error);
+console.error(message);
+showModal( `<h2>エラー</h2><p class="my-4">問題が<ruby>発生<rt>はっせい</rt></ruby>しました。</p><pre class="text-xs text-left bg-gray-100 p-2 rounded">${message}</pre>`, false);
+}
+
+/**
+* @summary 汎用モーダルウィンドウを表示する
+* @param {string} content - モーダルに表示するHTMLコンテンツ
+* @param {boolean} [autoClose=true] - 3秒後に自動で閉じるかどうか
+*/
+function showModal(content, autoClose = true) {
+const modal = document.getElementById('modal');
+modal.classList.remove('hidden');
+document.getElementById('modal-content').innerHTML = `${content} <button id="modal-close" class="btn-secondary mt-4">とじる</button>` ;
+document.getElementById('modal-close').onclick = hideModal;
+if (autoClose) setTimeout(hideModal, 3000);
+}
+
+/**
+* @summary みんなの広場でユーザープロフィールモーダルを表示する
+* @param {Object} user - 表示するユーザーのデータ
+*/
+function showPlazaProfileModal(user) {
+const profile = user.profile;
+const content = `
+  <div class="flex flex-col items-center">
+    <div id="modal-avatar-preview" class="relative w-40 h-40 bg-gray-200 rounded-md overflow-hidden mb-3"></div>
+    <h3 class="text-2xl">${user.nickname} <span class="text-lg text-fantasy-brown">Lv. ${user.level}</span></h3>
+    <div class="text-left w-full bg-white p-3 rounded-lg mt-3 space-y-2 border border-fantasy-brown">
+      <div>
+        <h4 class="font-bold text-fantasy-brown">ひとこと</h4>
+        <p class="pl-2">${profile.motto || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません' }</p>
+      </div>
+      <div>
+        <h4 class="font-bold text-fantasy-brown">すきなもの</h4>
+        <p class="pl-2">${profile.favorite || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません' }</p>
+      </div>
+      <div>
+        <h4 class="font-bold text-fantasy-brown">がんばりたいこと</h4>
+        <p class="pl-2">${profile.goal || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません' }</p>
+      </div>
+    </div>
+  </div>
+`;
+showModal(content, false);
+renderAvatarPreview('modal-avatar-preview', user.avatar);
+}
+
+/**
+* @summary 新規獲得バッジのモーダルを表示する
+* @param {Object[]} badges - 新たに獲得したバッジのデータ配列
+*/
+function showNewBadgeModal(badges) {
+const badgeHtml = badges.map(badge => `
+  <div class="border-2 border-yellow-400 rounded-lg p-4 my-2">
+    <p class="text-3xl">🏆</p>
+    <p class="font-bold text-xl">${badge.name}</p>
+    <p class="text-sm text-fantasy-brown">${badge.description}</p>
+  </div>
+`).join('');
+showModal(`
+  <h2 class="text-3xl text-yellow-500 animate-bounce"><ruby>実績解除<rt>じっせきかいじょ</rt></ruby>！</h2>
+  ${badgeHtml}
+`, false);
+}
+
+/**
+* @summary 単発ガチャの結果をモーダルで表示する
+* @param {Object} res - サーバーからのガチャ結果レスポンス
+*/
+function showGachaResult(res) {
+const item = res.wonItem;
+let content;
+if (res.isDuplicate) {
+  content = `<h3>アイテム<ruby>重複<rt>じゅうふく</rt></ruby>！</h3>
+  <p class="my-2">${item[ 'アイテム名' ]}</p>
+  <p class="text-lg font-bold text-green-500">+${res.awardedExchangePoints} <ruby>交換<rt>こうかん</rt></ruby>ポイント</p>` ;
+} else {
+  let rarityColor = res.wonItem[ 'レアリティー' ] === 'SR' ? 'text-yellow-400' : (res.wonItem[ 'レアリティー' ] === 'R' ? 'text-blue-500' : 'text-gray-500');
+  content = `<h3 class="text-2xl font-bold mb-2 animate-bounce">GET!</h3>
+  <div class="p-4"><img src="${item.imageUrl || ''}" class="mx-auto h-32 w-32 object-contain"></div>
+  <p class="text-lg font-bold">${item[ 'アイテム名' ]}</p>
+  <p class="font-bold text-xl ${rarityColor} ">レアリティ: ${item[ 'レアリティー' ]}</p>`;
+}
+showModal(content, false);
+}
+
+/**
+* @summary 10連ガチャの結果をモーダルで表示する
+* @param {Object} res - サーバーからの10連ガチャ結果レスポンス
+*/
+function showGacha10Result(res) {
+let resultsHtml = res.results.map(item => {
+  let rarityClass = item[ 'レアリティー' ] === 'SR' ? 'is-sr' : (item[ 'レアリティー' ] === 'R' ? 'is-r' : '');
+  let duplicateHtml = item.isDuplicate ? `<div class="duplicate-overlay"><span>+${item.awardedPoints} Pt</span></div>` : '';
+  return `<div class="gacha-item-card ${rarityClass}"><img src="${item.imageUrl || ''}" alt="${item[ 'アイテム名' ]}">${duplicateHtml}</div>`;
+}).join('');
+
+const summary = res.summary;
+let summaryHtml = `<h3 class="text-xl font-bold mb-2">ガチャ<ruby>結果<rt>けっか</rt></ruby></h3>
+  ${summary.newItemsCount > 0 ? `<p class="text-lg"><ruby>新<rt>あたら</rt></ruby>しいアイテムを<span class="font-bold text-blue-600"> ${summary.newItemsCount} <ruby>個<rt>こ</rt></ruby></span>GET！</p>` : ''}
+  ${summary.awardedExchangePoints > 0 ? `<p class="text-lg"><span class="font-bold text-green-600">${summary.awardedExchangePoints} <ruby>交換<rt>こうかん</rt></ruby>ポイント</span>を<ruby>獲得<rt>かくとく</rt></ruby>！</p>` : ''}`;
+showModal(`${summaryHtml}<div class="gacha-results-grid my-4">${resultsHtml}</div>`, false);
+}
+
+/**
+* @summary ガチャ実行中のローディング画面を表示する
+*/
+function showGachaLoading() {
+ document.getElementById('gacha-loading-modal').classList.remove('hidden');
+}
+
+/**
+* @summary ガチャ実行中のローディング画面を非表示にする
+*/
+function hideGachaLoading() {
+ document.getElementById('gacha-loading-modal').classList.add('hidden');
+}
+
+/**
+* @summary 最新のレベルアップ情報を確認し、必要であればお祝いモーダルを表示する
+* @param {Object} latestLevelUp - サーバーから受け取った最新のレベルアップ情報
+*/
+function checkAndShowLevelUp(latestLevelUp) {
+ const lastShownTimestamp = localStorage.getItem('lastShownLevelUpTimestamp');
+ if (latestLevelUp.timestamp !== lastShownTimestamp) {
+   showLevelUpModal(latestLevelUp.newLevel);
+   localStorage.setItem('lastShownLevelUpTimestamp', latestLevelUp.timestamp);
+ }
+}
+
+/**
+* @summary レベルアップのお祝いモーダルを表示する
+* @param {number} newLevel - 新しいレベル
+*/
+function showLevelUpModal(newLevel) {
+ const modal = document.getElementById('level-up-modal');
+ const levelText = document.getElementById('level-up-text');
+ const confettiContainer = document.getElementById('confetti-container');
+  levelText.textContent = `Lv. ${newLevel}`;
+ modal.classList.remove('hidden');
+   // 紙吹雪を生成
+ confettiContainer.innerHTML = '';
+ for (let i = 0; i < 100; i++) {
+   const confetti = document.createElement('div');
+   confetti.className = 'confetti-piece';
+   const colors = ['#f44336', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5', '#2196f3', '#03a9f4', '#00bcd4', '#009688', '#4caf50', '#8bc34a', '#cddc39', '#ffeb3b', '#ffc107', '#ff9800', '#ff5722'];
+   confetti.style.left = Math.random() * 100 + 'vw';
+   confetti.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+   confetti.style.animation = `confetti-fall ${Math.random() * 2 + 3}s linear ${Math.random() * 2}s infinite`;
+   confettiContainer.appendChild(confetti);
+ }
+
+  // 5秒後に自動で閉じる
+ setTimeout(() => {
+   modal.classList.add('hidden');
+   confettiContainer.innerHTML = '';  // 紙吹雪を削除
+ }, 5000);
+}
+
+</script>
+</body>
+</html>
+
