@@ -1,0 +1,1104 @@
+<script>
+// =================================================================
+// 1. グローバル変数・状態管理 (Global State)
+// =================================================================
+
+/** @type {Object|null} サーバーから取得した全てのゲームデータを格納するオブジェクト */
+let gameData = null;
+
+/** @type {Object} 現在編集中のアバター構成を保持するオブジェクト */
+let currentAvatarComposition = {};
+
+/** @type {string|null} マイルームで現在選択されているアイテムカテゴリまたはアクセサリタブ */
+let currentActiveTab = null;
+
+/** @type {string} ログインしている教員の名前 */
+let teacherName = '';
+
+/** @type {Object[]} クラスの全児童のリスト {number, nickname, email} */
+let studentsList = [];
+
+
+// =================================================================
+// 2. 初期化処理 (Initialization)
+// =================================================================
+
+/**
+* @summary ページの読み込み完了時に実行されるメインの初期化関数
+*/
+document.addEventListener('DOMContentLoaded', initialize);
+
+/**
+* @summary サーバーから初期データを取得し、アプリケーションの描画を開始する
+* 教員か児童かを判定し、適切なUIを表示する
+*/
+function initialize() {
+  showLoading();
+  // まず児童用データ取得を試みる（児童が大半のため）
+  google.script.run
+    .withSuccessHandler(response => {
+      hideLoading();
+      if (response && response.success) {
+        // 児童用データ取得成功 -> 児童用UI表示
+        setupStudentApp(response);
+      } else {
+        // 児童用データ取得失敗（権限エラーなど） -> 教員用データ取得を試みる
+        initializeTeacherDashboard();
+      }
+    })
+    .withFailureHandler(error => {
+      hideLoading();
+      showError('サーバー通信エラー: ' + error.message);
+    })
+    .getGameData();
+}
+
+/**
+* @summary 児童用アプリケーションの初期設定を行う
+* @param {Object} response - サーバーからのゲームデータ
+*/
+function setupStudentApp(response) {
+  gameData = response;
+  currentAvatarComposition = { ...gameData.avatar };
+  renderAll();
+  document.getElementById('student-app').classList.remove('hidden');
+
+  if (response.bonusApplied) {
+    showModal(`<h3>ログインボーナス！</h3><p class="text-xl my-4">+ ${response.bonusPoints} <ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>獲得<rt>かくとく</rt></ruby>！</p>`);
+    showParticleEffect(response.bonusPoints); // ▼ UI改善: パーティクルエフェクト
+  }
+  if (response.newlyAwardedBadges && response.newlyAwardedBadges.length > 0) {
+    showNewBadgeModal(response.newlyAwardedBadges);
+  }
+  if (response.latestLevelUp) {
+    checkAndShowLevelUp(response.latestLevelUp);
+  }
+}
+
+/**
+ * @summary 教員用ダッシュボードの初期化とデータ取得
+ */
+function initializeTeacherDashboard() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(data => {
+      hideLoading();
+      if (data && data.success) {
+        // 教員用データ取得成功 -> 教員用UI表示
+        document.getElementById('teacher-app').classList.remove('hidden');
+        teacherName = data.teacherName;
+        studentsList = data.students;
+        renderAnnouncementsList(data.announcements);
+        populateStudentList(studentsList);
+        populateStudentDetailSelect(studentsList);
+        setupTeacherEventListeners();
+      } else {
+        showError('アクセス権限がありません、またはエラーが発生しました。' + (data ? data.message : ''));
+      }
+    })
+    .withFailureHandler(error => {
+      hideLoading();
+      showError('サーバー通信エラー(教員): ' + error.message);
+    })
+    .getTeacherData();
+}
+
+
+// =================================================================
+// 3. UIメイン描画関数 (Main Rendering Functions)
+// =================================================================
+
+/**
+* @summary アプリケーションの全てのUI要素を描画する
+*/
+function renderAll() {
+  renderHeader();
+  renderDashboard();
+  setupEventListeners();
+}
+
+/**
+* @summary ヘッダーのユーザー情報を描画する
+*/
+function renderHeader() {
+  const p = gameData.profile;
+  document.getElementById('user-profile-header').innerHTML = `
+  <div class="font-mplus">${p.nickname} さん</div>
+  <div>Lv. ${p.level} | <ruby>経験値<rt>けいけんち</rt></ruby>: ${p.exp} | <ruby>交換<rt>こうかん</rt></ruby>Pt: ${p.exchangePoints}</div>
+`;
+}
+
+/**
+* @summary ダッシュボード画面（冒険の書）のUIを描画する
+*/
+function renderDashboard() {
+  const p = gameData.profile;
+  document.getElementById('user-status').innerHTML = `
+  <p><strong>レベル:</strong> ${p.level}</p>
+  <p><strong><ruby>経験値<rt>けいけんち</rt></ruby>:</strong> ${p.exp}</p>
+  <p><strong><ruby>累計<rt>るいけい</rt></ruby>:</strong> ${p.totalExp}</p>
+  <div class="mt-2">
+    <p class="text-sm">次のレベルまで</p>
+    <div class="w-full exp-bar-bg rounded-full h-4"><div class="exp-bar-fill h-4 rounded-full" style="width: ${p.progress || 0}%"></div></div>
+  </div>
+`;
+  renderAvatarPreview('avatar-preview-main', gameData.avatar);
+
+  let mvpHtml = '<h4 class="font-bold text-amber-600">今日のMVP！</h4>';
+  if (gameData.rankings.mvp && gameData.rankings.mvp.length > 0) {
+    mvpHtml += '<ol class="list-decimal list-inside text-sm">';
+    gameData.rankings.mvp.forEach(r => { mvpHtml += `<li>${r.nickname} (+${r.gainedExp} EXP)</li>`; });
+    mvpHtml += '</ol>';
+  } else {
+    mvpHtml += '<p class="text-sm text-fantasy-brown">まだ今日の<ruby>冒険者<rt>ぼうけんしゃ</rt></ruby>はいないようです。</p>';
+  }
+
+  let top5Html = `<h4 class="font-bold mt-3"><ruby>総合<rt>そうごう</rt></ruby>レベルランキング</h4><ol class="list-decimal list-inside text-sm">`;
+  gameData.rankings.top5.forEach(r => {
+    top5Html += `<li>${r.nickname} (Lv.${r.level})</li>`;
+  });
+  top5Html += '</ol>';
+  document.getElementById('rankings-board').innerHTML = mvpHtml + top5Html;
+
+  document.getElementById('missions-board').innerHTML = `
+  <div id="daily-missions"></div>
+  <div id="weekly-missions" class="mt-4"></div>
+  <div id="coop-missions" class="mt-4"></div>
+`;
+  renderMissions();
+  renderRecentActivity();
+  renderAnnouncements();
+}
+
+/**
+* @summary マイルーム画面のUIを描画する
+*/
+function renderMyRoom() {
+  const myRoomContainer = document.getElementById('my-room');
+  myRoomContainer.innerHTML = `
+<div class="grid md:grid-cols-3 gap-6" style="height: 85vh;">
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col">
+        <h2 class="text-2xl font-semibold mb-2 text-center flex-shrink-0">アバター<ruby>編集<rt>へんしゅう</rt></ruby></h2>
+        <div id="avatar-preview-editor" class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mx-auto"></div>
+        <div class="text-center mt-4 space-y-2">
+            <button id="save-avatar-button" class="btn-primary w-full">このスタイルで<ruby>保存<rt>ほぞん</rt></ruby></button>
+            <button id="gacha-button" class="btn-gacha w-full"></button>
+            <button id="gacha-10-button" class="btn-gacha10 w-full"></button>
+        </div>
+    </div>
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col min-h-0">
+        <h2 class="text-2xl font-semibold mb-2 text-center flex-shrink-0">アイテム</h2>
+        <div id="category-tabs" class="border-b border-fantasy-brown mb-2 flex-wrap flex-shrink-0"></div>
+        <div id="item-list" class="grid grid-cols-3 gap-2 flex-grow overflow-y-auto p-1"></div>
+    </div>
+    <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex flex-col space-y-4">
+        <div class="flex-grow flex flex-col h-1/2 min-h-0">
+            <h2 class="text-2xl font-semibold mb-2 text-center"><ruby>獲得<rt>かくとく</rt></ruby>したバッジ</h2>
+            <div id="badge-collection" class="grid grid-cols-4 gap-4 overflow-y-auto p-2 flex-grow"></div>
+        </div>
+        <div class="flex-grow flex flex-col h-1/2 min-h-0 mt-4">
+            <h2 class="text-2xl font-semibold mb-2 text-center">プロフィール</h2>
+            <div class="space-y-2 flex-grow flex flex-col">
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-motto" class="block text-sm font-bold text-fantasy-brown">ひとこと</label>
+                   <textarea id="profile-motto" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-favorite" class="block text-sm font-bold text-fantasy-brown">すきなもの</label>
+                   <textarea id="profile-favorite" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+               <div class="flex-grow flex flex-col">
+                   <label for="profile-goal" class="block text-sm font-bold text-fantasy-brown">がんばりたいこと</label>
+                   <textarea id="profile-goal" rows="2" class="w-full p-1 border border-fantasy-brown rounded-md flex-grow"></textarea>
+               </div>
+            </div>
+            <button id="save-profile-button" class="btn-primary w-full mt-3 flex-shrink-0">プロフィールを<ruby>保存<rt>ほぞん</rt></ruby></button>
+        </div>
+    </div>
+</div>
+`;
+  const userProfile = gameData.userProfile;
+  document.getElementById('profile-motto').value = userProfile.motto;
+  document.getElementById('profile-favorite').value = userProfile.favorite;
+  document.getElementById('profile-goal').value = userProfile.goal;
+
+  document.getElementById('save-avatar-button').addEventListener('click', handleSaveAvatar);
+  document.getElementById('gacha-button').addEventListener('click', handleGacha);
+  document.getElementById('gacha-10-button').addEventListener('click', handleGacha10);
+  document.getElementById('save-profile-button').addEventListener('click', handleSaveProfile);
+
+  renderAvatarPreview('avatar-preview-editor', currentAvatarComposition);
+  renderCategoryTabs();
+  const firstTab = document.querySelector('#category-tabs button');
+  if (firstTab) {
+    handleCategoryClick(firstTab.dataset.tab);
+  }
+
+  document.getElementById('gacha-button').textContent = `ガチャ (${gameData.gachaCost} EXP)`;
+  document.getElementById('gacha-10-button').innerHTML = `10<ruby>連<rt>れん</rt></ruby>ガチャ (${gameData.gacha10Cost} EXP)`;
+
+  renderBadges();
+}
+
+/**
+* @summary みんなの広場画面のUIを描画する
+*/
+function renderPlaza() {
+  const container = document.getElementById('plaza-container');
+  if (!gameData.plazaData || gameData.plazaData.length === 0) {
+    container.innerHTML = '<p>まだ<ruby>誰<rt>だれ</rt></ruby>もいないようです...</p>';
+    return;
+  }
+
+  container.innerHTML = gameData.plazaData.map((user, index) => {
+    const userJson = encodeURIComponent(JSON.stringify(user));
+    return `
+<div class="bg-fantasy-card p-2 rounded-lg shadow text-center cursor-pointer hover:shadow-xl transition-shadow" onclick='showPlazaProfileModal(JSON.parse(decodeURIComponent("${userJson}")))'>
+  <div id="plaza-avatar-${index}" class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mb-2"></div>
+  <p class="font-bold text-sm">${user.nickname}</p>
+  <p class="text-xs text-fantasy-brown">Lv. ${user.level}</p>
+</div>
+`;
+  }).join('');
+
+  gameData.plazaData.forEach((user, index) => {
+    renderAvatarPreview(`plaza-avatar-${index}`, user.avatar);
+  });
+}
+
+// =================================================================
+// 4. UIコンポーネント描画関数 (Component Rendering Functions)
+// =================================================================
+
+/**
+* @summary お知らせ欄を描画する
+*/
+function renderAnnouncements() {
+  const container = document.getElementById('announcements-board');
+  if (!gameData.announcements || gameData.announcements.length === 0) {
+    container.innerHTML = '<p class="text-sm text-fantasy-brown">いまは、お知らせはありません。</p>';
+    return;
+  }
+  container.innerHTML = gameData.announcements.map(item => {
+    const date = new Date(item.timestamp);
+    const formattedDate = `${date.getMonth() + 1}/${date.getDate()}`;
+    return `
+<div class="border-b-2 border-dashed border-fantasy-brown pb-2 mb-2">
+  <p class="text-base font-semibold text-fantasy-deep">${item.message}</p>
+  <p class="text-xs text-right text-fantasy-brown mt-1">${formattedDate} by ${item.author}</p>
+</div>
+`;
+  }).join('');
+}
+
+/**
+* @summary 「最近の記録」欄を描画する
+*/
+function renderRecentActivity() {
+  const container = document.getElementById('recent-activity-log');
+  if (!gameData.recentActivity || gameData.recentActivity.length === 0) {
+    container.innerHTML = '<p class="text-sm text-fantasy-brown">まだ<ruby>記録<rt>きろく</rt></ruby>はありません。</p>';
+    return;
+  }
+  container.innerHTML = gameData.recentActivity.map(log => {
+    const date = new Date(log.timestamp);
+    const formattedDate = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+    return `
+<div class="text-sm border-b border-fantasy-brown pb-1 mb-1">
+  <p class="text-fantasy-deep">${log.message}</p>
+  <p class="text-xs text-right text-fantasy-brown">${formattedDate}</p>
+</div>
+`;
+  }).join('');
+}
+
+/**
+* @summary ミッションボードを種類別に描画する
+*/
+function renderMissions() {
+  const dailyContainer = document.getElementById('daily-missions');
+  const weeklyContainer = document.getElementById('weekly-missions');
+  const coopContainer = document.getElementById('coop-missions');
+
+  const dailyMissions = gameData.missions.filter(m => m.type === 'デイリー');
+  const weeklyMissions = gameData.missions.filter(m => m.type === 'ウィークリー');
+  const coopMissions = gameData.missions.filter(m => m.type === '協力');
+
+  dailyContainer.innerHTML = '<h3>今日のミッション</h3>' + (dailyMissions.length > 0 ? dailyMissions.map(renderMissionCard).join('') : '<p class="text-sm text-fantasy-brown">今日のミッションはありません。</p>');
+  weeklyContainer.innerHTML = `<h3><ruby>今週<rt>こんしゅう</rt></ruby>のミッション</h3>` + (weeklyMissions.length > 0 ? weeklyMissions.map(renderMissionCard).join('') : `<p class="text-sm text-fantasy-brown"><ruby>今週<rt>こんしゅう</rt></ruby>のミッションはありません。</p>`);
+  coopContainer.innerHTML = `<h3><ruby>協力<rt>きょうりょく</rt></ruby>ミッション</h3>` + (coopMissions.length > 0 ? coopMissions.map(renderMissionCard).join('') : `<p class="text-sm text-fantasy-brown"><ruby>協力<rt>きょうりょく</rt></ruby>ミッションはありません。</p>`);
+}
+
+/**
+* @summary ミッションカード1枚のHTMLを生成する
+*/
+function renderMissionCard(mission) {
+  let buttonHtml;
+  if (mission.isClaimed) {
+    buttonHtml = `<button class="btn-secondary btn-mission" disabled><ruby>受取済<rt>うけとりずみ</rt></ruby></button>`;
+  } else if (mission.isComplete) {
+    buttonHtml = `<button class="btn-claim btn-mission" onclick="handleClaimMission('${mission.id}')"><ruby>受<rt>う</rt></ruby>け<ruby>取<rt>と</rt></ruby>る</button>`;
+  } else {
+    buttonHtml = `<button class="btn-secondary btn-mission" disabled><ruby>挑戦中<rt>ちょうせんちゅう</rt></ruby></button>`;
+  }
+
+  const progressPercentage = mission.target > 0 ? Math.min(100, (mission.progress / mission.target) * 100) : 0;
+
+  return `
+<div class="border border-fantasy-brown rounded-lg p-2 bg-white mt-1">
+<div class="flex justify-between items-start">
+  <div class="mr-2 flex-grow">
+    <p class="font-bold text-sm leading-tight">${mission.content}</p>
+    <p class="text-xs text-fantasy-brown"><ruby>報酬<rt>ほうしゅう</rt></ruby>: ${mission.rewardType} +${mission.rewardAmount}</p>
+  </div>
+  <div class="flex-shrink-0">${buttonHtml}</div>
+</div>
+<div class="relative w-full h-4 mt-1.5">
+  <div class="absolute w-full h-full exp-bar-bg rounded-full"></div>
+  <div class="absolute h-full exp-bar-fill rounded-full" style="width: ${progressPercentage}%"></div>
+  <div class="absolute w-full h-full text-center text-xs text-black font-semibold leading-4 flex items-center justify-center">
+    <span>${mission.progress} / ${mission.target}</span>
+  </div>
+</div>
+</div>
+`;
+}
+
+/**
+* @summary 獲得済みバッジ一覧
+*/
+function renderBadges() {
+  const container = document.getElementById('badge-collection');
+  if (!container) return;
+  if (!gameData.badges || gameData.badges.length === 0) {
+    container.innerHTML = '<p class="text-center text-fantasy-brown">まだバッジはありません。</p>';
+    return;
+  }
+  container.innerHTML = gameData.badges.map(badge => {
+    const iconHtml = badge.imageUrl
+      ? `<img src="${badge.imageUrl}" alt="${badge.name}" class="w-12 h-12 object-contain">`
+      : '<span class="text-5xl">🏆</span>';
+
+    return `
+<div class="tooltip bg-gray-200 p-2 rounded-lg aspect-square flex flex-col items-center justify-center text-center">
+${iconHtml}
+<span class="text-xs font-bold mt-1">${badge.name}</span>
+<span class="tooltip-text">${badge.description}</span>
+</div>
+`;
+  }).join('');
+}
+
+/**
+* @summary アバタープレビュー描画
+*/
+function renderAvatarPreview(elementId, composition) {
+  const previewArea = document.getElementById(elementId);
+  if (!previewArea) return;
+  previewArea.innerHTML = '';
+  const itemIds = Object.values(composition).filter(id => id !== null && String(id).trim() !== '');
+  const items = itemIds.map(id => gameData.allItems.find(item => item['アイテムID'] == id)).filter(item => item);
+  items.sort((a, b) => (a['レイヤー'] || 0) - (b['レイヤー'] || 0));
+
+  if (items.length === 0) {
+    previewArea.innerHTML = '<div class="flex items-center justify-center h-full text-gray-400">アイテムを<ruby>選<rt>えら</rt></ruby>ぼう</div>';
+    return;
+  }
+  items.forEach(item => {
+    if (item.imageUrl) {
+      const img = document.createElement('img');
+      img.src = item.imageUrl;
+      img.className = 'absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 max-w-full max-h-full object-contain';
+      img.style.zIndex = item['レイヤー'] || 0;
+      previewArea.appendChild(img);
+    }
+  });
+}
+
+/**
+* @summary アイテムカテゴリタブ描画
+*/
+function renderCategoryTabs() {
+  const tabsContainer = document.getElementById('category-tabs');
+  if (!tabsContainer) return;
+
+  const normalCategories = gameData.itemCategories.filter(c => c !== 'アクセサリ');
+  const tabsToDisplay = [...normalCategories, 'アクセ1', 'アクセ2', 'アクセ3'];
+
+  tabsContainer.innerHTML = '';
+  const nav = document.createElement('nav');
+  nav.className = '-mb-px flex space-x-2 flex-wrap text-sm';
+
+  tabsToDisplay.forEach(tabName => {
+    const tab = document.createElement('button');
+    tab.textContent = tabName;
+    tab.dataset.tab = tabName;
+    tab.className = 'whitespace-nowrap pb-2 px-1 border-b-2 font-medium border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 transition-colors';
+    tab.onclick = () => handleCategoryClick(tabName);
+    nav.appendChild(tab);
+  });
+  tabsContainer.appendChild(nav);
+}
+
+/**
+* @summary 指定されたカテゴリのアイテム一覧描画
+*/
+function renderItemList(displayCategory) {
+  const listContainer = document.getElementById('item-list');
+  if (!listContainer) return;
+  listContainer.innerHTML = '';
+
+  const filterCategory = ['アクセ1', 'アクセ2', 'アクセ3'].includes(displayCategory) ? 'アクセサリ' : displayCategory;
+  const filteredItems = gameData.allItems.filter(item => item['カテゴリ'] === filterCategory);
+  const equippedAccessoryIds = ['アクセ1_アイテムID', 'アクセ2_アイテムID', 'アクセ3_アイテムID'].map(key => currentAvatarComposition[key]).filter(id => id);
+
+  filteredItems.forEach(item => {
+    const isInitialItem = String(item['必要交換ポイント']) === '0';
+    const hasItem = gameData.inventory.includes(item['アイテムID']) || isInitialItem;
+
+    let isEquipped = false;
+    if (filterCategory === 'アクセサリ') {
+      isEquipped = equippedAccessoryIds.includes(item['アイテムID']);
+    } else {
+      const categoryKey = `${filterCategory}_アイテムID`;
+      isEquipped = currentAvatarComposition[categoryKey] === item['アイテムID'];
+    }
+    const exchangeCost = Number(item['必要交換ポイント'] || 0);
+
+    const card = document.createElement('div');
+    card.className = `group relative border rounded-lg p-2 cursor-pointer transition-all ${isEquipped ? 'border-blue-500 ring-2 ring-blue-500' : 'border-gray-200'} ${hasItem ? 'bg-white' : 'bg-gray-100'}`;
+    card.onclick = () => handleItemClick(item);
+
+    let overlay = '';
+    if (!hasItem) {
+      if (exchangeCost > 0) {
+        overlay = `<div class="absolute inset-0 bg-black bg-opacity-50 flex flex-col items-center justify-center text-white p-1 rounded-lg"><span class="font-bold text-sm">${exchangeCost} Ptで<ruby>交換<rt>こうかん</rt></ruby></span></div>`;
+      } else if (item['レアリティー']) {
+        overlay = `<div class="absolute inset-0 bg-black bg-opacity-60 flex flex-col items-center justify-center text-white p-1 rounded-lg"><span class="font-semibold text-xs text-center">ガチャで<ruby>入手<rt>にゅうしゅ</rt></ruby></span></div>`;
+      }
+    }
+
+    card.innerHTML = `
+        <div class="aspect-square flex items-center justify-center">
+            <img src="${item.imageUrl || ''}" alt="${item['アイテム名']}" class="max-w-full max-h-full object-contain ${hasItem ? '' : 'opacity-50'}">
+        </div>
+        <p class="text-xs text-center mt-1 h-4 truncate group-hover:whitespace-normal group-hover:text-clip">${item['アイテム名'] || ''}</p>
+        ${overlay}
+    `;
+    listContainer.appendChild(card);
+  });
+}
+
+// =================================================================
+// 5. イベントリスナーとハンドラ (Event Listeners & Handlers)
+// =================================================================
+
+function setupEventListeners() {
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', e => {
+      const viewName = e.target.dataset.view;
+      document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+      e.target.classList.add('active');
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      document.getElementById(viewName).classList.add('active');
+
+      if (viewName === 'my-room') renderMyRoom();
+      else if (viewName === 'plaza') renderPlaza();
+    });
+  });
+}
+
+function handleClaimMission(missionId) {
+  const cleanedMissionId = missionId.trim();
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.success) {
+        gameData.profile.exp = res.newExp;
+        gameData.profile.totalExp = res.newTotalExp;
+        gameData.profile.exchangePoints = res.newExchangePoints;
+        const mission = gameData.missions.find(m => m.id === cleanedMissionId);
+        if (mission) mission.isClaimed = true;
+        renderHeader();
+        renderDashboard();
+        
+        // ▼ UI改善: カスタムダイアログとパーティクルで達成通知
+        showModal(`<h3>ミッション<ruby>達成<rt>たっせい</rt></ruby>！</h3><p>${res.message}</p>`);
+        showParticleEffect();
+      } else {
+        showError(res.message);
+      }
+    })
+    .withFailureHandler(showError)
+    .claimMissionReward(cleanedMissionId);
+}
+
+function handleCategoryClick(tabName) {
+  currentActiveTab = tabName;
+  document.querySelectorAll('#category-tabs button').forEach(button => {
+    button.classList.toggle('border-blue-500', button.dataset.tab === tabName);
+    button.classList.toggle('text-blue-600', button.dataset.tab === tabName);
+  });
+  renderItemList(tabName);
+}
+
+function handleItemClick(item) {
+  const isInitialItem = String(item['必要交換ポイント']) === '0';
+  const hasItem = gameData.inventory.includes(item['アイテムID']) || isInitialItem;
+
+  if (hasItem) {
+    if (item['カテゴリ'] === 'アクセサリ') {
+      const clickedItemId = item['アイテムID'];
+      const accessorySlots = ['アクセ1_アイテムID', 'アクセ2_アイテムID', 'アクセ3_アイテムID'];
+      const activeSlotKey = `${currentActiveTab}_アイテムID`;
+
+      const isDuplicate = accessorySlots.some(slotKey =>
+        slotKey !== activeSlotKey && currentAvatarComposition[slotKey] === clickedItemId
+      );
+      if (isDuplicate) {
+        showToast('このアクセサリは、すでに別のばしょにつけています。', 'error'); // alert()を置き換え
+        return;
+      }
+      if (currentAvatarComposition[activeSlotKey] === clickedItemId) {
+        delete currentAvatarComposition[activeSlotKey];
+      } else {
+        currentAvatarComposition[activeSlotKey] = clickedItemId;
+      }
+    } else {
+      const itemCategoryKey = `${item['カテゴリ'].trim()}_アイテムID`;
+      if (currentAvatarComposition[itemCategoryKey] === item['アイテムID']) {
+        delete currentAvatarComposition[itemCategoryKey];
+      } else {
+        currentAvatarComposition[itemCategoryKey] = item['アイテムID'];
+      }
+    }
+    renderAvatarPreview('avatar-preview-editor', currentAvatarComposition);
+    renderItemList(currentActiveTab);
+
+  } else if (Number(item['必要交換ポイント'] || 0) > 0) {
+    // 既存のカスタムモーダル利用なのでそのまま
+    showModal(`
+<h3>アイテム<ruby>交換<rt>こうかん</rt></ruby></h3>
+<p class="my-4">${item['アイテム名']}を${item['必要交換ポイント']}<ruby>交換<rt>こうかん</rt></ruby>ポイントで<ruby>交換<rt>こうかん</rt></ruby>しますか？</p>
+<div class="flex justify-center gap-4">
+  <button id="confirm-exchange" class="btn-primary"><ruby>交換<rt>こうかん</rt></ruby>する</button>
+  <button id="cancel-exchange" class="btn-secondary">やめる</button>
+</div>`, false);
+    document.getElementById('confirm-exchange').onclick = () => { hideModal(); runExchangeItem(item['アイテムID']); };
+    document.getElementById('cancel-exchange').onclick = hideModal;
+  }
+}
+
+function handleSaveAvatar() {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.success) {
+        gameData.avatar = { ...currentAvatarComposition };
+        renderAvatarPreview('avatar-preview-main', gameData.avatar);
+        showToast('アバターを保存しました', 'success'); // モーダルからトーストへ
+      } else {
+        showError(res.message);
+      }
+    })
+    .withFailureHandler(showError)
+    .saveAvatar(currentAvatarComposition);
+}
+
+function handleSaveProfile() {
+  showLoading();
+  const profileData = {
+    motto: document.getElementById('profile-motto').value,
+    favorite: document.getElementById('profile-favorite').value,
+    goal: document.getElementById('profile-goal').value,
+  };
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.success) {
+        gameData.userProfile = profileData;
+        showToast('プロフィールを保存しました', 'success'); // トースト通知へ
+      } else {
+        showError(res.message);
+      }
+    })
+    .withFailureHandler(showError)
+    .saveProfile(profileData);
+}
+
+function handleGacha() {
+  showModal(`
+<h3>ガチャ</h3><p class="my-4">${gameData.gachaCost}<ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>消費<rt>しょうひ</rt></ruby>してガチャを<ruby>回<rt>まわ</rt></ruby>しますか？</p>
+<div class="flex justify-center gap-4"> <button id="confirm" class="btn-gacha"><ruby>回<rt>まわ</rt></ruby>す</button> <button id="cancel" class="btn-secondary">やめる</button></div>`, false);
+  document.getElementById('confirm').onclick = () => { hideModal(); runGacha('playGacha'); };
+  document.getElementById('cancel').onclick = hideModal;
+}
+
+function handleGacha10() {
+  showModal(`
+<h3>10<ruby>連<rt>れん</rt></ruby>ガチャ</h3><p class="my-4">${gameData.gacha10Cost}<ruby>経験値<rt>けいけんち</rt></ruby>を<ruby>消費<rt>しょうひ</rt></ruby>して10<ruby>連<rt>れん</rt></ruby>ガチャを<ruby>回<rt>まわ</rt></ruby>しますか？</p>
+<div class="flex justify-center gap-4"><button id="confirm" class="btn-gacha10"><ruby>回<rt>まわ</rt></ruby>す</button><button id="cancel" class="btn-secondary">やめる</button></div>`, false);
+  document.getElementById('confirm').onclick = () => { hideModal(); runGacha('playGacha10'); };
+  document.getElementById('cancel').onclick = hideModal;
+}
+
+// =================================================================
+// 6. サーバー通信実行関数 (Server Call Executors)
+// =================================================================
+
+function runExchangeItem(itemId) {
+  showLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideLoading();
+      if (res.success) {
+        gameData.profile.exchangePoints = res.newExchangePoints;
+        gameData.inventory.push(itemId);
+        renderHeader();
+        renderItemList(currentActiveTab);
+        showToast(res.message, 'success'); // モーダルからトーストへ
+      } else {
+        showError(res.message);
+      }
+    })
+    .withFailureHandler(showError)
+    .exchangeItem(itemId);
+}
+
+function runGacha(functionName) {
+  showGachaLoading();
+  google.script.run
+    .withSuccessHandler(res => {
+      hideGachaLoading();
+      if (res.success) {
+        gameData.profile.exp = res.newPoints;
+        if (res.newExchangePoints !== undefined) gameData.profile.exchangePoints = res.newExchangePoints;
+
+        if (functionName === 'playGacha10') {
+          res.results.forEach(item => { if (!item.isDuplicate) gameData.inventory.push(item['アイテムID']); });
+          showGacha10Result(res);
+        } else {
+          if (!res.isDuplicate) gameData.inventory.push(res.wonItem['アイテムID']);
+          showGachaResult(res);
+        }
+        renderHeader();
+        if (currentActiveTab) renderItemList(currentActiveTab);
+      } else {
+        showError(res.message);
+      }
+    })
+    .withFailureHandler(showError)
+  [functionName]();
+}
+
+// =================================================================
+// 7. UIヘルパー関数 (UI Helpers)
+// =================================================================
+
+function showLoading() { document.getElementById('loading').classList.remove('hidden'); }
+function hideLoading() { document.getElementById('loading').classList.add('hidden'); }
+function hideModal() { document.getElementById('modal').classList.add('hidden'); }
+
+function showError(error) {
+  hideLoading();
+  hideGachaLoading();
+  const message = error.message || JSON.stringify(error);
+  console.error(message);
+  showToast(message, 'error'); // alert/Errorモーダル統合
+}
+
+function showModal(content, autoClose = true) {
+  const modal = document.getElementById('modal');
+  modal.classList.remove('hidden');
+  document.getElementById('modal-content').innerHTML = `${content} <button id="modal-close" class="btn-secondary mt-4">とじる</button>`;
+  document.getElementById('modal-close').onclick = hideModal;
+  if (autoClose) setTimeout(hideModal, 3000);
+}
+
+// ▼ 新機能: トースト通知機能 (スナックバー)
+function showToast(message, type = 'info') {
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast-msg ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  
+  // アニメーション用
+  requestAnimationFrame(() => toast.classList.add('show'));
+  
+  // 自動消去
+  setTimeout(() => {
+    toast.classList.remove('show');
+    toast.addEventListener('transitionend', () => toast.remove());
+  }, 3000);
+}
+
+// ▼ 新機能: カスタム確認ダイアログ (confirm置換用)
+function showConfirmDialog(message, onConfirmCallback) {
+  const modal = document.getElementById('custom-confirm-modal');
+  document.getElementById('custom-confirm-message').innerHTML = String(message).replace(/\n/g, '<br>');
+  modal.classList.remove('hidden');
+  
+  const okBtn = document.getElementById('custom-confirm-ok');
+  const cancelBtn = document.getElementById('custom-confirm-cancel');
+  
+  // イベントリスナーの重複を防ぐため一度クローンして置き換える手法
+  const newOkBtn = okBtn.cloneNode(true);
+  const newCancelBtn = cancelBtn.cloneNode(true);
+  okBtn.parentNode.replaceChild(newOkBtn, okBtn);
+  cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
+
+  newOkBtn.onclick = () => {
+    modal.classList.add('hidden');
+    onConfirmCallback();
+  };
+  newCancelBtn.onclick = () => {
+    modal.classList.add('hidden');
+  };
+}
+
+// ▼ 新機能: パーティクルエフェクト
+function showParticleEffect(overrideAmount = 30) {
+    const container = document.getElementById('confetti-container') || document.body;
+    for (let i = 0; i < overrideAmount; i++) {
+        const particle = document.createElement('div');
+        particle.className = 'confetti-piece';
+        const colors = ['#fde047', '#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#f43f5e'];
+        particle.style.left = Math.random() * 100 + 'vw';
+        particle.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+        particle.style.animation = `confetti-fall ${Math.random() * 2 + 2}s linear forwards`; // infinite削除
+        container.appendChild(particle);
+        // アニメーション完了時に要素削除
+        setTimeout(() => particle.remove(), 4000);
+    }
+}
+
+
+function showPlazaProfileModal(user) {
+  const profile = user.profile;
+  const content = `
+<div class="flex flex-col items-center">
+<div id="modal-avatar-preview" class="relative w-40 h-40 bg-gray-200 rounded-md overflow-hidden mb-3"></div>
+<h3 class="text-2xl">${user.nickname} <span class="text-lg text-fantasy-brown">Lv. ${user.level}</span></h3>
+<div class="text-left w-full bg-white p-3 rounded-lg mt-3 space-y-2 border border-fantasy-brown">
+  <div><h4 class="font-bold text-fantasy-brown">ひとこと</h4><p class="pl-2">${profile.motto || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません'}</p></div>
+  <div><h4 class="font-bold text-fantasy-brown">すきなもの</h4><p class="pl-2">${profile.favorite || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません'}</p></div>
+  <div><h4 class="font-bold text-fantasy-brown">がんばりたいこと</h4><p class="pl-2">${profile.goal || 'まだ<ruby>設定<rt>せってい</rt></ruby>されていません'}</p></div>
+</div>
+</div>
+`;
+  showModal(content, false);
+  renderAvatarPreview('modal-avatar-preview', user.avatar);
+}
+
+function showNewBadgeModal(badges) {
+  const badgeHtml = badges.map(badge => `
+<div class="border-2 border-yellow-400 rounded-lg p-4 my-2">
+<p class="text-3xl">🏆</p><p class="font-bold text-xl">${badge.name}</p>
+<p class="text-sm text-fantasy-brown">${badge.description}</p>
+</div>`).join('');
+  showModal(`<h2 class="text-3xl text-yellow-500 animate-bounce"><ruby>実績解除<rt>じっせきかいじょ</rt></ruby>！</h2>${badgeHtml}`, false);
+}
+
+function showGachaResult(res) {
+  const item = res.wonItem;
+  let content;
+  if (res.isDuplicate) {
+    content = `<h3>アイテム<ruby>重複<rt>じゅうふく</rt></ruby>！</h3>
+<p class="my-2">${item['アイテム名']}</p><p class="text-lg font-bold text-green-500">+${res.awardedExchangePoints} <ruby>交換<rt>こうかん</rt></ruby>ポイント</p>`;
+  } else {
+    let rarityColor = res.wonItem['レアリティー'] === 'SR' ? 'text-yellow-400' : (res.wonItem['レアリティー'] === 'R' ? 'text-blue-500' : 'text-gray-500');
+    content = `<h3 class="text-2xl font-bold mb-2 animate-bounce">GET!</h3>
+<div class="p-4"><img src="${item.imageUrl || ''}" class="mx-auto h-32 w-32 object-contain"></div>
+<p class="text-lg font-bold">${item['アイテム名']}</p><p class="font-bold text-xl ${rarityColor} ">レアリティ: ${item['レアリティー']}</p>`;
+  }
+  showModal(content, false);
+}
+
+function showGacha10Result(res) {
+  let resultsHtml = res.results.map(item => {
+    let rarityClass = item['レアリティー'] === 'SR' ? 'is-sr' : (item['レアリティー'] === 'R' ? 'is-r' : '');
+    let duplicateHtml = item.isDuplicate ? `<div class="duplicate-overlay"><span>+${item.awardedPoints} Pt</span></div>` : '';
+    return `<div class="gacha-item-card ${rarityClass}"><img src="${item.imageUrl || ''}" alt="${item['アイテム名']}">${duplicateHtml}</div>`;
+  }).join('');
+  let summaryHtml = `<h3 class="text-xl font-bold mb-2">ガチャ<ruby>結果<rt>けっか</rt></ruby></h3>
+${res.summary.newItemsCount > 0 ? `<p class="text-lg"><ruby>新<rt>あたら</rt></ruby>しいアイテムを<span class="font-bold text-blue-600"> ${res.summary.newItemsCount} <ruby>個<rt>こ</rt></ruby></span>GET！</p>` : ''}
+${res.summary.awardedExchangePoints > 0 ? `<p class="text-lg"><span class="font-bold text-green-600">${res.summary.awardedExchangePoints} <ruby>交換<rt>こうかん</rt></ruby>ポイント</span>を<ruby>獲得<rt>かくとく</rt></ruby>！</p>` : ''}`;
+  showModal(`${summaryHtml}<div class="gacha-results-grid my-4">${resultsHtml}</div>`, false);
+}
+
+function showGachaLoading() { document.getElementById('gacha-loading-modal').classList.remove('hidden'); }
+function hideGachaLoading() { document.getElementById('gacha-loading-modal').classList.add('hidden'); }
+
+function checkAndShowLevelUp(latestLevelUp) {
+  const lastShownTimestamp = localStorage.getItem('lastShownLevelUpTimestamp');
+  if (latestLevelUp.timestamp !== lastShownTimestamp) {
+    showLevelUpModal(latestLevelUp.newLevel);
+    localStorage.setItem('lastShownLevelUpTimestamp', latestLevelUp.timestamp);
+  }
+}
+
+function showLevelUpModal(newLevel) {
+  const modal = document.getElementById('level-up-modal');
+  document.getElementById('level-up-text').textContent = `Lv. ${newLevel}`;
+  modal.classList.remove('hidden');
+  showParticleEffect(100); // 新機能を利用して紙吹雪
+  
+  setTimeout(() => {
+    modal.classList.add('hidden');
+    document.getElementById('confetti-container').innerHTML = '';
+  }, 5000);
+}
+
+
+// =================================================================
+// 8. 教員用UI/イベントの統合 (Teacher Functionality)
+// =================================================================
+
+function setupTeacherEventListeners() {
+  document.getElementById('post-announcement-btn').addEventListener('click', handlePostAnnouncement);
+  document.getElementById('grant-point-btn').addEventListener('click', handleGrantPoint);
+  document.getElementById('select-all-students').addEventListener('change', toggleAllStudents);
+  document.getElementById('view-student-detail-btn').addEventListener('click', handleViewStudentDetail);
+}
+
+function populateStudentList(students) {
+  const listEl = document.getElementById('student-list');
+  listEl.innerHTML = '';
+  if (!students || students.length === 0) {
+    listEl.innerHTML = '<p class="text-gray-500">児童が登録されていません。</p>';
+    return;
+  }
+  students.forEach((student, index) => {
+    // UI改善: css.htmlで指定したストライプ装飾用クラス追加
+    const label = document.createElement('label');
+    label.className = 'teacher-student-list-item flex items-center w-full p-2 cursor-pointer border-b last:border-0';
+    label.innerHTML = `
+       <input type="checkbox" class="student-checkbox mr-2 h-4 w-4 text-blue-600 focus:ring-blue-500" value="${escapeHtml(student.email)}">
+       <span class="font-medium text-gray-700">${escapeHtml(student.number)}番</span>
+       <span class="ml-2 text-gray-900">${escapeHtml(student.nickname)}</span>
+   `;
+    listEl.appendChild(label);
+  });
+}
+
+function populateStudentDetailSelect(students) {
+  const selectEl = document.getElementById('student-detail-select');
+  selectEl.innerHTML = '<option value="">-- 児童を選択 --</option>';
+  if (!students || students.length === 0) return;
+  students.forEach(student => {
+    const option = document.createElement('option');
+    option.value = student.email;
+    option.textContent = `${student.number}番 ${student.nickname}`;
+    selectEl.appendChild(option);
+  });
+}
+
+function renderAnnouncementsList(announcements) {
+  const listEl = document.getElementById('announcements-list');
+  if (!announcements || announcements.length === 0) {
+    listEl.innerHTML = '<p class="text-gray-500">現在表示中のお知らせはありません。</p>';
+    return;
+  }
+  listEl.innerHTML = announcements.map((item) => {
+    const postDate = new Date(item.timestamp).toLocaleDateString('ja-JP');
+    const endDate = item.endDate ? new Date(item.endDate).toLocaleDateString('ja-JP') : '無期限';
+    return `
+      <div class="bg-white p-3 rounded-md shadow-sm border mt-2">
+          <p class="text-gray-800">${escapeHtml(item.message)}</p>
+          <div class="text-xs text-gray-500 mt-2 flex justify-between items-center">
+              <span>${postDate} by ${escapeHtml(item.author)} (表示終了: ${endDate})</span>
+              <button class="btn-danger" onclick="handleDeleteAnnouncement(${item.rowNum})">削除</button>
+          </div>
+      </div>
+  `;
+  }).join('');
+}
+
+function renderStudentDetailModal(data) {
+  const modalContent = document.getElementById('student-detail-content');
+  const missionsHtml = data.missions.map(m => {
+    const progressPercentage = m.target > 0 ? Math.min(100, (m.progress / m.target) * 100) : 0;
+    let statusText = '';
+    if (m.isClaimed) statusText = '<span class="text-xs font-bold text-gray-500">受取済</span>';
+    else if (m.isComplete) statusText = '<span class="text-xs font-bold text-green-600">達成!</span>';
+    else statusText = '<span class="text-xs text-gray-500">挑戦中</span>';
+
+    return `
+       <div class="border-b py-1">
+           <div class="flex justify-between items-center">
+               <p class="text-sm">${escapeHtml(m.content)}</p>
+               ${statusText}
+           </div>
+           <div class="relative w-full h-4 mt-1">
+              <div class="absolute w-full h-full exp-bar-bg rounded-full"></div>
+              <div class="absolute h-full exp-bar-fill rounded-full" style="width: ${progressPercentage}%"></div>
+              <div class="absolute w-full h-full text-center text-xs text-gray-800 font-semibold leading-4">${m.progress} / ${m.target}</div>
+           </div>
+       </div>`;
+  }).join('');
+
+  const activityHtml = data.recentActivity.map(log => {
+    const date = new Date(log.timestamp);
+    const formattedDate = `${date.getMonth() + 1}/${date.getDate()} ${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    return `<li class="text-sm border-b py-1">${escapeHtml(log.message)}<span class="text-xs text-gray-500 float-right">${formattedDate}</span></li>`;
+  }).join('');
+
+  modalContent.innerHTML = `
+   <button onclick="document.getElementById('student-detail-modal').classList.add('hidden')" class="absolute top-2 right-2 text-2xl font-bold text-gray-500 hover:text-gray-800">&times;</button>
+   <h2 class="text-2xl font-mplus text-blue-800 mb-4">${escapeHtml(data.profile.nickname)} さんの詳細</h2>
+   <div class="grid grid-cols-3 gap-4 flex-grow overflow-y-auto pr-2">
+       <div class="col-span-1 border-r pr-2 shadow-sm">
+           <h3 class="text-lg font-bold mb-2 bg-gray-100 p-1">ステータス</h3>
+           <div class="space-y-1 text-base p-2">
+               <p><strong>レベル:</strong> ${data.profile.level}</p>
+               <p><strong>経験値:</strong> ${data.profile.exp}</p>
+               <p><strong>累計経験値:</strong> ${data.profile.totalExp}</p>
+               <p><strong>交換ポイント:</strong> ${data.profile.exchangePoints}</p>
+           </div>
+       </div>
+       <div class="col-span-1 px-2 border-r shadow-sm">
+           <h3 class="text-lg font-bold mb-2 bg-gray-100 p-1">ミッション状況</h3>
+           <div class="space-y-1">${missionsHtml}</div>
+       </div>
+       <div class="col-span-1 pl-2 shadow-sm">
+           <h3 class="text-lg font-bold mb-2 bg-gray-100 p-1">最近のきろく</h3>
+           <ul class="space-y-1 list-none">${activityHtml}</ul>
+       </div>
+   </div>
+`;
+  document.getElementById('student-detail-modal').classList.remove('hidden');
+}
+
+function toggleAllStudents(event) {
+  const isChecked = event.target.checked;
+  document.querySelectorAll('.student-checkbox').forEach(checkbox => {
+    checkbox.checked = isChecked;
+  });
+}
+
+function handleViewStudentDetail() {
+  const selectedEmail = document.getElementById('student-detail-select').value;
+  if (!selectedEmail) {
+    showToast('児童を選択してください。', 'error'); // alert()置き換え
+    return;
+  }
+  showLoading();
+  google.script.run
+    .withSuccessHandler(result => {
+      hideLoading();
+      if (result.success) renderStudentDetailModal(result.data);
+      else showToast('エラー: ' + result.message, 'error');
+    })
+    .withFailureHandler(error => {
+      hideLoading();
+      showToast('サーバー通信エラー: ' + error.message, 'error');
+    })
+    .getStudentDetails(selectedEmail);
+}
+
+function handlePostAnnouncement() {
+  const message = document.getElementById('announcement-message').value;
+  const endDate = document.getElementById('display-until').value;
+
+  if (!message.trim()) {
+    showToast('メッセージを入力してください。', 'error'); // alert置き換え
+    return;
+  }
+  const data = { message: message, author: teacherName, endDate: endDate || null };
+  showLoading();
+  google.script.run
+    .withSuccessHandler(result => {
+      hideLoading();
+      if (result.success) {
+        document.getElementById('announcement-message').value = '';
+        document.getElementById('display-until').value = '';
+        renderAnnouncementsList(result.announcements);
+        showToast('お知らせを投稿しました。', 'success'); // alert置き換え
+      } else {
+        showToast('エラー: ' + result.message, 'error');
+      }
+    })
+    .withFailureHandler(error => { hideLoading(); showToast('通信エラー: ' + error.message, 'error'); })
+    .postAnnouncement(data);
+}
+
+function handleGrantPoint() {
+  const checkedEmails = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
+  const pointType = document.querySelector('input[name="point_type"]:checked').value;
+  const amount = document.getElementById('point-amount').value;
+  const reason = document.getElementById('grant-reason').value;
+
+  if (checkedEmails.length === 0) {
+    showToast('児童を1人以上選択してください。', 'error'); return;
+  }
+  if (!amount || !reason) {
+    showToast('配布量と理由を入力してください。', 'error'); return;
+  }
+  const amountNum = parseInt(amount, 10);
+  if (isNaN(amountNum) || amountNum <= 0) {
+    showToast('配布量には正の整数を指定してください。', 'error'); return;
+  }
+  
+  const pointTypeName = pointType === 'exp' ? '経験値' : '交換ポイント';
+  const confirmMessage = `${checkedEmails.length}人の児童に\n「${pointTypeName}」を ${amountNum}Pt 配布します。\n\nよろしいですか？`;
+
+  // confirm() を カスタムモーダル に置き換え
+  showConfirmDialog(confirmMessage, () => {
+    // === 実行確定後の処理 ===
+    const data = { emails: checkedEmails, type: pointType, amount: amountNum, reason: reason };
+    showLoading();
+    google.script.run
+      .withSuccessHandler(result => {
+        hideLoading();
+        if (result.success) {
+          showToast(result.message, 'success'); // alert置き換え
+          document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = false);
+          document.getElementById('select-all-students').checked = false;
+          document.getElementById('point-amount').value = '';
+          document.getElementById('grant-reason').value = '';
+        } else {
+          showToast('エラー: ' + result.message, 'error');
+        }
+      })
+      .withFailureHandler(error => { hideLoading(); showToast('通信エラー: ' + error.message, 'error'); })
+      .grantPoints(data);
+  });
+}
+
+function handleDeleteAnnouncement(rowNum) {
+  showConfirmDialog('このお知らせを本当に削除しますか？', () => {
+    showLoading();
+    google.script.run
+      .withSuccessHandler(result => {
+        hideLoading();
+        if (result.success) {
+          renderAnnouncementsList(result.announcements);
+          showToast('お知らせを削除しました', 'success'); // 追加
+        } else {
+          showToast('エラー: ' + result.message, 'error');
+        }
+      })
+      .withFailureHandler(error => { hideLoading(); showToast('通信エラー: ' + error.message, 'error'); })
+      .deleteAnnouncement(rowNum);
+  });
+}
+
+// ユーティリティ: XSS対策
+function escapeHtml(str) {
+    if(typeof str !== 'string') return str;
+    return str.replace(/[&'`"<>]/g, function(match) {
+        return {
+            '&': '&amp;',
+            "'": '&#x27;',
+            '`': '&#x60;',
+            '"': '&quot;',
+            '<': '&lt;',
+            '>': '&gt;',
+        }[match]
+    });
+}
+</script>

@@ -72,26 +72,21 @@ const DUPLICATE_POINTS_KEYS = {
  */
 function doGet(e) {
   try {
-    const email = Session.getActiveUser().getEmail();
-    const userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.USERS);
-    const data = userSheet.getDataRange().getValues();
-    let isTeacher = false;
-    for (let i = 1; i < data.length; i++) {
-      if (data[i][2] === email && data[i][0] == TEACHER_ROLE_ID) {
-        isTeacher = true;
-        break;
-      }
-    }
-
-    if (isTeacher) {
-      return HtmlService.createTemplateFromFile('teacher').evaluate().setTitle('教員用ダッシュボード');
-    } else {
-      return HtmlService.createTemplateFromFile('index').evaluate().setTitle('がくしゅうぼうけんきろく').addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
-    }
+    return HtmlService.createTemplateFromFile('index').evaluate().setTitle('がくしゅうぼうけんきろく').addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
   } catch (e) {
     console.error(`doGet Error: ${e.message}, Stack: ${e.stack}`);
     return HtmlService.createHtmlOutput("<h1>エラーが発生しました</h1><p>アプリケーションの起動に失敗しました。管理者にお問い合わせください。</p>");
   }
+}
+
+/**
+ * @summary 指定されたHTMLファイルの内容を取得し、文字列として返すヘルパー関数
+ * @description index.html内でcss.htmlやjs.htmlをインクルードするために使用します ( <?!= include('ファイル名'); ?> )
+ * @param {string} filename - 読み込むファイル名（拡張子なし）
+ * @returns {string} ファイルのHTML内容
+ */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 
