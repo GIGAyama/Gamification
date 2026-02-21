@@ -237,9 +237,10 @@
                 btnHtml = `<small class="text-muted">${m.progress}/${m.target}</small>`;
             }
 
+            const itemClass = isClaimed ? "bg-light text-muted" : "border border-primary-subtle bg-white";
             // 0:id, 1:type, 2:content, 3:key, 4:target, 5:rType, 6:rAmount
             const itemHtml = `
-      <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded ${isClaimed ? 'bg-light text-muted' : 'border border-primary-subtle bg-white'}">
+      <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded ${itemClass}">
         <div>
           <div class="small fw-bold">${m.content}</div>
           <span class="badge bg-danger-subtle text-danger border border-danger">${m.rewardType} ${m.rewardAmount}</span>
@@ -286,7 +287,7 @@
 
         const html = logs.map(log => {
             const d = new Date(log.timestamp);
-            const dStr = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const dStr = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
             let icon = 'bi-info-circle text-primary';
             if (log.action.includes('EXP')) icon = 'bi-star-fill text-warning';
             if (log.action.includes('GACHA')) icon = 'bi-magic text-purple';
@@ -329,13 +330,14 @@
 
             const div = document.createElement('div');
             // .inventory-item used in css.html
-            div.className = `inventory-item shadow-sm ${isEquipped ? 'equipped' : ''}`;
+            const equippedClass = isEquipped ? "equipped" : "";
+            div.className = `inventory-item shadow-sm ${equippedClass}`;
             div.title = item['アイテム名'];
 
             const imgId = item['画像ID'];
             if (imgId) {
                 const img = document.createElement('img');
-                img.src = `https://drive.google.com/uc?id=${imgId}`;
+                img.src = "https://drive.google.com/uc?id=" + imgId;
                 img.className = 'w-100 h-100 object-fit-contain p-1';
                 div.appendChild(img);
             } else {
@@ -386,7 +388,8 @@
 
         layersInfo.forEach(item => {
             const img = document.createElement('img');
-            img.src = `https://drive.google.com/uc?id=${item['画像ID']}`;
+            const picId = item['画像ID'];
+            img.src = "https://drive.google.com/uc?id=" + picId;
             img.className = 'avatar-part'; // css class for absolute positioning
             previewBox.appendChild(img);
         });
@@ -454,12 +457,16 @@
             if (res.success) {
                 // 演出用
                 if (isTen) {
-                    let itemsHtml = res.results.map(r => `
-          <div class="p-1 border text-center rounded m-1 ${r.isDuplicate ? 'bg-light' : 'bg-warning-subtle'}" style="width: 60px;">
-             ${r.isDuplicate ? '<span class="badge bg-secondary mb-1">重複</span>' : '<span class="badge bg-danger mb-1">NEW!</span>'}
-             <br><small class="fw-bold" style="font-size:0.6rem">${r['アイテム名']}</small>
+                    let itemsHtml = res.results.map(r => {
+                        const bgClass = r.isDuplicate ? "bg-light" : "bg-warning-subtle";
+                        const badgeHtml = r.isDuplicate ? "<span class=\"badge bg-secondary mb-1\">重複</span>" : "<span class=\"badge bg-danger mb-1\">NEW!</span>";
+                        const itemName = r['アイテム名'];
+                        return `
+          <div class="p-1 border text-center rounded m-1 ${bgClass}" style="width: 60px;">
+             ${badgeHtml}
+             <br><small class="fw-bold" style="font-size:0.6rem">${itemName}</small>
           </div>
-        `).join('');
+        `}).join('');
 
                     Swal.fire({
                         title: '10連ガチャ結果！',
@@ -471,9 +478,10 @@
                 } else {
                     const t = res.isDuplicate ? '持ってたアイテムだった…' : '新しいアイテムをゲット！';
                     const p = res.isDuplicate ? `<p>かわりに <b>${res.awardedExchangePoints}Pt</b> もらったよ！</p>` : '';
+                    const wonItemName = res.wonItem['アイテム名'];
                     Swal.fire({
                         title: t,
-                        html: `<h4 class="fw-bold my-3 text-primary">${res.wonItem['アイテム名']}</h4>${p}`,
+                        html: `<h4 class="fw-bold my-3 text-primary">${wonItemName}</h4>${p}`,
                         icon: res.isDuplicate ? 'info' : 'success'
                     });
                 }
@@ -494,15 +502,18 @@
         if (!plazaData || plazaData.length === 0) return;
 
         const html = plazaData.map(p => {
+            const mottoText = p.motto || "よろしくね！";
+            const favText = p.favorite || "ひみつ";
+            const goalText = p.goal || "がんばる！";
             return `
       <div class="col-md-4 col-lg-3">
         <div class="card shadow-sm text-center h-100 hover-lift border-0">
           <div class="card-body">
             <h5 class="fw-bold text-primary mb-1">${p.nickname} <span class="badge bg-warning text-dark border ms-1">Lv.${p.level}</span></h5>
-            <small class="text-muted d-block mb-3">${p.motto || 'よろしくね！'}</small>
+            <small class="text-muted d-block mb-3">${mottoText}</small>
             <div class="bg-light rounded p-2 text-start">
-               <div class="small mb-1"><span class="fw-bold text-success">すき:</span> ${p.favorite || 'ひみつ'}</div>
-               <div class="small"><span class="fw-bold text-info">目標:</span> ${p.goal || 'がんばる！'}</div>
+               <div class="small mb-1"><span class="fw-bold text-success">すき:</span> ${favText}</div>
+               <div class="small"><span class="fw-bold text-info">目標:</span> ${goalText}</div>
             </div>
           </div>
         </div>
@@ -566,7 +577,7 @@
 
         const html = ann.slice(1).map((a, idx) => {
             const d = new Date(a[0]);
-            const dStr = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const dStr = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
             const rowNum = idx + 2; // +1 for header, +1 for 1-based index
             return `
       <div class="border rounded p-2 mb-2 bg-light d-flex justify-content-between align-items-center">
