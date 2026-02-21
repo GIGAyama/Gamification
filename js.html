@@ -1,0 +1,686 @@
+<script>
+    // =================================================================
+    // GIGA Standard v2: js.html
+    // "Modern Google Style for Kids" Frontend Logic
+    // =================================================================
+
+    // -----------------------------------------------------------------
+    // 1. API Wrapper (Capsulization & Retry Logic)
+    // -----------------------------------------------------------------
+    const globalSpinner = document.getElementById('global-spinner');
+
+    function showSpinner() {
+        globalSpinner.classList.remove('d-none');
+    }
+
+    function hideSpinner() {
+        globalSpinner.classList.add('d-none');
+    }
+
+    /**
+     * google.script.runのラッパーオブジェクト
+     * リトライ、スピナー制御、SweetAlert2によるエラーハンドリングを統合
+     */
+    const api = {
+        call: function (serverFunc, args = [], maxRetries = 3, currentRetry = 0) {
+            return new Promise((resolve, reject) => {
+                showSpinner();
+                const runner = google.script.run
+                    .withSuccessHandler(res => {
+                        hideSpinner();
+                        resolve(res);
+                    })
+                    .withFailureHandler(err => {
+                        if (currentRetry < maxRetries) {
+                            console.warn(`[Retry ${currentRetry + 1}/${maxRetries}] ${serverFunc} failed: ${err.message}`);
+                            setTimeout(() => {
+                                this.call(serverFunc, args, maxRetries, currentRetry + 1)
+                                    .then(resolve)
+                                    .catch(reject);
+                            }, 1000);
+                        } else {
+                            hideSpinner();
+                            Swal.fire({
+                                icon: 'error',
+                                title: '通信エラー',
+                                html: `<p>サーバーとつながりませんでした。</p><small class="text-muted">${err.message}</small>`,
+                                confirmButtonText: 'とじる',
+                                confirmButtonColor: '#0d6efd'
+                            });
+                            reject(err);
+                        }
+                    });
+
+                if (args.length > 0) {
+                    runner[serverFunc](...args);
+                } else {
+                    runner[serverFunc]();
+                }
+            });
+        }
+    };
+
+
+    // -----------------------------------------------------------------
+    // 2. Global State & Initialization
+    // -----------------------------------------------------------------
+    let state = {
+        role: null, // 'student' or 'teacher'
+        data: null
+    };
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await api.call('getInitialAppData');
+            if (!response || response.success === false) {
+                throw new Error(response.message || '初期データの取得に失敗しました');
+            }
+
+            state.role = response.role;
+            state.data = response.data;
+
+            document.getElementById('initial-loading-view').classList.add('d-none');
+            document.getElementById('main-nav').style.display = 'block';
+
+            if (state.role === 'teacher') {
+                initTeacherView();
+            } else {
+                initStudentView();
+            }
+        } catch (err) {
+            // 致命的エラーの場合は真っ白にせずエラーを表示
+            document.getElementById('initial-loading-view').innerHTML = `
+      <div class="alert alert-danger mx-auto mt-5" style="max-width: 400px;">
+        <i class="bi bi-exclamation-triangle-fill"></i> エラーが発生しました。<br><small>${err.message}</small>
+      </div>`;
+        }
+    });
+
+
+    // -----------------------------------------------------------------
+    // 3. SPA Navigation Logic
+    // -----------------------------------------------------------------
+    function switchView(viewId) {
+        document.querySelectorAll('.spa-view').forEach(el => el.classList.add('d-none'));
+        const target = document.getElementById(viewId);
+        if (target) {
+            target.classList.remove('d-none');
+            target.classList.add('fade-in'); // Optional animation class
+        }
+    }
+
+    document.querySelectorAll('[data-view]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            // タブのアクティブ状態を更新
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active-tab', 'text-primary');
+                tab.classList.add('text-secondary');
+            });
+            e.currentTarget.classList.add('active-tab', 'text-primary');
+            e.currentTarget.classList.remove('text-secondary');
+
+            const viewId = e.currentTarget.getAttribute('data-view');
+            switchView(viewId);
+        });
+    });
+
+    // -----------------------------------------------------------------
+    // 4. Student View Logic
+    // -----------------------------------------------------------------
+    function initStudentView() {
+        document.getElementById('student-tabs').classList.remove('d-none');
+        switchView('student-dashboard');
+
+        const d = state.data;
+
+        // Header / Profile Info
+        document.getElementById('nav-level').textContent = d.profile.level;
+        document.getElementById('nav-nickname').textContent = d.profile.nickname;
+        document.getElementById('profile-nickname').textContent = d.profile.nickname;
+        document.getElementById('profile-email').textContent = d.profile.email;
+        document.getElementById('profile-exp').textContent = d.profile.totalExp;
+        document.getElementById('profile-exchange').textContent = d.profile.exchangePoints;
+
+        // Level Progress
+        const progressText = document.getElementById('exp-progress-text');
+        const progressBar = document.getElementById('exp-progress-bar');
+        if (d.profile.progress.isMax) {
+            progressText.textContent = "MAX レベル！";
+            progressBar.style.width = "100%";
+            progressBar.classList.add('bg-warning');
+            progressBar.classList.remove('bg-info');
+        } else {
+            progressText.textContent = `${d.profile.progress.current} / ${d.profile.progress.required}`;
+            const percent = Math.min(100, Math.floor((d.profile.progress.current / d.profile.progress.required) * 100));
+            progressBar.style.width = `${percent}%`;
+        }
+
+        // Cost configs
+        document.getElementById('cost-gacha-1').textContent = d.gachaCost;
+        document.getElementById('cost-gacha-10').textContent = d.gacha10Cost;
+
+        renderStudentAnnouncements(d.announcements);
+        renderMissions(d.missions);
+        renderRecentActivity(d.recentActivity);
+        renderInventory(d.inventory, d.allItems, d.avatar);
+        renderAvatarLayer(d.avatar, d.allItems);
+        renderPlaza(d.plazaData);
+
+        // Bind Buttons
+        document.getElementById('btn-gacha-1').onclick = () => playGacha(false);
+        document.getElementById('btn-gacha-10').onclick = () => playGacha(true);
+        document.getElementById('btn-save-avatar').onclick = saveAvatar;
+        document.getElementById('btn-save-profile').onclick = saveProfile;
+
+        // Form values
+        if (d.userProfile) {
+            document.getElementById('profile-motto').value = d.userProfile.motto || '';
+            document.getElementById('profile-favorite').value = d.userProfile.favorite || '';
+            document.getElementById('profile-goal').value = d.userProfile.goal || '';
+        }
+
+        // Notification for login bonus etc.
+        if (d.bonusApplied) {
+            Swal.fire({
+                icon: 'success',
+                title: 'ログインボーナス！',
+                html: `<b>+${d.bonusPoints} EXP</b> ゲットしました！<br><ruby>今日<rt>きょう</rt></ruby>もがんばろう！`,
+                confirmButtonText: 'OK'
+            });
+        }
+    }
+
+    function renderStudentAnnouncements(announcements) {
+        const container = document.getElementById('student-announcements');
+        container.innerHTML = '';
+        if (!announcements || announcements.length <= 1) { // 1 is header
+            container.innerHTML = '<p class="text-muted small">お<ruby>知<rt>し</rt></ruby>らせはありません</p>';
+            return;
+        }
+
+        // Skip header (index 0)
+        const itemsHTML = announcements.slice(1).map(a => {
+            // 0: date, 1: msg, 2: author
+            const d = new Date(a[0]);
+            const dStr = `${d.getMonth() + 1}/${d.getDate()}`;
+            return `
+      <div class="border-bottom pb-2 mb-2">
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="badge bg-success-subtle text-success border border-success">${dStr}</span>
+          <small class="text-muted">${a[2]}</small>
+        </div>
+        <div class="small fw-bold">${a[1]}</div>
+      </div>
+    `;
+        }).join('');
+        container.innerHTML = itemsHTML;
+    }
+
+    function renderMissions(missions) {
+        const container = document.getElementById('missions-list');
+        const badgeCount = document.getElementById('mission-badge-count');
+        container.innerHTML = '';
+
+        let claimableCount = 0;
+
+        missions.forEach(m => {
+            const isCompleted = m.isComplete;
+            const isClaimed = m.isClaimed;
+
+            let btnHtml = '';
+            if (isClaimed) {
+                btnHtml = `<button class="btn btn-sm btn-secondary disabled" disabled><ruby>済<rt>ずみ</rt></ruby></button>`;
+            } else if (isCompleted) {
+                claimableCount++;
+                btnHtml = `<button class="btn btn-sm btn-warning fw-bold text-dark" onclick="claimReward('${m.id}')">ゲット</button>`;
+            } else {
+                btnHtml = `<small class="text-muted">${m.progress}/${m.target}</small>`;
+            }
+
+            // 0:id, 1:type, 2:content, 3:key, 4:target, 5:rType, 6:rAmount
+            const itemHtml = `
+      <div class="d-flex justify-content-between align-items-center mb-2 p-2 rounded ${isClaimed ? 'bg-light text-muted' : 'border border-primary-subtle bg-white'}">
+        <div>
+          <div class="small fw-bold">${m.content}</div>
+          <span class="badge bg-danger-subtle text-danger border border-danger">${m.rewardType} ${m.rewardAmount}</span>
+        </div>
+        <div>
+          ${btnHtml}
+        </div>
+      </div>
+    `;
+            container.innerHTML += itemHtml;
+        });
+
+        if (claimableCount > 0) {
+            badgeCount.style.display = 'inline-block';
+            badgeCount.textContent = claimableCount;
+        } else {
+            badgeCount.style.display = 'none';
+        }
+    }
+
+    async function claimReward(missionId) {
+        try {
+            const res = await api.call('claimMissionReward', [missionId]);
+            if (res.success) {
+                Swal.fire('やったね！', res.message, 'success');
+                // Refresh Data entirely
+                const fresh = await api.call('getInitialAppData');
+                state.data = fresh.data;
+                initStudentView();
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    function renderRecentActivity(logs) {
+        const container = document.getElementById('recent-activity-log');
+        if (!logs || logs.length === 0) {
+            container.innerHTML = '<p class="text-muted small"><ruby>記録<rt>きろく</rt></ruby>はありません</p>';
+            return;
+        }
+
+        const html = logs.map(log => {
+            const d = new Date(log.timestamp);
+            const dStr = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+            let icon = 'bi-info-circle text-primary';
+            if (log.action.includes('EXP')) icon = 'bi-star-fill text-warning';
+            if (log.action.includes('GACHA')) icon = 'bi-magic text-purple';
+
+            return `
+      <div class="d-flex align-items-start mb-2 border-bottom pb-1">
+        <i class="bi ${icon} mt-1 me-2"></i>
+        <div>
+          <div class="small fw-bold">${log.details}</div>
+          <div class="text-muted" style="font-size:0.75rem;">${dStr}</div>
+        </div>
+      </div>
+    `;
+        }).join('');
+        container.innerHTML = html;
+    }
+
+    // Global variable for current composition
+    let currentAvatarComposition = {};
+
+    function renderInventory(inventoryIds, allItems, avatarData) {
+        const container = document.getElementById('inventory-grid');
+        container.innerHTML = '';
+
+        if (!inventoryIds || inventoryIds.length === 0) {
+            container.innerHTML = '<p class="text-muted small w-100 text-center mt-3">まだアイテムを持っていません。</p>';
+            return;
+        }
+
+        // Clone current avatar state
+        currentAvatarComposition = { ...avatarData };
+        delete currentAvatarComposition['メールアドレス'];
+
+        const myItems = allItems.filter(i => inventoryIds.includes(i['アイテムID']));
+
+        myItems.forEach(item => {
+            const id = item['アイテムID'];
+            const cat = item['カテゴリー'];
+            const isEquipped = currentAvatarComposition[cat] === id;
+
+            const div = document.createElement('div');
+            // .inventory-item used in css.html
+            div.className = `inventory-item shadow-sm ${isEquipped ? 'equipped' : ''}`;
+            div.title = item['アイテム名'];
+
+            const imgId = item['画像ID'];
+            if (imgId) {
+                const img = document.createElement('img');
+                img.src = `https://drive.google.com/uc?id=${imgId}`;
+                img.className = 'w-100 h-100 object-fit-contain p-1';
+                div.appendChild(img);
+            } else {
+                div.textContent = item['アイテム名'].charAt(0);
+            }
+
+            div.onclick = () => {
+                // Toggle equip
+                if (currentAvatarComposition[cat] === id) {
+                    currentAvatarComposition[cat] = null; // unequip
+                } else {
+                    currentAvatarComposition[cat] = id; // equip
+                }
+                // Re-render
+                renderInventory(inventoryIds, allItems, currentAvatarComposition);
+                renderAvatarLayer(currentAvatarComposition, allItems);
+            };
+
+            container.appendChild(div);
+        });
+    }
+
+    function renderAvatarLayer(composition, allItems) {
+        const previewBox = document.getElementById('avatar-layers');
+        const dashboardPreview = document.getElementById('dashboard-avatar'); // For Home Tab
+
+        previewBox.innerHTML = '';
+
+        const Z_INDEX_MAP = {
+            '背景': 1, '体': 2, '服': 3, '目': 4, '口': 5,
+            '顔装飾': 6, '髪': 7, '手・持ち物': 8, '頭飾り': 9, 'エフェクト': 10
+        };
+
+        const layersInfo = Object.keys(composition)
+            .filter(cat => composition[cat])
+            .map(cat => {
+                const itemId = composition[cat];
+                const item = allItems.find(i => i['アイテムID'] === itemId);
+                return item ? { ...item, zIndex: Z_INDEX_MAP[cat] || 50 } : null;
+            })
+            .filter(i => i !== null && i['画像ID'])
+            .sort((a, b) => a.zIndex - b.zIndex);
+
+        if (layersInfo.length === 0) {
+            dashboardPreview.src = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
+            return;
+        }
+
+        layersInfo.forEach(item => {
+            const img = document.createElement('img');
+            img.src = `https://drive.google.com/uc?id=${item['画像ID']}`;
+            img.className = 'avatar-part'; // css class for absolute positioning
+            previewBox.appendChild(img);
+        });
+
+        // Dashboard Preview is just the body or combined image?
+        // Because HTML structure limits, we cannot easily combine on dashboard unless we copy layers.
+        // For now, let's inject innerHTML of `avatar-layers` if we convert to divs, 
+        // but `dashboardPreview` is an <img>. Let's replace the container of dashboardPreview.
+        const dashContainer = dashboardPreview.parentElement;
+        dashContainer.innerHTML = previewBox.innerHTML; // Copies all position:absolute images inside.
+        dashContainer.classList.add('position-relative');
+    }
+
+    async function saveAvatar() {
+        try {
+            const res = await api.call('saveAvatar', [currentAvatarComposition]);
+            if (res.success) {
+                Swal.fire({
+                    icon: 'success',
+                    title: '保存しました！',
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000
+                });
+                // update state
+                state.data.avatar = currentAvatarComposition;
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function saveProfile() {
+        const motto = document.getElementById('profile-motto').value;
+        const favorite = document.getElementById('profile-favorite').value;
+        const goal = document.getElementById('profile-goal').value;
+
+        try {
+            const res = await api.call('saveProfile', [{ motto, favorite, goal }]);
+            if (res.success) {
+                Swal.fire({
+                    icon: 'success',
+                    title: 'プロフィールを更新しました',
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000
+                });
+                if (!state.data.userProfile) state.data.userProfile = {};
+                state.data.userProfile.motto = motto;
+                state.data.userProfile.favorite = favorite;
+                state.data.userProfile.goal = goal;
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+    async function playGacha(isTen) {
+        try {
+            const res = await api.call(isTen ? 'playGacha10' : 'playGacha');
+            if (res.success) {
+                // 演出用
+                if (isTen) {
+                    let itemsHtml = res.results.map(r => `
+          <div class="p-1 border text-center rounded m-1 ${r.isDuplicate ? 'bg-light' : 'bg-warning-subtle'}" style="width: 60px;">
+             ${r.isDuplicate ? '<span class="badge bg-secondary mb-1">重複</span>' : '<span class="badge bg-danger mb-1">NEW!</span>'}
+             <br><small class="fw-bold" style="font-size:0.6rem">${r['アイテム名']}</small>
+          </div>
+        `).join('');
+
+                    Swal.fire({
+                        title: '10連ガチャ結果！',
+                        html: `<div class="d-flex flex-wrap justify-content-center">${itemsHtml}</div>
+                 <p class="mt-2 text-danger fw-bold">重複分のPt: +${res.summary.awardedExchangePoints}</p>`,
+                        confirmButtonText: 'とじる',
+                        width: '600px'
+                    });
+                } else {
+                    const t = res.isDuplicate ? '持ってたアイテムだった…' : '新しいアイテムをゲット！';
+                    const p = res.isDuplicate ? `<p>かわりに <b>${res.awardedExchangePoints}Pt</b> もらったよ！</p>` : '';
+                    Swal.fire({
+                        title: t,
+                        html: `<h4 class="fw-bold my-3 text-primary">${res.wonItem['アイテム名']}</h4>${p}`,
+                        icon: res.isDuplicate ? 'info' : 'success'
+                    });
+                }
+
+                // Refresh Data entirely
+                const fresh = await api.call('getInitialAppData');
+                state.data = fresh.data;
+                initStudentView();
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+    function renderPlaza(plazaData) {
+        const container = document.getElementById('plaza-container');
+        container.innerHTML = '';
+        if (!plazaData || plazaData.length === 0) return;
+
+        const html = plazaData.map(p => {
+            return `
+      <div class="col-md-4 col-lg-3">
+        <div class="card shadow-sm text-center h-100 hover-lift border-0">
+          <div class="card-body">
+            <h5 class="fw-bold text-primary mb-1">${p.nickname} <span class="badge bg-warning text-dark border ms-1">Lv.${p.level}</span></h5>
+            <small class="text-muted d-block mb-3">${p.motto || 'よろしくね！'}</small>
+            <div class="bg-light rounded p-2 text-start">
+               <div class="small mb-1"><span class="fw-bold text-success">すき:</span> ${p.favorite || 'ひみつ'}</div>
+               <div class="small"><span class="fw-bold text-info">目標:</span> ${p.goal || 'がんばる！'}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+        }).join('');
+        container.innerHTML = html;
+    }
+
+    // -----------------------------------------------------------------
+    // 5. Teacher View Logic
+    // -----------------------------------------------------------------
+    function initTeacherView() {
+        switchView('teacher-dashboard');
+        const d = state.data;
+
+        // Render Announcement List
+        renderTeacherAnnouncements(d.announcements);
+
+        // Render Select and Checkboxes for Students
+        const select = document.getElementById('student-detail-select');
+        const checkboxContainer = document.getElementById('grant-student-checkboxes');
+
+        select.innerHTML = '<option value="">選択してください...</option>';
+        checkboxContainer.innerHTML = '';
+
+        if (d.students) {
+            d.students.forEach(s => {
+                // Select option
+                const opt = document.createElement('option');
+                opt.value = s.email;
+                opt.textContent = `${s.number} ${s.nickname}`;
+                select.appendChild(opt);
+
+                // Checkbox
+                const div = document.createElement('div');
+                div.className = 'form-check mb-1';
+                div.innerHTML = `
+        <input class="form-check-input student-checkbox" type="checkbox" value="${s.email}" id="chk-${s.number}">
+        <label class="form-check-label fw-bold" for="chk-${s.number}">
+          ${s.number} ${s.nickname}
+        </label>
+      `;
+                checkboxContainer.appendChild(div);
+            });
+        }
+
+        // Bind Listeners
+        document.getElementById('post-announcement-btn').onclick = postAnnouncement;
+        document.getElementById('grant-point-btn').onclick = grantPoints;
+        document.getElementById('view-student-detail-btn').onclick = viewStudentDetail;
+    }
+
+    function renderTeacherAnnouncements(ann) {
+        const container = document.getElementById('teacher-announcements-list');
+        container.innerHTML = '';
+        if (!ann || ann.length <= 1) {
+            container.innerHTML = '<p class="text-muted small">表示するお知らせはありません。</p>';
+            return;
+        }
+
+        const html = ann.slice(1).map((a, idx) => {
+            const d = new Date(a[0]);
+            const dStr = `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+            const rowNum = idx + 2; // +1 for header, +1 for 1-based index
+            return `
+      <div class="border rounded p-2 mb-2 bg-light d-flex justify-content-between align-items-center">
+        <div>
+          <div class="small text-muted mb-1">${dStr} - ${a[2]}</div>
+          <div class="fw-bold">${a[1]}</div>
+        </div>
+        <button class="btn btn-sm btn-outline-danger" onclick="deleteAnnouncement(${rowNum})"><i class="bi bi-trash"></i> 削除</button>
+      </div>
+    `;
+        }).join('');
+        container.innerHTML = html;
+    }
+
+    async function postAnnouncement() {
+        const msg = document.getElementById('announcement-message').value;
+        if (!msg.trim()) {
+            Swal.fire('エラー', 'メッセージを入力してください', 'warning');
+            return;
+        }
+        try {
+            const data = { message: msg, author: state.data.teacherName, endDate: null };
+            const res = await api.call('postAnnouncement', [data]);
+            if (res.success) {
+                document.getElementById('announcement-message').value = '';
+                Swal.fire('成功', 'お知らせを投稿しました', 'success');
+                state.data.announcements = res.announcements;
+                renderTeacherAnnouncements(res.announcements);
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+    async function deleteAnnouncement(rowNum) {
+        try {
+            const res = await api.call('deleteAnnouncement', [rowNum]);
+            if (res.success) {
+                Swal.fire('成功', '削除しました', 'success');
+                state.data.announcements = res.announcements;
+                renderTeacherAnnouncements(res.announcements);
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+    async function grantPoints() {
+        const amount = Number(document.getElementById('point-amount').value);
+        const reason = document.getElementById('grant-reason').value || "教員からの特別配付";
+        const type = document.querySelector('input[name="point-type"]:checked').value;
+
+        if (!amount || amount <= 0) {
+            Swal.fire('エラー', '正しい配付量を入力してください', 'warning');
+            return;
+        }
+
+        const selectedEmails = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
+        if (selectedEmails.length === 0) {
+            Swal.fire('エラー', '対象の児童を選択してください', 'warning');
+            return;
+        }
+
+        try {
+            const reqData = { emails: selectedEmails, type: type, amount: amount, reason: reason };
+            const res = await api.call('grantPoints', [reqData]);
+            if (res.success) {
+                Swal.fire('成功', res.message, 'success');
+                document.getElementById('point-amount').value = '';
+                document.getElementById('grant-reason').value = '';
+                document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = false);
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+    async function viewStudentDetail() {
+        const email = document.getElementById('student-detail-select').value;
+        if (!email) {
+            Swal.fire('注意', '児童を選択してください', 'warning');
+            return;
+        }
+
+        try {
+            const res = await api.call('getStudentDetails', [email]);
+            if (res.success) {
+                const p = res.data.profile;
+                const html = `
+        <div class="text-start">
+           <h4 class="text-primary fw-bold">${p.nickname}</h4>
+           <ul>
+             <li>レベル: ${p.level}</li>
+             <li>累計経験値: ${p.totalExp}</li>
+             <li>交換ポイント: ${p.exchangePoints}</li>
+           </ul>
+           <h6 class="fw-bold mt-3 border-bottom pb-1">最近のアクティビティ</h6>
+           <div class="small overflow-auto custom-scrollbar" style="max-height:150px;">
+             ${res.data.recentActivity && res.data.recentActivity.length > 0 ?
+                        res.data.recentActivity.map(l => `${new Date(l.timestamp).toLocaleDateString()} : ${l.details}`).join('<br>') :
+                        '履歴なし'}
+           </div>
+        </div>
+      `;
+                Swal.fire({
+                    title: '児童詳細',
+                    html: html,
+                    confirmButtonText: 'とじる',
+                    width: '500px'
+                });
+            } else {
+                Swal.fire('エラー', res.message, 'error');
+            }
+        } catch (e) { }
+    }
+
+</script>

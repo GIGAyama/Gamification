@@ -1,0 +1,203 @@
+<style>
+    /* =================================================================
+   GIGA Standard v2: css.html
+   "Modern Google Style for Kids"
+================================================================= */
+
+    /* フォント指定 */
+    body {
+        font-family: 'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif;
+        color: #333;
+        background-color: #f8f9fa;
+        /* Bootstrap bg-light */
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    .fw-bold {
+        font-family: 'Zen Maru Gothic', 'M PLUS Rounded 1c', sans-serif;
+        font-weight: 700 !important;
+    }
+
+    /* ルビの微調整（読みやすく） */
+    ruby {
+        ruby-align: center;
+    }
+
+    rt {
+        font-size: 0.6em;
+        color: #6c757d;
+        /* text-muted */
+        font-family: 'Zen Maru Gothic', sans-serif;
+    }
+
+    /* ナビゲーショントブのアクティブスタイル設定 */
+    .nav-tab {
+        transition: all 0.3s ease;
+        border-bottom: 3px solid transparent !important;
+    }
+
+    .nav-tab.active-tab {
+        color: #0d6efd !important;
+        /* ptimary color */
+        border-bottom: 3px solid #0d6efd !important;
+        background-color: #f1f8ff;
+    }
+
+    .nav-tab:hover {
+        background-color: #f8f9fa;
+    }
+
+    /* グローバルスピナー */
+    #global-spinner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background-color: rgba(255, 255, 255, 0.8);
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* カスタムスクロールバー */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 8px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+        border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #c1c1c1;
+        border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #a8a8a8;
+    }
+
+    /* ホバー時の浮き上がりアクション */
+    .hover-lift {
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .hover-lift:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+    }
+
+    .hover-lift:active {
+        transform: translateY(1px);
+    }
+
+    /* アバタープレビュー（レイヤー順に重ねるため） */
+    .avatar-part {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    /* 紙吹雪用のアニメーション (10連ガチャなど) */
+    .confetti-piece {
+        position: fixed;
+        width: 10px;
+        height: 20px;
+        background-color: #f00;
+        opacity: 0;
+        top: -20px;
+        z-index: 2000;
+    }
+
+    @keyframes fall {
+        0% {
+            opacity: 1;
+            top: -20px;
+            transform: translateX(0) rotate(0deg);
+        }
+
+        100% {
+            opacity: 1;
+            top: 100vh;
+            transform: translateX(100px) rotate(360deg);
+        }
+    }
+
+    /* レベルアップアニメーション */
+    .celebrate-level {
+        animation: zoom-in-out 1s ease-in-out forwards;
+    }
+
+    @keyframes zoom-in-out {
+        0% {
+            transform: scale(1);
+        }
+
+        50% {
+            transform: scale(1.3);
+            color: #ffab00;
+        }
+
+        100% {
+            transform: scale(1);
+        }
+    }
+
+    /* ミッション完了アイテム */
+    .mission-item-completed {
+        opacity: 0.6;
+        background-color: #f8f9fa;
+    }
+
+    /* インベントリアイテムの表示 */
+    .inventory-item {
+        width: 60px;
+        height: 60px;
+        border: 2px solid #dee2e6;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: white;
+        cursor: pointer;
+        position: relative;
+        transition: transform 0.1s;
+    }
+
+    .inventory-item:hover {
+        transform: scale(1.05);
+        border-color: #0d6efd;
+    }
+
+    .inventory-item.equipped {
+        border-color: #198754;
+        background-color: #e8f5e9;
+    }
+
+    .inventory-item.equipped::after {
+        content: "★";
+        color: #198754;
+        position: absolute;
+        top: -5px;
+        right: -5px;
+        font-size: 0.8rem;
+        background: white;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        text-align: center;
+        line-height: 16px;
+        font-weight: bold;
+    }
+</style>
