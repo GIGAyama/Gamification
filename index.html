@@ -9,30 +9,30 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Mochiy+Pop+One&family=Noto+Sans+JP:wght@400;700&family=Zen+Maru+Gothic:wght@500;700&display=swap"
     rel="stylesheet">
-  
+
   <!-- 分割したCSSをスニペットとして読み込む -->
   <?!= include('css'); ?>
 </head>
 
-<body class="bg-fantasy text-fantasy-deep">
+<body class="bg-fantasy text-fantasy-deep h-screen overflow-hidden flex flex-col">
 
   <!-- =================================================================
 HTML構造 (HTML Structure)
 ================================================================= -->
 
   <!-- ローディング画面 -->
-  <div id="loading" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div class="text-white text-center">
-      <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-white mx-auto"></div>
-      <p class="mt-4 text-xl font-mplus">データを読み込み中...</p>
+  <div id="loading" class="fixed inset-0 bg-gray-900 bg-opacity-95 flex items-center justify-center z-[100]">
+    <div class="text-white text-center flex flex-col items-center">
+      <div class="rpg-loading-hero mb-4"></div>
+      <p class="mt-6 text-2xl font-mplus animate-pulse tracking-widest text-shadow-glow">Now Loading...</p>
     </div>
   </div>
 
   <!-- ======================= 児童用アプリケーション ======================= -->
-  <div id="student-app" class="hidden">
+  <div id="student-app" class="hidden flex-1 flex flex-col overflow-hidden">
     <header class="bg-fantasy-card p-4 shadow-md flex justify-between items-center z-10 relative">
-      <h1 class="text-3xl">
-        <ruby>学習冒険記録<rt>がくしゅうぼうけんきろく</rt></ruby>
+      <h1 class="text-3xl font-mplus flex items-center">
+        <span class="mr-2 text-2xl">⚔️</span>まなびクエスト
       </h1>
       <div id="user-profile-header" class="text-right"></div>
     </header>
@@ -47,54 +47,61 @@ HTML構造 (HTML Structure)
     </nav>
 
     <!-- メインコンテンツ領域 -->
-    <main class="p-4 relative z-0">
-      
+    <main class="flex-1 p-4 relative z-0 overflow-y-auto w-full">
+
       <!-- ▼ 新規UI: パーティクル描画コンテナ -->
       <div id="confetti-container" class="fixed inset-0 pointer-events-none z-50 overflow-hidden"></div>
 
       <!-- ダッシュボード (冒険の書) -->
-      <section id="dashboard" class="view active max-w-5xl mx-auto">
-        <div class="grid md:grid-cols-3 gap-6">
+      <section id="dashboard" class="view active max-w-6xl mx-auto h-full">
+        <div class="grid md:grid-cols-3 gap-6 h-full">
 
           <!-- 左：ステータスとアバター -->
-          <div class="space-y-6 md:col-span-1">
-            <div class="bg-fantasy-card p-6 rounded-lg shadow-lg">
-              <h2 class="text-2xl font-mplus font-bold mb-4 text-fantasy-brown border-b-2 border-fantasy-brown pb-2">
-                ステータス</h2>
-              <div id="user-status" class="text-lg space-y-2"></div>
+          <div class="flex flex-col gap-4 md:col-span-1 h-full min-h-0">
+            <!-- 上段：ステータスとアバター（横並びで省スペース化、位置入れ替え） -->
+            <div class="flex gap-4 flex-shrink-0">
+              <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-1 text-center">
+                <h2 class="text-xl font-mplus font-bold mb-2 text-fantasy-brown border-b-2 border-fantasy-brown pb-1">
+                  アバター</h2>
+                <div id="avatar-preview-main"
+                  class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mx-auto"></div>
+              </div>
+              <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-1 max-w-[50%]">
+                <h2 class="text-xl font-mplus font-bold mb-2 text-fantasy-brown border-b-2 border-fantasy-brown pb-1">
+                  ステータス</h2>
+                <div id="user-status" class="text-base space-y-1"></div>
+              </div>
             </div>
-            <div class="bg-fantasy-card p-6 rounded-lg shadow-lg text-center">
-              <h2 class="text-2xl font-mplus font-bold mb-4 text-fantasy-brown border-b-2 border-fantasy-brown pb-2">
-                アバター</h2>
-              <div id="avatar-preview-main"
-                class="relative w-full aspect-square bg-gray-200 rounded-md overflow-hidden mx-auto"></div>
-            </div>
+
+            <!-- 下段：ランキングと最近の記録（縦割りでスクロール） -->
             <!-- ▼ 追加UI: ランキングボード -->
-            <div class="bg-fantasy-card p-4 rounded-lg shadow-lg">
-              <h3 class="text-xl font-mplus font-bold mb-2 text-fantasy-brown border-b border-fantasy-brown pb-1">
+            <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-1 flex flex-col min-h-0">
+              <h3 class="text-lg font-mplus font-bold mb-2 text-fantasy-brown border-b border-fantasy-brown pb-1">
                 ランキング</h3>
-              <div id="rankings-board" class="space-y-2"></div>
+              <div id="rankings-board" class="flex-1 overflow-y-auto space-y-2 pr-1"></div>
             </div>
             <!-- ▼ 追加UI: 最近の記録ボード -->
-            <div class="bg-fantasy-card p-4 rounded-lg shadow-lg">
-              <h3 class="text-xl font-mplus font-bold mb-2 text-fantasy-brown border-b border-fantasy-brown pb-1">最近の<ruby>記録<rt>きろく</rt></ruby></h3>
-              <div id="recent-activity-log" class="space-y-2 max-h-40 overflow-y-auto"></div>
+            <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-1 flex flex-col min-h-0">
+              <h3 class="text-lg font-mplus font-bold mb-2 text-fantasy-brown border-b border-fantasy-brown pb-1">
+                最近の<ruby>記録<rt>きろく</rt></ruby></h3>
+              <div id="recent-activity-log" class="flex-1 overflow-y-auto space-y-2 pr-1"></div>
             </div>
           </div>
 
           <!-- 右：ミッションボードなど -->
-          <div class="space-y-6 md:col-span-2">
-             <!-- ▼ 追加UI: お知らせボード -->
-            <div class="bg-fantasy-card p-6 rounded-lg shadow-lg">
-              <h2 class="text-2xl font-mplus font-bold mb-4 text-fantasy-brown border-b-2 border-fantasy-brown pb-2">お知らせ</h2>
-              <div id="announcements-board" class="space-y-2 max-h-32 overflow-y-auto pl-2"></div>
+          <div class="flex flex-col gap-4 md:col-span-2 h-full min-h-0">
+            <!-- ▼ 追加UI: お知らせボード -->
+            <div class="bg-fantasy-card p-4 rounded-lg shadow-lg flex-shrink-0">
+              <h2 class="text-xl font-mplus font-bold mb-2 text-fantasy-brown border-b-2 border-fantasy-brown pb-1">
+                お知らせ</h2>
+              <div id="announcements-board" class="max-h-24 overflow-y-auto pl-2"></div>
             </div>
 
-            <div class="bg-fantasy-card p-6 rounded-lg shadow-lg relative">
-              <div class="absolute -top-4 -right-4 text-5xl transform rotate-12">📜</div>
-              <h2 class="text-2xl font-mplus font-bold mb-4 text-fantasy-brown border-b-2 border-fantasy-brown pb-2">
+            <div class="bg-fantasy-card p-5 rounded-lg shadow-lg relative flex-1 flex flex-col min-h-0">
+              <div class="absolute -top-4 -right-4 text-4xl transform rotate-12 drop-shadow-md">📜</div>
+              <h2 class="text-xl font-mplus font-bold mb-3 text-fantasy-brown border-b-2 border-fantasy-brown pb-1">
                 ミッションボード</h2>
-              <div id="missions-board" class="max-h-[500px] overflow-y-auto pr-2"></div>
+              <div id="missions-board" class="flex-1 overflow-y-auto pr-2"></div>
             </div>
           </div>
 
@@ -102,152 +109,239 @@ HTML構造 (HTML Structure)
       </section>
 
       <!-- マイルーム -->
-      <section id="my-room" class="view max-w-6xl mx-auto"></section>
+      <section id="my-room" class="view hidden max-w-6xl mx-auto h-full pb-8"></section>
 
       <!-- みんなの広場 -->
-      <section id="plaza" class="view max-w-5xl mx-auto">
-        <h2 class="text-3xl font-mplus font-bold mb-6 text-center text-fantasy-brown">みんなの<ruby>広場<rt>ひろば</rt></ruby></h2>
-        <div id="plaza-container" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4"></div>
+      <section id="plaza" class="view hidden w-full h-full flex flex-col min-h-0 plaza-board overflow-hidden">
+        <div id="plaza-container"
+          class="flex-1 w-full p-2 sm:p-4 overflow-y-auto custom-scrollbar auto-rows-max grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-6">
+        </div>
       </section>
     </main>
   </div>
 
   <!-- ======================= 教員用ダッシュボード ======================= -->
-  <div id="teacher-app" class="hidden min-h-screen bg-gray-100 font-sans text-gray-900">
+  <div id="teacher-app" class="hidden flex-1 flex flex-col overflow-hidden bg-gray-100 font-sans text-gray-900">
     <header class="bg-blue-800 text-white p-4 shadow-md">
       <div class="container mx-auto flex justify-between items-center">
-        <h1 class="text-2xl font-bold">がくしゅうぼうけんきろく - 教員ダッシュボード</h1>
+        <h1 class="text-2xl font-bold font-mplus flex items-center"><span class="mr-2">⚔️</span>まなびクエスト - 教員ダッシュボード</h1>
       </div>
     </header>
 
-    <div class="container mx-auto p-4 max-w-6xl">
+    <div class="container mx-auto p-4 max-w-6xl flex-1 overflow-hidden flex flex-col">
 
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <!-- ▼ 新規UI: 教員用タブナビゲーション -->
+      <div class="flex space-x-1 mb-4 border-b border-gray-300 flex-wrap">
+        <button id="tab-overview-btn"
+          class="teacher-tab-btn bg-white inline-block py-2 px-4 text-blue-800 font-bold border-t-4 border-blue-500 rounded-t-lg border-l border-r -mb-px focus:outline-none"
+          onclick="switchTeacherTab('overview')">📊 クラス状況</button>
+        <button id="tab-students-btn"
+          class="teacher-tab-btn bg-gray-200 inline-block py-2 px-4 text-gray-600 hover:text-blue-800 hover:bg-white rounded-t-lg font-bold border-t-4 border-transparent focus:outline-none transition-colors"
+          onclick="switchTeacherTab('students')">👩‍🎓 児童管理</button>
+        <button id="tab-announcements-btn"
+          class="teacher-tab-btn bg-gray-200 inline-block py-2 px-4 text-gray-600 hover:text-blue-800 hover:bg-white rounded-t-lg font-bold border-t-4 border-transparent focus:outline-none transition-colors"
+          onclick="switchTeacherTab('announcements')">📢 お知らせ管理</button>
+        <button id="tab-settings-btn"
+          class="teacher-tab-btn bg-gray-200 inline-block py-2 px-4 text-gray-600 hover:text-blue-800 hover:bg-white rounded-t-lg font-bold border-t-4 border-transparent focus:outline-none transition-colors"
+          onclick="switchTeacherTab('settings')">⚙️ システム設定</button>
+      </div>
 
-        <!-- アクションパネル (ポイント配布など) -->
-        <div class="md:col-span-2 space-y-6">
+      <!-- ▼ タブコンテンツコンテナ群 -->
+      <div class="flex-1 overflow-y-auto">
 
-          <!-- 児童一括操作パネル -->
-          <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500">
-            <h2 class="text-xl font-bold mb-4 flex items-center">
-              <svg class="w-6 h-6 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
-              児童へのポイント配布
+        <!-- 1. クラス状況タブ -->
+        <div id="teacher-tab-overview" class="teacher-tab-content">
+          <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500 h-full flex flex-col">
+            <h2 class="text-xl font-bold mb-4 flex items-center text-blue-800">
+              <span class="mr-2 text-2xl">📊</span>クラス状況ボード
             </h2>
-            
-            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <!-- 児童選択リスト -->
-              <div class="bg-gray-50 p-4 rounded border">
-                <div class="flex justify-between items-center mb-2 pb-2 border-b">
-                   <h3 class="font-bold text-gray-700">対象児童</h3>
-                   <label class="flex items-center cursor-pointer text-sm text-blue-600 hover:text-blue-800">
-                      <input type="checkbox" id="select-all-students" class="mr-1 h-4 w-4">全員選択
-                   </label>
-                </div>
-                <!-- ▼ UI改善: スクロール領域とストライプ用のコンテナ整備 -->
-                <div id="student-list" class="max-h-60 overflow-y-auto pr-2 bg-white border border-gray-200 rounded-md">
-                    <!-- 児童リストがJSで挿入される -->
-                </div>
-              </div>
+            <div class="overflow-x-auto border border-gray-200 rounded-md">
+              <table class="min-w-full bg-white text-sm">
+                <thead class="bg-blue-50 text-gray-700 sticky top-0">
+                  <tr>
+                    <th class="py-2 px-4 border-b text-center">番号</th>
+                    <th class="py-2 px-4 border-b text-left">ニックネーム</th>
+                    <th class="py-2 px-4 border-b text-right">Lv</th>
+                    <th class="py-2 px-4 border-b text-right">累計EXP</th>
+                    <th class="py-2 px-4 border-b text-right">交換Pt</th>
+                    <th class="py-2 px-4 border-b text-center">最終ログイン</th>
+                  </tr>
+                </thead>
+                <tbody id="teacher-class-overview-table" class="divide-y divide-gray-100">
+                  <!-- JSで挿入される -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
 
-              <!-- 配布設定フォーム -->
-              <div class="bg-blue-50 p-4 rounded border border-blue-100 flex flex-col justify-between">
-                <div class="space-y-4">
-                  <div>
-                    <span class="block text-sm font-bold text-gray-700 mb-1">付与するポイントの種類</span>
-                    <div class="flex space-x-4">
-                      <label class="inline-flex items-center cursor-pointer">
-                        <input type="radio" name="point_type" value="exp" class="form-radio text-blue-600" checked>
-                        <span class="ml-2 font-medium">経験値</span>
-                      </label>
-                      <label class="inline-flex items-center cursor-pointer">
-                        <input type="radio" name="point_type" value="exchange" class="form-radio text-green-600">
-                        <span class="ml-2 font-medium">交換ポイント</span>
-                      </label>
+        <!-- 2. 児童管理タブ -->
+        <div id="teacher-tab-students" class="teacher-tab-content hidden">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+            <!-- 児童一括操作パネル -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow-md border-t-4 border-blue-500 flex flex-col">
+              <h2 class="text-xl font-bold mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z">
+                  </path>
+                </svg>
+                児童へのポイント一括配布
+              </h2>
+
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- 児童選択リスト -->
+                <div class="bg-gray-50 p-4 rounded border flex flex-col max-h-80">
+                  <div class="flex justify-between items-center mb-2 pb-2 border-b">
+                    <h3 class="font-bold text-gray-700">対象児童</h3>
+                    <label class="flex items-center cursor-pointer text-sm text-blue-600 hover:text-blue-800">
+                      <input type="checkbox" id="select-all-students" class="mr-1 h-4 w-4">全員選択
+                    </label>
+                  </div>
+                  <div id="student-list"
+                    class="flex-1 overflow-y-auto pr-2 bg-white border border-gray-200 rounded-md p-2">
+                    <!-- 児童リストがJSで挿入される -->
+                  </div>
+                </div>
+
+                <!-- 配布設定フォーム -->
+                <div class="bg-blue-50 p-4 rounded border border-blue-100 flex flex-col">
+                  <div class="space-y-4">
+                    <div>
+                      <span class="block text-sm font-bold text-gray-700 mb-1">ポイントの種類</span>
+                      <div class="flex space-x-4">
+                        <label class="inline-flex items-center cursor-pointer">
+                          <input type="radio" name="point_type" value="exp" class="form-radio text-blue-600" checked>
+                          <span class="ml-2 font-medium">経験値</span>
+                        </label>
+                        <label class="inline-flex items-center cursor-pointer">
+                          <input type="radio" name="point_type" value="exchange" class="form-radio text-green-600">
+                          <span class="ml-2 font-medium">交換Pt</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label for="point-amount" class="block text-sm font-bold text-gray-700">付与量 (正の整数)</label>
+                      <input type="number" id="point-amount" min="1"
+                        class="w-full p-2 border border-blue-300 rounded-md mt-1 focus:ring focus:ring-blue-200"
+                        placeholder="例: 100">
+                    </div>
+
+                    <div>
+                      <label for="grant-reason" class="block text-sm font-bold text-gray-700">付与の理由（履歴用）</label>
+                      <input type="text" id="grant-reason"
+                        class="w-full p-2 border border-blue-300 rounded-md mt-1 focus:ring focus:ring-blue-200"
+                        placeholder="例: スピーチをがんばった">
                     </div>
                   </div>
-                  
-                  <div>
-                    <label for="point-amount" class="block text-sm font-bold text-gray-700">付与量 (正の整数)</label>
-                    <input type="number" id="point-amount" min="1" class="w-full p-2 border border-blue-300 rounded-md mt-1 focus:ring focus:ring-blue-200" placeholder="例: 100">
-                  </div>
-                  
-                  <div>
-                    <label for="grant-reason" class="block text-sm font-bold text-gray-700">付与の理由（児童の履歴に残ります）</label>
-                    <input type="text" id="grant-reason" class="w-full p-2 border border-blue-300 rounded-md mt-1 focus:ring focus:ring-blue-200" placeholder="例: スピーチをがんばったボーナス">
-                  </div>
-                </div>
 
-                <button id="grant-point-btn" class="btn-teacher-primary w-full mt-6 py-3 text-lg font-bold">選択した児童に配布する</button>
+                  <button id="grant-point-btn"
+                    class="btn-teacher-primary w-full mt-6 py-3 text-lg font-bold">全員に配布</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 児童の個別詳細確認 -->
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-500 max-h-48">
+              <h2 class="text-xl font-bold mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z">
+                  </path>
+                </svg>
+                カルテ（詳細記録）
+              </h2>
+              <div class="flex flex-col space-y-3">
+                <select id="student-detail-select"
+                  class="w-full p-2 border border-gray-300 rounded-md focus:ring focus:ring-green-200">
+                  <!-- JSでプションが挿入される -->
+                </select>
+                <button id="view-student-detail-btn"
+                  class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition-colors w-full">詳細を見る</button>
               </div>
             </div>
           </div>
+        </div>
 
-          <!-- 児童の個別詳細確認 -->
-          <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-green-500">
-             <h2 class="text-xl font-bold mb-4 flex items-center">
-              <svg class="w-6 h-6 mr-2 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 21h7a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v11m0 5l4.879-4.879m0 0a3 3 0 104.243-4.242 3 3 0 00-4.243 4.242z"></path></svg>
-              児童のカルテ（詳細記録）を確認
-            </h2>
-            <div class="flex space-x-4 items-end">
-                <div class="flex-grow">
-                   <label for="student-detail-select" class="block text-sm font-bold text-gray-700">確認する児童を選択</label>
-                   <select id="student-detail-select" class="w-full p-2 border border-gray-300 rounded-md mt-1 focus:ring focus:ring-green-200">
-                      <!-- JSでオプションが挿入される -->
-                   </select>
+        <!-- 3. お知らせ管理タブ -->
+        <div id="teacher-tab-announcements" class="teacher-tab-content hidden">
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- お知らせ投稿フォーム -->
+            <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-yellow-500">
+              <h2 class="text-xl font-bold mb-4 flex items-center">
+                <svg class="w-6 h-6 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z">
+                  </path>
+                </svg>
+                お知らせを配信
+              </h2>
+              <div class="space-y-4">
+                <div>
+                  <label for="announcement-message" class="block text-sm font-bold text-gray-700">メッセージ内容</label>
+                  <textarea id="announcement-message" rows="4"
+                    class="w-full p-2 border border-gray-300 rounded-md mt-1 focus:ring focus:ring-yellow-200"
+                    placeholder="児童に表示するメッセージを入力"></textarea>
                 </div>
-                <button id="view-student-detail-btn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-md shadow-md transition-colors">詳細を見る</button>
+                <div>
+                  <label for="display-until" class="block text-sm font-bold text-gray-700">表示終了日（任意）</label>
+                  <input type="date" id="display-until" class="w-full p-2 border border-gray-300 rounded-md mt-1">
+                </div>
+                <button id="post-announcement-btn"
+                  class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md w-full shadow-md transition-colors">投稿する</button>
+              </div>
+            </div>
+
+            <!-- 現在のお知らせ -->
+            <div class="bg-yellow-50 p-6 rounded-lg border border-yellow-200 flex flex-col max-h-[600px]">
+              <h2 class="text-lg font-bold text-yellow-800 mb-3 border-b border-yellow-300 pb-1 flex-shrink-0">
+                現在配信中のお知らせ
+              </h2>
+              <div id="announcements-list" class="space-y-3 flex-1 overflow-y-auto pr-2">
+                <!-- JSで挿入される -->
+              </div>
             </div>
           </div>
-
         </div>
 
-        <!-- サイドパネル (お知らせ管理) -->
-        <div class="md:col-span-1 space-y-6">
-          
-          <!-- お知らせ投稿フォーム -->
-          <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-yellow-500">
-             <h2 class="text-xl font-bold mb-4 flex items-center">
-               <svg class="w-6 h-6 mr-2 text-yellow-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z"></path></svg>
-               お知らせを配信
-             </h2>
-             <div class="space-y-4">
-                <div>
-                   <label for="announcement-message" class="block text-sm font-bold text-gray-700">メッセージ内容</label>
-                   <textarea id="announcement-message" rows="4" class="w-full p-2 border border-gray-300 rounded-md mt-1 focus:ring focus:ring-yellow-200" placeholder="児童に表示するメッセージを入力"></textarea>
-                </div>
-                <div>
-                   <label for="display-until" class="block text-sm font-bold text-gray-700">表示終了日（任意）</label>
-                   <input type="date" id="display-until" class="w-full p-2 border border-gray-300 rounded-md mt-1">
-                </div>
-                <button id="post-announcement-btn" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-4 rounded-md w-full shadow-md transition-colors">投稿する</button>
-             </div>
+        <!-- 4. システム設定タブ -->
+        <div id="teacher-tab-settings" class="teacher-tab-content hidden">
+          <div class="bg-white p-6 rounded-lg shadow-md border-t-4 border-purple-500">
+            <h2 class="text-xl font-bold mb-4 flex items-center">
+              <span class="mr-2 text-purple-500 text-2xl">⚙️</span>
+              アプリ設定（システム設定）
+            </h2>
+            <div id="teacher-settings-form"
+              class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 max-h-[600px] overflow-y-auto p-4 border border-blue-100 rounded bg-blue-50">
+              <!-- JSで設定項目が動的に生成される -->
+              <p class="text-gray-500 text-sm py-4 text-center col-span-2">設定データを読み込み中...</p>
+            </div>
+            <button id="save-settings-btn"
+              class="mt-6 max-w-sm mx-auto block w-full bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-md shadow-md transition-colors text-lg">設定を保存する</button>
           </div>
-
-          <!-- 現在のお知らせ -->
-          <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
-             <h2 class="text-lg font-bold text-yellow-800 mb-3 border-b border-yellow-300 pb-1">現在配信中のお知らせ</h2>
-             <div id="announcements-list" class="space-y-3 max-h-[40vh] overflow-y-auto pr-2">
-                 <!-- JSで挿入される -->
-             </div>
-          </div>
-
         </div>
+
       </div>
     </div>
-    
+
     <!-- 児童詳細モーダル（教員用画面内） -->
-    <div id="student-detail-modal" class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 p-4 hidden">
-       <div id="student-detail-content" class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-5xl text-left border-4 border-green-400 relative max-h-[90vh] flex flex-col">
-           <!-- Content will be injected by JS -->
-       </div>
+    <div id="student-detail-modal"
+      class="fixed inset-0 bg-gray-900 bg-opacity-80 flex items-center justify-center z-50 p-4 hidden">
+      <div id="student-detail-content"
+        class="bg-white p-6 rounded-lg shadow-2xl w-full max-w-5xl text-left border-4 border-green-400 relative max-h-[90vh] flex flex-col">
+        <!-- Content will be injected by JS -->
+      </div>
     </div>
   </div>
 
 
   <!-- フッター -->
-  <footer class="text-center text-muted py-3 mt-4 border-top">
-    <small>© 2026 学習冒険記録 <a href="https://note.com/cute_borage86" target="_blank"
-        class="text-decoration-none text-muted">GIGA山</a></small>
+  <footer
+    class="text-center text-gray-500 py-3 mt-auto border-t border-gray-300 bg-white z-40 relative flex-shrink-0 w-full">
+    <small>© 2026 まなびクエスト <a href="https://note.com/cute_borage86" target="_blank"
+        class="no-underline text-gray-500 hover:text-gray-700">GIGA山</a></small>
   </footer>
 
 
@@ -266,13 +360,18 @@ HTML構造 (HTML Structure)
   <div id="level-up-modal" class="fixed inset-0 bg-black bg-opacity-80 flex items-center justify-center hidden">
     <!-- UI改善: 紙吹雪のコンテナは body/main 直下に移動 -->
     <div class="text-center text-white z-10 w-full flex flex-col items-center justify-center">
-      <h2 class="text-6xl font-mplus celebrate-title text-yellow-300 drop-shadow-[0_0_15px_rgba(255,255,0,0.8)]"><ruby>祝<rt>しゅく</rt></ruby>！レベルアップ！</h2>
-      <p id="level-up-text" class="text-8xl mt-8 font-mplus celebrate-level text-white drop-shadow-[0_0_20px_rgba(255,255,255,1)] text-shadow-glow"></p>
+      <h2 class="text-6xl font-mplus celebrate-title text-yellow-300 drop-shadow-[0_0_15px_rgba(255,255,0,0.8)]"><ruby>祝
+          <rt>しゅく</rt>
+        </ruby>！レベルアップ！</h2>
+      <p id="level-up-text"
+        class="text-8xl mt-8 font-mplus celebrate-level text-white drop-shadow-[0_0_20px_rgba(255,255,255,1)] text-shadow-glow">
+      </p>
     </div>
   </div>
 
   <!-- ガチャローディング画面 -->
-  <div id="gacha-loading-modal" class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
+  <div id="gacha-loading-modal"
+    class="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center hidden z-50">
     <div class="text-center flex flex-col items-center">
       <div class="gacha-capsule mb-6"></div>
       <p class="text-white text-2xl font-mplus animate-pulse">ガチャを<ruby>回<rt>まわ</rt></ruby>しています...</p>
@@ -280,7 +379,8 @@ HTML構造 (HTML Structure)
   </div>
 
   <!-- ▼ 新規UI: カスタム確認ダイアログ（confirm置換用） -->
-  <div id="custom-confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-[10000]">
+  <div id="custom-confirm-modal"
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-[10000]">
     <div class="bg-white p-6 rounded-lg max-w-sm w-full text-center shadow-xl border-4 border-blue-400">
       <h3 class="text-xl font-bold mb-4 text-gray-800">確認</h3>
       <p id="custom-confirm-message" class="mb-6 text-gray-600 font-medium"></p>
@@ -288,6 +388,20 @@ HTML構造 (HTML Structure)
         <button id="custom-confirm-ok" class="btn-primary flex-1 py-2 font-bold">はい</button>
         <button id="custom-confirm-cancel" class="btn-secondary flex-1 py-2 font-bold">いいえ</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ▼ 新規UI: リッチディティールエフェクトコンテナ（ガチャSR/ミッション用） -->
+  <div id="rich-effect-overlay"
+    class="fixed inset-0 pointer-events-none z-[9999] hidden flex items-center justify-center overflow-hidden">
+    <div class="effect-bg absolute inset-0"></div>
+    <div class="effect-focus-lines absolute inset-0"></div>
+    <div class="effect-particles absolute inset-0"></div>
+    <div id="rich-effect-content" class="relative z-10 text-center flex flex-col items-center">
+      <h2 id="rich-effect-title"
+        class="text-5xl md:text-7xl font-mplus font-bold text-transparent bg-clip-text bg-gradient-to-b from-yellow-300 to-yellow-600 drop-shadow-[0_4px_4px_rgba(0,0,0,0.8)] opacity-0 scale-50">
+      </h2>
+      <div id="rich-effect-item" class="mt-8 opacity-0 scale-50"></div>
     </div>
   </div>
 

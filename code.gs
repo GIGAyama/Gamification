@@ -72,7 +72,7 @@ const DUPLICATE_POINTS_KEYS = {
  */
 function doGet(e) {
   try {
-    return HtmlService.createTemplateFromFile('index').evaluate().setTitle('がくしゅうぼうけんきろく').addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+    return HtmlService.createTemplateFromFile('index').evaluate().setTitle('まなびクエスト').addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
   } catch (e) {
     console.error(`doGet Error: ${e.message}, Stack: ${e.stack}`);
     return HtmlService.createHtmlOutput("<h1>エラーが発生しました</h1><p>アプリケーションの起動に失敗しました。管理者にお問い合わせください。</p>");
@@ -110,6 +110,12 @@ function getGameData() {
    const ss = SpreadsheetApp.getActiveSpreadsheet();
    const config = getConfig_();
    let { user, bonusApplied, bonusPoints } = processLoginAndGetUser_(ss, email, config);
+   
+   // 教員の場合は児童用データを返さずエラーとし、フロントで教員用ダッシュボード処理へ流す
+   if (user.role === TEACHER_ROLE_ID) {
+     return { success: false, message: '教員アカウントです。' };
+   }
+
    const levelInfo = calculateLevel(user.totalExp, config);
    user.level = levelInfo.level;
    user.progress = levelInfo.progress;
@@ -423,18 +429,40 @@ function getTeacherData() {
       return { success: false, message: '権限がありません。' };
     }
 
+    const config = getConfig_();
+    
     const userSheet = ss.getSheetByName(SHEETS.USERS);
-    const usersData = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, 3).getValues();
+    const usersData = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, 7).getValues();
     const students = usersData
       .filter(row => row[0] != TEACHER_ROLE_ID && row[2])
-      .map(row => ({ number: row[0], nickname: row[1], email: row[2] }))
+      .map(row => {
+        const totalExp = Number(row[3]) || 0;
+        const levelInfo = calculateLevel(totalExp, config);
+        let lastLoginStr = row[6];
+        if (lastLoginStr instanceof Date) {
+          lastLoginStr = Utilities.formatDate(lastLoginStr, 'JST', 'yyyy-MM-dd');
+        }
+        return { 
+          number: row[0], 
+          nickname: row[1], 
+          email: row[2],
+          totalExp: totalExp,
+          exp: Number(row[4]) || 0,
+          exchangePoints: Number(row[5]) || 0,
+          lastLogin: lastLoginStr || '-',
+          level: levelInfo.level
+        };
+      })
       .sort((a, b) => a.number - b.number);
+
+    delete config.ss; // クライアントに送るためオブジェクトを削除
 
     return {
       success: true,
       teacherName: user.data['ニックネーム'],
       announcements: getAnnouncements_(true),
-      students: students
+      students: students,
+      config: config
     };
   } catch (e) {
     console.error(`getTeacherData Error: ${e.message}`);
@@ -596,6 +624,49 @@ function deleteAnnouncement(rowNum) {
     sheet.getRange(rowNum, 1, 1, sheet.getLastColumn()).clearContent();
     return { success: true, announcements: getAnnouncements_(true) };
   } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * @summary アプリ設定を更新します。（教員専用）
+ * @param {Object} settings - 更新する設定のキーと値のペア
+ * @returns {Object} 処理結果
+ */
+function updateConfigSettings(settings) {
+  try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const teacherEmail = Session.getActiveUser().getEmail();
+    const teacherUser = findRowData_(ss, SHEETS.USERS, 3, teacherEmail);
+    if (!teacherUser.data || teacherUser.data['出席番号'] != TEACHER_ROLE_ID) {
+      return { success: false, message: '設定を変更する権限がありません。' };
+    }
+
+    const sheet = ss.getSheetByName(SHEETS.CONFIG);
+    if (!sheet) throw new Error(`シート「${SHEETS.CONFIG}」が見つかりません。`);
+
+    const data = sheet.getDataRange().getValues();
+    const keysToUpdate = Object.keys(settings);
+    
+    // 既存のキーを更新
+    for (let i = 0; i < data.length; i++) {
+      const key = data[i][0];
+      if (key && settings.hasOwnProperty(key)) {
+        sheet.getRange(i + 1, 2).setValue(settings[key]);
+        const index = keysToUpdate.indexOf(key);
+        if (index > -1) keysToUpdate.splice(index, 1);
+      }
+    }
+    
+    // 新規キーがあれば追加
+    if (keysToUpdate.length > 0) {
+      const newRows = keysToUpdate.map(key => [key, settings[key]]);
+      sheet.getRange(sheet.getLastRow() + 1, 1, newRows.length, 2).setValues(newRows);
+    }
+
+    return { success: true, message: '設定を保存しました。' };
+  } catch (e) {
+    console.error(`updateConfigSettings Error: ${e.message}`);
     return { success: false, message: e.message };
   }
 }
@@ -1384,6 +1455,7 @@ function processLoginAndGetUser_(ss, email, config) {
   let user = {
     nickname: userData.data['ニックネーム'],
     email: userData.data['メールアドレス'],
+    role: userData.data['出席番号'],
     totalExp: Number(userData.data['累計経験値'] || 0),
     exp: Number(userData.data['経験値'] || 0),
     exchangePoints: Number(userData.data['交換ポイント'] || 0),

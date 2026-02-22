@@ -1,236 +1,706 @@
 <style>
-/* 基本フォント設定 */
-body {
-  font-family: 'Zen Maru Gothic', 'Noto Sans JP', sans-serif;
-}
+  /* 基本フォント設定 */
+  body {
+    font-family: 'Zen Maru Gothic', 'Noto Sans JP', sans-serif;
+  }
 
-h1,
-h2,
-h3,
-.font-mplus {
-  font-family: 'Mochiy+Pop+One', sans-serif;
-}
+  h1,
+  h2,
+  h3,
+  .font-mplus {
+    font-family: 'Mochiy+Pop+One', sans-serif;
+  }
 
-/* アプリ全体の配色テーマ */
-.bg-fantasy {
-  background-color: #f3e9d2;
-}
+  /* アプリ全体の配色テーマ */
+  .bg-fantasy {
+    background-color: #f3e9d2;
+  }
 
-.text-fantasy-deep {
-  color: #4a403a;
-}
+  .text-fantasy-deep {
+    color: #4a403a;
+  }
 
-.text-fantasy-brown {
-  color: #8c6b5d;
-}
+  .text-fantasy-brown {
+    color: #8c6b5d;
+  }
 
-.bg-fantasy-card {
-  background-color: #fffaf0;
-}
+  .bg-fantasy-card {
+    background-color: #fffaf0;
+    border: 3px double #c7a99a;
+    box-shadow: inset 0 0 8px rgba(199, 169, 154, 0.3), 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
 
-.border-fantasy-brown {
-  border-color: #c7a99a;
-}
+  .border-fantasy-brown {
+    border-color: #c7a99a;
+  }
 
-/* ボタン共通スタイル */
-.btn-primary,
-.btn-secondary,
-.btn-gacha,
-.btn-gacha10,
-.btn-claim {
-  color: white;
-  font-family: 'Mochiy Pop One', sans-serif;
-  padding: 10px 20px;
-  border-radius: 8px;
-  transition: transform 0.2s ease, background-color 0.2s ease;
-  cursor: pointer;
-  border-bottom-width: 4px;
-}
+  /* ボタン共通スタイル */
+  .btn-primary,
+  .btn-secondary,
+  .btn-gacha,
+  .btn-gacha10,
+  .btn-claim {
+    color: white;
+    font-family: 'Mochiy Pop One', sans-serif;
+    padding: 10px 20px;
+    border-radius: 8px;
+    transition: transform 0.2s ease, background-color 0.2s ease;
+    cursor: pointer;
+    border-bottom-width: 4px;
+  }
 
-/* ▼ アニメーション追加: クリック時の沈み込み */
-.btn-primary:active:not(:disabled),
-.btn-secondary:active:not(:disabled),
-.btn-gacha:active:not(:disabled),
-.btn-gacha10:active:not(:disabled),
-.btn-claim:active:not(:disabled),
-.btn-teacher-primary:active:not(:disabled) {
-  transform: scale(0.95) !important;
-  border-bottom-width: 2px !important;
-  margin-top: 2px;
-}
+  /* ▼ アニメーション追加: クリック時の沈み込み */
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled),
+  .btn-gacha:active:not(:disabled),
+  .btn-gacha10:active:not(:disabled),
+  .btn-claim:active:not(:disabled),
+  .btn-teacher-primary:active:not(:disabled) {
+    transform: scale(0.95) !important;
+    border-bottom-width: 2px !important;
+    margin-top: 2px;
+  }
 
-.btn-primary { background-color: #5a9c5a; border-color: #3e6b3e; }
-.btn-primary:hover:not(:disabled) { background-color: #4a8c4a; transform: translateY(2px); border-bottom-width: 2px; }
-.btn-secondary { background-color: #a98a78; border-color: #8c6b5d; }
-.btn-secondary:hover:not(:disabled) { background-color: #9a7c6c; transform: translateY(2px); border-bottom-width: 2px; }
-.btn-gacha { background-color: #8b5cf6; border-color: #6d28d9; }
-.btn-gacha:hover:not(:disabled) { background-color: #7c3aed; transform: translateY(2px); border-bottom-width: 2px; }
-.btn-gacha10 { background-color: #f59e0b; border-color: #b45309; }
-.btn-gacha10:hover:not(:disabled) { background-color: #d97706; transform: translateY(2px); border-bottom-width: 2px; }
-.btn-claim { background-color: #2563eb; border-color: #1d4ed8; }
-.btn-claim:hover:not(:disabled) { background-color: #1e40af; transform: translateY(2px); border-bottom-width: 2px; }
+  .btn-primary {
+    background-color: #5a9c5a;
+    border-color: #3e6b3e;
+  }
 
-button:disabled {
-  background-color: #9ca3af;
-  border-color: #6b7280;
-  cursor: not-allowed;
-}
+  .btn-primary:hover:not(:disabled) {
+    background-color: #4a8c4a;
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+  }
 
-.btn-mission {
-  padding: 4px 10px;
-  font-size: 12px;
-  border-radius: 6px;
-}
+  .btn-secondary {
+    background-color: #a98a78;
+    border-color: #8c6b5d;
+  }
 
-/* 教員用ボタンスタイル追加 */
-.btn-teacher-primary {
-  background-color: #2563eb;
-  color: white;
-  padding: 8px 16px;
-  border-radius: 6px;
-  box-shadow: 0 2px #1d4ed8;
-  transition: all 0.2s;
-  font-family: 'Mochiy Pop One', sans-serif;
-}
-.btn-teacher-primary:hover:not(:disabled) {
-  background-color: #1e40af;
-  transform: translateY(1px);
-  box-shadow: 0 1px #1e3a8a;
-}
-.btn-teacher-primary:disabled {
-  background-color: #9ca3af;
-  cursor: not-allowed;
-  box-shadow: none;
-}
+  .btn-secondary:hover:not(:disabled) {
+    background-color: #9a7c6c;
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+  }
 
-.btn-danger {
-  background-color: #dc2626;
-  color: white;
-  padding: 4px 8px;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  transition: transform 0.1s ease;
-}
-.btn-danger:active {
-  transform: scale(0.9);
-}
+  .btn-gacha {
+    background-color: #8b5cf6;
+    border-color: #6d28d9;
+  }
 
-/* 教員リストのストライプ（UI改善） */
-.teacher-student-list-item:nth-child(even) {
-  background-color: #f8fafc;
-}
-.teacher-student-list-item:hover {
-  background-color: #fef08a !important; /* Tailwind yellow-200 */
-}
+  .btn-gacha:hover:not(:disabled) {
+    background-color: #7c3aed;
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+  }
 
-/* その他UI要素のスタイル */
-.exp-bar-bg { background-color: #e0d8c7; }
-.exp-bar-fill { background: linear-gradient(90deg, #ffd700, #ffec80); }
+  .btn-gacha10 {
+    background-color: #f59e0b;
+    border-color: #b45309;
+  }
 
-.nav-item.active { background-color: #d4bfaa; color: #fff; }
-.view { display: none; }
-.view.active { display: block; }
+  .btn-gacha10:hover:not(:disabled) {
+    background-color: #d97706;
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+  }
 
-.tooltip { position: relative; display: inline-block; }
-.tooltip .tooltip-text {
-  visibility: hidden; width: 200px; background-color: #555; color: #fff;
-  text-align: center; border-radius: 6px; padding: 5px 0;
-  position: absolute; z-index: 1; bottom: 125%; left: 50%;
-  margin-left: -100px; opacity: 0; transition: opacity 0.3s;
-}
-.tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+  .btn-claim {
+    background-color: #2563eb;
+    border-color: #1d4ed8;
+  }
 
-::-webkit-scrollbar { width: 8px; }
-::-webkit-scrollbar-track { background: #f1f1f1; }
-::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+  .btn-claim:hover:not(:disabled) {
+    background-color: #1e40af;
+    transform: translateY(2px);
+    border-bottom-width: 2px;
+  }
 
-.gacha-results-grid {
-  display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px;
-  max-height: 50vh; overflow-y: auto; padding: 8px; background-color: #f9fafb; border-radius: 8px;
-}
-.gacha-item-card { position: relative; border: 1px solid #e5e7eb; border-radius: 8px; background-color: white; padding: 4px; aspect-ratio: 1 / 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.gacha-item-card.is-sr { background: linear-gradient(45deg, #fde68a, #f59e0b); box-shadow: 0 0 10px #f59e0b; }
-.gacha-item-card.is-r { background: linear-gradient(45deg, #93c5fd, #3b82f6); box-shadow: 0 0 10px #3b82f6; }
-.gacha-item-card img { max-width: 90%; max-height: 90%; object-fit: contain; }
-.duplicate-overlay { position: absolute; inset: 0; background-color: rgba(0, 0, 0, 0.6); color: white; display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 8px; text-align: center; font-size: 0.875rem; font-weight: 600; }
+  button:disabled {
+    background-color: #9ca3af;
+    border-color: #6b7280;
+    cursor: not-allowed;
+  }
 
-/* レベルアップ・パーティクル演出のスタイル */
-#level-up-modal { z-index: 100; }
-.celebrate-title { animation: zoom-in-out 1s ease-in-out forwards; }
-.celebrate-level { animation: scale-up 1s ease-in-out 0.5s forwards; transform: scale(0); }
+  .btn-mission {
+    padding: 4px 10px;
+    font-size: 12px;
+    border-radius: 6px;
+  }
 
-@keyframes zoom-in-out {
-  0% { transform: scale(0); opacity: 0; }
-  50% { transform: scale(1.2); opacity: 1; }
-  100% { transform: scale(1); opacity: 1; }
-}
-@keyframes scale-up {
-  0% { transform: scale(0); opacity: 0; }
-  100% { transform: scale(1); opacity: 1; }
-}
+  /* 教員用ボタンスタイル追加 */
+  .btn-teacher-primary {
+    background-color: #2563eb;
+    color: white;
+    padding: 8px 16px;
+    border-radius: 6px;
+    box-shadow: 0 2px #1d4ed8;
+    transition: all 0.2s;
+    font-family: 'Mochiy Pop One', sans-serif;
+  }
 
-/* 紙吹雪のスタイル */
-.confetti-piece { position: absolute; width: 8px; height: 16px; background: #f00; top: -20px; opacity: 0; pointer-events: none; z-index: 9999; }
-@keyframes confetti-fall {
-  0% { transform: translateY(0) rotate(0deg); opacity: 1; }
-  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-}
+  .btn-teacher-primary:hover:not(:disabled) {
+    background-color: #1e40af;
+    transform: translateY(1px);
+    box-shadow: 0 1px #1e3a8a;
+  }
 
-/* ガチャ読み込み画面のスタイル */
-#gacha-loading-modal { z-index: 90; }
-.gacha-capsule { width: 100px; height: 100px; background: linear-gradient(180deg, #fde047 50%, #f1f5f9 50%); border-radius: 50%; border: 4px solid #4b5563; position: relative; animation: shake-spin 1.5s cubic-bezier(.36, .07, .19, .97) infinite; }
-.gacha-capsule::before { content: ''; position: absolute; top: 50%; left: 0; right: 0; height: 8px; background: #4b5563; transform: translateY(-50%); }
+  .btn-teacher-primary:disabled {
+    background-color: #9ca3af;
+    cursor: not-allowed;
+    box-shadow: none;
+  }
 
-@keyframes shake-spin {
-  0% { transform: translate(0, 0) rotate(0deg); }
-  20% { transform: translate(-2px, 2px) rotate(-5deg); }
-  40% { transform: translate(2px, -2px) rotate(5deg); }
-  60% { transform: translate(-2px, 2px) rotate(-5deg); }
-  80% { transform: translate(2px, -2px) rotate(5deg); }
-  100% { transform: translate(0, 0) rotate(360deg); }
-}
+  .btn-danger {
+    background-color: #dc2626;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    transition: transform 0.1s ease;
+  }
 
-/* フッター用ユーティリティクラス */
-.text-center { text-align: center; }
-.text-muted { color: #6c757d; }
-.py-3 { padding-top: 1rem; padding-bottom: 1rem; }
-.mt-4 { margin-top: 1.5rem; }
-.border-top { border-top: 1px solid #dee2e6; }
-.text-decoration-none { text-decoration: none; }
+  .btn-danger:active {
+    transform: scale(0.9);
+  }
 
-/* ▼ 新規UI: トースト通知スタイル */
-#toast-container {
-  position: fixed;
-  bottom: 24px;
-  right: 24px;
-  z-index: 9999;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  pointer-events: none;
-}
-.toast-msg {
-  background-color: #333;
-  color: #fff;
-  padding: 12px 24px;
-  border-radius: 8px;
-  box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-  font-family: 'Zen Maru Gothic', sans-serif;
-  font-weight: bold;
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 0.3s ease, transform 0.3s ease;
-  pointer-events: auto;
-}
-.toast-msg.show {
-  opacity: 1;
-  transform: translateY(0);
-}
-.toast-msg.success { background-color: #10b981; } /* Tailwind green-500 */
-.toast-msg.error { background-color: #ef4444; }   /* Tailwind red-500 */
-.toast-msg.info { background-color: #3b82f6; }    /* Tailwind blue-500 */
+  /* 教員リストのストライプ（UI改善） */
+  .teacher-student-list-item:nth-child(even) {
+    background-color: #f8fafc;
+  }
 
-/* カスタム確認ダイアログ用スタイル */
-#custom-confirm-modal { z-index: 10000; }
+  .teacher-student-list-item:hover {
+    background-color: #fef08a !important;
+    /* Tailwind yellow-200 */
+  }
 
+  /* その他UI要素のスタイル */
+  .exp-bar-bg {
+    background-color: #e0d8c7;
+  }
+
+  .exp-bar-fill {
+    background: linear-gradient(90deg, #ffd700, #ffec80);
+  }
+
+  .nav-item.active {
+    background-color: #d4bfaa;
+    color: #fff;
+  }
+
+  .view {
+    display: none;
+  }
+
+  .view.active {
+    display: block;
+  }
+
+  .tooltip {
+    position: relative;
+    display: inline-block;
+  }
+
+  .tooltip .tooltip-text {
+    visibility: hidden;
+    width: 200px;
+    background-color: #555;
+    color: #fff;
+    text-align: center;
+    border-radius: 6px;
+    padding: 5px 0;
+    position: absolute;
+    z-index: 1;
+    bottom: 125%;
+    left: 50%;
+    margin-left: -100px;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .tooltip:hover .tooltip-text {
+    visibility: visible;
+    opacity: 1;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #f1f1f1;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #888;
+    border-radius: 4px;
+  }
+
+  .gacha-results-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 8px;
+    max-height: 50vh;
+    overflow-y: auto;
+    padding: 8px;
+    background-color: #f9fafb;
+    border-radius: 8px;
+  }
+
+  .gacha-item-card {
+    position: relative;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background-color: white;
+    padding: 4px;
+    aspect-ratio: 1 / 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .gacha-item-card.is-sr {
+    background: linear-gradient(45deg, #fde68a, #f59e0b);
+    box-shadow: 0 0 10px #f59e0b;
+  }
+
+  .gacha-item-card.is-r {
+    background: linear-gradient(45deg, #93c5fd, #3b82f6);
+    box-shadow: 0 0 10px #3b82f6;
+  }
+
+  .gacha-item-card img {
+    max-width: 90%;
+    max-height: 90%;
+    object-fit: contain;
+  }
+
+  .duplicate-overlay {
+    position: absolute;
+    inset: 0;
+    background-color: rgba(0, 0, 0, 0.6);
+    color: white;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    text-align: center;
+    font-size: 0.875rem;
+    font-weight: 600;
+  }
+
+  /* レベルアップ・パーティクル演出のスタイル */
+  #level-up-modal {
+    z-index: 100;
+  }
+
+  .celebrate-title {
+    animation: zoom-in-out 1s ease-in-out forwards;
+  }
+
+  .celebrate-level {
+    animation: scale-up 1s ease-in-out 0.5s forwards;
+    transform: scale(0);
+  }
+
+  @keyframes zoom-in-out {
+    0% {
+      transform: scale(0);
+      opacity: 0;
+    }
+
+    50% {
+      transform: scale(1.2);
+      opacity: 1;
+    }
+
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes scale-up {
+    0% {
+      transform: scale(0);
+      opacity: 0;
+    }
+
+    100% {
+      transform: scale(1);
+      opacity: 1;
+    }
+  }
+
+  /* RPG風ローディングキャラクター */
+  .rpg-loading-hero {
+    width: 60px;
+    height: 60px;
+    background-color: #3b82f6;
+    clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+    animation: hero-bounce 0.6s infinite alternate cubic-bezier(0.5, 0.05, 1, 0.5);
+  }
+
+  @keyframes hero-bounce {
+    from {
+      transform: translateY(0) scale(1.1, 0.9);
+    }
+
+    to {
+      transform: translateY(-40px) scale(0.9, 1.1);
+    }
+  }
+
+  .text-shadow-glow {
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+  }
+
+  /* 紙吹雪のスタイル */
+  .confetti-piece {
+    position: absolute;
+    width: 8px;
+    height: 16px;
+    background: #f00;
+    top: -20px;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  @keyframes confetti-fall {
+    0% {
+      transform: translateY(0) rotate(0deg);
+      opacity: 1;
+    }
+
+    100% {
+      transform: translateY(100vh) rotate(720deg);
+      opacity: 0;
+    }
+  }
+
+  /* ガチャ読み込み画面のスタイル */
+  #gacha-loading-modal {
+    z-index: 90;
+  }
+
+  .gacha-capsule {
+    width: 100px;
+    height: 100px;
+    background: linear-gradient(180deg, #fde047 50%, #f1f5f9 50%);
+    border-radius: 50%;
+    border: 4px solid #4b5563;
+    position: relative;
+    animation: shake-spin 1.5s cubic-bezier(.36, .07, .19, .97) infinite;
+  }
+
+  .gacha-capsule::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background: #4b5563;
+    transform: translateY(-50%);
+  }
+
+  @keyframes shake-spin {
+    0% {
+      transform: translate(0, 0) rotate(0deg);
+    }
+
+    20% {
+      transform: translate(-2px, 2px) rotate(-5deg);
+    }
+
+    40% {
+      transform: translate(2px, -2px) rotate(5deg);
+    }
+
+    60% {
+      transform: translate(-2px, 2px) rotate(-5deg);
+    }
+
+    80% {
+      transform: translate(2px, -2px) rotate(5deg);
+    }
+
+    100% {
+      transform: translate(0, 0) rotate(360deg);
+    }
+  }
+
+  /* フッター用ユーティリティクラス */
+  .text-center {
+    text-align: center;
+  }
+
+  .text-muted {
+    color: #6c757d;
+  }
+
+  .py-3 {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+
+  .mt-4 {
+    margin-top: 1.5rem;
+  }
+
+  .border-top {
+    border-top: 1px solid #dee2e6;
+  }
+
+  .text-decoration-none {
+    text-decoration: none;
+  }
+
+  /* ▼ 新規UI: トースト通知スタイル */
+  #toast-container {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    pointer-events: none;
+  }
+
+  .toast-msg {
+    background-color: #333;
+    color: #fff;
+    padding: 12px 24px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    font-family: 'Zen Maru Gothic', sans-serif;
+    font-weight: bold;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: auto;
+  }
+
+  .toast-msg.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .toast-msg.success {
+    background-color: #10b981;
+  }
+
+  /* Tailwind green-500 */
+  .toast-msg.error {
+    background-color: #ef4444;
+  }
+
+  /* Tailwind red-500 */
+  .toast-msg.info {
+    background-color: #3b82f6;
+  }
+
+  /* Tailwind blue-500 */
+
+  /* ▼ 新規UI: リッチディティールエフェクト（ガチャSR/ミッション） */
+  .effect-bg {
+    background: radial-gradient(circle, rgba(255, 255, 255, 0.9) 0%, rgba(255, 215, 0, 0.6) 40%, rgba(0, 0, 0, 0.8) 100%);
+    opacity: 0;
+  }
+
+  .effect-focus-lines {
+    background: repeating-conic-gradient(from 0deg,
+        transparent 0deg 10deg,
+        rgba(255, 255, 255, 0.4) 10deg 20deg);
+    animation: spin 10s linear infinite;
+    opacity: 0;
+  }
+
+  @keyframes spin {
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  .rich-effect-active .effect-bg {
+    animation: flash-bg 3s ease-out forwards;
+  }
+
+  .rich-effect-active .effect-focus-lines {
+    animation: fade-in-out 3s ease-out forwards, spin 10s linear infinite;
+  }
+
+  .rich-effect-active #rich-effect-title {
+    animation: pop-bounce-title 3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+  }
+
+  .rich-effect-active #rich-effect-item {
+    animation: pop-bounce-item 3s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.5s forwards;
+  }
+
+  @keyframes flash-bg {
+    0% {
+      opacity: 0;
+    }
+
+    10% {
+      opacity: 1;
+    }
+
+    80% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes fade-in-out {
+    0% {
+      opacity: 0;
+    }
+
+    20% {
+      opacity: 1;
+    }
+
+    80% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes pop-bounce-title {
+    0% {
+      opacity: 0;
+      transform: scale(0.1) translateY(50px);
+    }
+
+    15% {
+      opacity: 1;
+      transform: scale(1.2) translateY(0);
+    }
+
+    25% {
+      transform: scale(1) translateY(0);
+    }
+
+    80% {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.5) translateY(-50px);
+    }
+  }
+
+  @keyframes pop-bounce-item {
+    0% {
+      opacity: 0;
+      transform: scale(0.1);
+    }
+
+    15% {
+      opacity: 1;
+      transform: scale(1.5);
+    }
+
+    25% {
+      transform: scale(1.2);
+    }
+
+    80% {
+      opacity: 1;
+      transform: scale(1.2);
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.5);
+    }
+  }
+
+  .effect-particle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: white;
+    box-shadow: 0 0 10px 5px rgba(255, 255, 255, 0.8);
+    border-radius: 50%;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  @keyframes fly-out {
+    0% {
+      opacity: 1;
+      transform: translate(0, 0) scale(1);
+    }
+
+    100% {
+      opacity: 0;
+      transform: translate(var(--dx), var(--dy)) scale(0);
+    }
+  }
+
+  /* ▼ 新規UI: みんなの広場 依頼掲示板スタイル */
+  .plaza-board {
+    background-color: #5c4033;
+    /* ダークブラウンの木目調を想定 */
+    background-image: repeating-linear-gradient(0deg,
+        rgba(0, 0, 0, 0.1),
+        rgba(0, 0, 0, 0.1) 1px,
+        transparent 1px,
+        transparent 15px);
+    border: 8px solid #3e2723;
+    border-radius: 12px;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8);
+    padding: 16px;
+  }
+
+  .quest-paper {
+    background-color: #f4e4bc;
+    /* 羊皮紙色 */
+    border: 1px solid #d4c49c;
+    box-shadow: 2px 4px 8px rgba(0, 0, 0, 0.3);
+    border-radius: 4px 16px 4px 16px;
+    /* 少し崩れた紙の表現 */
+    position: relative;
+    padding-top: 24px;
+    /* がびょうのスペース */
+    transition: transform 0.2s;
+  }
+
+  .quest-paper:hover {
+    transform: scale(1.05) rotate(-1deg);
+    z-index: 10;
+  }
+
+  .pin-tack {
+    position: absolute;
+    top: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px;
+    height: 12px;
+    background: radial-gradient(circle at 30% 30%, #ff6b6b, #c0392b);
+    border-radius: 50%;
+    box-shadow: 1px 2px 3px rgba(0, 0, 0, 0.5), inset -1px -1px 2px rgba(0, 0, 0, 0.3);
+    z-index: 5;
+  }
+
+  /* カスタム確認ダイアログ用スタイル */
+  #custom-confirm-modal {
+    z-index: 10000;
+  }
 </style>
