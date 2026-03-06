@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<title>学習の足あと👣</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.tailwindcss.com"></script>
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+<style>
+  body { font-family: 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif; }
+  .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); display: flex;
+    flex-direction: column; justify-content: center; align-items: center; z-index: 9999; backdrop-filter: blur(3px); opacity: 1; transition: opacity 0.3s; }
+  .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+  @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .tab-button.active { border-color: #3b82f6; color: #3b82f6; background-color: #eff6ff; }
+  .tab-content { display: none; } .tab-content.active { display: block; }
+  button:disabled { opacity: 0.6; cursor: not-allowed; }
+  .result-message-area { margin-top: 1rem; padding: 0.75rem; border-radius: 0.375rem; text-align: center; font-weight: 500; display: none; transition: all 0.3s;}
+  .message-success { background-color: #dcfce7; color: #166534; } .message-error { background-color: #fee2e2; color: #991b1b; }
+  .rank-tab.active { background-color: #3b82f6; color: white; }
+  .rank-content { display: none; } .rank-content.active { display: block; }
+  .rating-stars span { cursor: pointer; color: #d1d5db; } .rating-stars span.selected, .rating-stars:hover span { color: #f59e0b; }
+  .rating-stars:hover span:hover ~ span { color: #d1d5db; }
+  .hidden { display: none !important; }
+  #toast { transition: opacity 0.5s, transform 0.5s; }
+</style>
+</head>
+<body class="bg-gray-100">
+
+<!-- ローディング画面 -->
+<div id="loading" class="overlay">
+  <div class="loader"></div>
+  <p id="loading-message" class="mt-4 font-semibold text-white"><ruby><rb>読</rb><rt>よ</rt></ruby>み<ruby><rb>込</rb><rt>こ</rt></ruby>んでいます...</p>
+</div>
+
+<!-- 通知メッセージ表示用のコンテナ -->
+<div id="toast" class="hidden fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-md z-50"></div>
+
+<!-- メインコンテンツ -->
+<div id="main-content" class="container mx-auto max-w-5xl bg-white p-4 md:p-6 rounded-lg shadow-md my-4 hidden">
+  <header class="mb-6">
+    <h1 class="text-2xl md:text-3xl font-bold text-blue-700"><ruby><rb>学習</rb><rt>がくしゅう</rt></ruby>の<ruby><rb>足</rb><rt>あし</rt></ruby>あと👣</h1>
+    <p id="welcome-message" class="text-lg mt-2">こんにちは、<span class="font-semibold"></span> さん！</p>
+  </header>
+
+  <!-- ======================== 担任向け表示 ======================== -->
+  <div id="teacher-view" class="hidden">
+    <div class="bg-blue-50 border-l-4 border-blue-500 text-blue-700 p-4 mb-6 rounded shadow-sm">
+      <p class="font-bold text-lg mb-2"><ruby><rb>担任</rb><rt>たんにん</rt></ruby>メニュー</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label for="student-selector" class="block text-sm font-medium text-gray-700"><ruby><rb>児童</rb><rt>じどう</rt></ruby>を<ruby><rb>選択</rb><rt>せんたく</rt></ruby>して<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>見</rb><rt>み</rt></ruby>る</label>
+          <select id="student-selector" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+            <option value="">-- <ruby><rb>児童</rb><rt>じどう</rt></ruby>を<ruby><rb>選択</rb><rt>せんたく</rt></ruby> --</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700"><ruby><rb>学期</rb><rt>がっき</rt></ruby>ごとポートフォリオ<ruby><rb>印刷</rb><rt>いんさつ</rt></ruby></label>
+          <div class="mt-1 flex space-x-2">
+            <button data-term="1" class="pdf-btn flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 1<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+            <button data-term="2" class="pdf-btn flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 2<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+            <button data-term="3" class="pdf-btn flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 3<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="teacher-main-view">
+      <!-- ランキング表示など -->
+    </div>
+    <div id="teacher-student-data-view" class="hidden mt-6 border-t pt-6"></div>
+  </div>
+
+  <!-- ======================== 児童向け表示 ======================== -->
+  <div id="student-view" class="hidden">
+    <div class="border-b border-gray-200 mb-6">
+      <nav class="flex -mb-px space-x-2 md:space-x-4 overflow-x-auto" aria-label="Tabs">
+        <button id="tab-input" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-pencil-alt mr-2"></i><ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>入</rb><rt>い</rt></ruby>れる</button>
+        <button id="tab-typing" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-keyboard mr-2"></i>タイピング</button>
+        <button id="tab-hyakumasu" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-calculator mr-2"></i>100マス<ruby><rb>計算</rb><rt>けいさん</rt></ruby></button>
+        <button id="tab-reading" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-book-open mr-2"></i><ruby><rb>読書</rb><rt>どくしょ</rt></ruby></button>
+        <button id="tab-growth" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-seedling mr-2"></i><ruby><rb>成長</rb><rt>せいちょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby></button>
+        <button id="tab-study" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-lightbulb mr-2"></i><ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby></button>
+      </nav>
+    </div>
+    
+    <div id="content-input" class="tab-content space-y-4">
+      <!-- 入力フォームがここに生成されます -->
+    </div>
+    <div id="content-typing" class="tab-content">
+      <!-- タイピング記録表示エリア -->
+    </div>
+    <div id="content-hyakumasu" class="tab-content">
+      <!-- 100マス計算記録表示エリア -->
+    </div>
+    <div id="content-reading" class="tab-content">
+      <!-- 読書記録表示エリア -->
+    </div>
+    <div id="content-growth" class="tab-content">
+      <!-- 成長記録表示エリア -->
+    </div>
+    <div id="content-study" class="tab-content">
+      <!-- 自主学習記録表示エリア -->
+    </div>
+  </div>
+</div>
+
+<script>
+// ====================================================================
+// ★★★ クライアントサイド JavaScript ★★★
+// ====================================================================
+let USER_INFO = {};
+let PAGE_DATA = {};
+let CONSTANTS = {};
+let CHARTS_READY = false;
+
+document.addEventListener('DOMContentLoaded', () => {
+  google.charts.load('current', { 'packages': ['corechart'], 'language': 'ja' });
+  google.charts.setOnLoadCallback(() => { CHARTS_READY = true; });
+  google.script.run.withSuccessHandler(initializeApp).withFailureHandler(showError).getInitialData();
+});
+
+function initializeApp(data) {
+  if (data.error) {
+    showError({ message: data.error });
+    return;
+  }
+  USER_INFO = data.userInfo;
+  PAGE_DATA = data.pageData;
+  CONSTANTS = data.constants;
+
+  document.querySelector('#welcome-message span').textContent = escapeHtml(USER_INFO.userName);
+  
+  if (USER_INFO.isTeacher) {
+    setupTeacherDashboard();
+  } else {
+    setupStudentDashboard();
+  }
+  
+  hideLoading();
+  document.getElementById('main-content').classList.remove('hidden');
+}
+
+// ======================== セットアップ ========================
+function setupTeacherDashboard() {
+  document.getElementById('teacher-view').classList.remove('hidden');
+  const selector = document.getElementById('student-selector');
+  PAGE_DATA.studentList.forEach(student => {
+    const option = document.createElement('option');
+    option.value = student.email;
+    option.textContent = escapeHtml(student.name);
+    selector.appendChild(option);
+  });
+  selector.addEventListener('change', handleStudentSelection);
+  document.querySelectorAll('.pdf-btn').forEach(btn => btn.addEventListener('click', handleCreatePortfolio));
+  renderTeacherMainView();
+}
+
+function setupStudentDashboard() {
+  document.getElementById('student-view').classList.remove('hidden');
+  renderAllStudentViews();
+  setupStudentEventListeners();
+  switchTab('input');
+}
+
+function setupStudentEventListeners() {
+    ['input', 'typing', 'hyakumasu', 'reading', 'growth', 'study'].forEach(id => {
+        document.getElementById(`tab-${id}`).addEventListener('click', () => switchTab(id));
+    });
+    // 動的に生成される保存ボタンのためのイベントリスナー
+    document.getElementById('content-input').addEventListener('click', function(event) {
+        const button = event.target.closest('button.save-btn');
+        if (button) {
+            handleSaveRecord(event);
+        }
+    });
+}
+
+
+// ======================== 描画（レンダリング） ========================
+function renderAllStudentViews() {
+  renderInputForms();
+  renderTypingView();
+  renderHyakumasuView();
+  renderReadingView();
+  renderGrowthView();
+  renderStudyView();
+}
+
+function renderInputForms() {
+  const area = document.getElementById('content-input');
+  area.innerHTML = `
+    ${createAccordionForm('typing', 'タイピングの<ruby><rb>結果</rb><rt>けっか</rt></ruby><ruby><rb>入力</rb><rt>にゅうりょく</rt></ruby>')}
+    ${createAccordionForm('goal', 'タイピングの<ruby><rb>目標</rb><rt>もくひょう</rt></ruby><ruby><rb>設定</rb><rt>せってい</rt></ruby>')}
+    ${createAccordionForm('reading', '<ruby><rb>読書</rb><rt>どくしょ</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>')}
+    ${createAccordionForm('growth', '<ruby><rb>成長</rb><rt>せいちょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>')}
+    ${createAccordionForm('study', '<ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>')}
+  `;
+  setupRatingStars();
+}
+
+function renderTypingView() {
+    const area = document.getElementById('content-typing');
+    area.innerHTML = `
+        <section class="mb-6"><h2 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>目標</rb><rt>もくひょう</rt></ruby></h2><div id="goal-area" class="p-4 border rounded-lg shadow-sm bg-white"></div></section>
+        <section class="mb-6"><h2 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>達成</rb><rt>たっせい</rt></ruby>した<ruby><rb>目標</rb><rt>もくひょう</rt></ruby></h2><div id="achieved-goals-area" class="p-4 border rounded-lg shadow-sm bg-gray-50"></div></section>
+        <section class="mb-6"><h2 class="text-xl font-semibold text-gray-700 mb-3">あなたの<ruby><rb>成長</rb><rt>せいちょう</rt></ruby>グラフ</h2><div class="p-4 border rounded-lg shadow-sm bg-white"><div id="typing-chart-div" style="width: 100%; height: 300px;"></div></div></section>
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div><h2 class="text-xl font-semibold text-gray-700 mb-3"><i class="fas fa-crown text-yellow-500 mr-2"></i> スピードランキング TOP ${CONSTANTS.RANKING_LIMIT}</h2><div class="p-4 border rounded-lg shadow-sm bg-white"><ol id="typing-ranking-ol" class="space-y-2"></ol></div></div>
+            <div><h2 class="text-xl font-semibold text-gray-700 mb-3">あなたの<ruby><rb>記録</rb><rt>きろく</rt></ruby> (<ruby><rb>最新</rb><rt>さいしん</rt></ruby>${CONSTANTS.MAX_RECORDS_DISPLAY}<ruby><rb>件</rb><rt>けん</rt></ruby>)</h2><div id="typing-record-table-wrapper" class="table-wrapper shadow-md rounded-lg max-h-96 overflow-y-auto"></div></div>
+        </section>`;
+    updateTypingDisplays();
+}
+
+function renderHyakumasuView() {
+    const area = document.getElementById('content-hyakumasu');
+    area.innerHTML = `
+        <section class="mb-6"><div class="flex items-center justify-between mb-3"><h2 class="text-xl font-semibold text-gray-700"><ruby><rb>成長</rb><rt>せいちょう</rt></ruby>グラフ (タイム)</h2><div id="hyakumasu-chart-selector-area"></div></div><div class="p-4 border rounded-lg shadow-sm bg-white"><div id="hyakumasu-chart-div" style="width: 100%; height: 300px;"></div></div></section>
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+            <div><h2 class="text-xl font-semibold text-gray-700 mb-3"><i class="fas fa-crown text-yellow-500 mr-2"></i> タイムランキング (100<ruby><rb>問</rb><rt>もん</rt></ruby>)</h2><div id="hyakumasu-ranking-area" class="p-4 border rounded-lg shadow-sm bg-white"></div></div>
+            <div><h2 class="text-xl font-semibold text-gray-700 mb-3">あなたの<ruby><rb>記録</rb><rt>きろく</rt></ruby> (<ruby><rb>最新</rb><rt>さいしん</rt></ruby>${CONSTANTS.MAX_RECORDS_DISPLAY}<ruby><rb>件</rb><rt>けん</rt></ruby>)</h2><div id="hyakumasu-record-table-wrapper" class="table-wrapper shadow-md rounded-lg max-h-96 overflow-y-auto"></div></div>
+        </section>`;
+    updateHyakumasuDisplays();
+}
+
+function renderReadingView() {
+    const area = document.getElementById('content-reading');
+    area.innerHTML = `
+        <section class="mb-6"><h2 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>読書</rb><rt>どくしょ</rt></ruby><ruby><rb>記録</rb><rt>きろく</rt></ruby></h2><div id="reading-summary-area" class="p-4 border rounded-lg shadow-sm bg-white"></div></section>
+        <section><h2 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>読</rb><rt>よ</rt></ruby>んだ<ruby><rb>本</rb><rt>ほん</rt></ruby>リスト</h2><div id="reading-records-area" class="space-y-4"></div></section>`;
+    updateReadingDisplays();
+}
+
+function renderGrowthView() {
+    const area = document.getElementById('content-growth');
+    area.innerHTML = `
+        <section><h2 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>成長</rb><rt>せいちょう</rt></ruby></h2><div id="growth-records-area" class="space-y-4"></div></section>`;
+    updateGrowthDisplays();
+}
+
+function renderStudyView() {
+    const area = document.getElementById('content-study');
+    area.innerHTML = `
+        <section><h2 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby></h2><div id="independent-study-records-area" class="space-y-4"></div></section>`;
+    updateStudyDisplays();
+}
+
+function renderTeacherMainView(){
+    const area = document.getElementById('teacher-main-view');
+    area.innerHTML = `
+        <h2 class="text-xl font-semibold text-gray-700 mb-3"><i class="fas fa-keyboard mr-2"></i> タイピング スピードランキング TOP ${CONSTANTS.RANKING_LIMIT}</h2>
+        <div class="p-4 border rounded-lg shadow-sm bg-white mb-6"><ol id="teacher-typing-ranking-ol" class="space-y-2"></ol></div>
+        <h2 class="text-xl font-semibold text-gray-700 mt-6 mb-3"><i class="fas fa-calculator mr-2"></i> 100マス<ruby><rb>計算</rb><rt>けいさん</rt></ruby> タイムランキング (100<ruby><rb>問</rb><rt>もん</rt></ruby>)</h2>
+        <div id="teacher-hyakumasu-ranking-area" class="p-4 border rounded-lg shadow-sm bg-white"></div>
+    `;
+    displayRanking(PAGE_DATA.typingRankingData, 'teacher-typing-ranking-ol');
+    renderHyakumasuRankings('teacher-hyakumasu-ranking-area', PAGE_DATA.hyakumasuRankingData);
+}
+
+function updateTypingDisplays() {
+    renderGoalArea(PAGE_DATA.goalData, PAGE_DATA.bestTypingRecord);
+    renderAchievedGoals(PAGE_DATA.goalData);
+    if (CHARTS_READY) drawChart('typing-chart-div', PAGE_DATA.typingChartData, { title: 'タイピングの成長記録', series: { 0: { targetAxisIndex: 0, color: '#3b82f6' }, 1: { targetAxisIndex: 1, color: '#10b981' } }, vAxes: { 0: { title: '速さ (打/秒)' }, 1: { title: '正答率 (%)' } } });
+    displayRanking(PAGE_DATA.typingRankingData, 'typing-ranking-ol');
+    displayTypingRecords(PAGE_DATA.typingRecords);
+}
+
+function updateHyakumasuDisplays() {
+    if (CHARTS_READY) renderHyakumasuChartAndSelector(PAGE_DATA.hyakumasuChartData, `hyakumasu-chart-selector-area`, `hyakumasu-chart-div`, PAGE_DATA.hyakumasuRecords);
+    renderHyakumasuRankings('hyakumasu-ranking-area', PAGE_DATA.hyakumasuRankingData);
+    displayHyakumasuRecords(PAGE_DATA.hyakumasuRecords);
+}
+
+function updateReadingDisplays() {
+    if (PAGE_DATA.readingData) {
+        renderReadingSummary(PAGE_DATA.readingData.summary, 'reading-summary-area');
+        renderReadingRecords(PAGE_DATA.readingData.records, 'reading-records-area');
+    }
+}
+
+function updateGrowthDisplays() {
+    renderGrowthRecords(PAGE_DATA.growthData, `growth-records-area`);
+}
+
+function updateStudyDisplays() {
+    renderIndependentStudyRecords(PAGE_DATA.independentStudyData, `independent-study-records-area`);
+}
+
+// ======================== イベントハンドラ ========================
+function handleSaveRecord(event) {
+    event.preventDefault();
+    const form = event.target.closest('form');
+    const type = form.dataset.type;
+    const formData = {};
+    new FormData(form).forEach((value, key) => { formData[key] = value; });
+    
+    if (type === 'reading') {
+      formData.rating = form.querySelector('.rating-stars').dataset.value;
+    }
+
+    setButtonLoading(event.target, true);
+    google.script.run.withSuccessHandler(handleSaveSuccess).withFailureHandler(showError).saveRecord({ type, formData });
+}
+
+function handleSaveSuccess(result) {
+    if (result.success) {
+        showToast(result.message, 'success');
+        PAGE_DATA = { ...PAGE_DATA, ...result.newPageData };
+        
+        const form = document.querySelector(`#content-input form[data-type="${result.type}"]`);
+        if (form) {
+            form.reset();
+            if (result.type === 'reading') {
+                const ratingContainer = form.querySelector('.rating-stars');
+                if(ratingContainer) {
+                    ratingContainer.dataset.value = "0";
+                    updateStars(ratingContainer);
+                }
+            }
+        }
+        
+        updateTypingDisplays();
+        updateHyakumasuDisplays();
+        updateReadingDisplays();
+        updateGrowthDisplays();
+        updateStudyDisplays();
+        
+        if (result.goalAchieved) {
+          setTimeout(() => {
+            alert('目標達成おめでとうございます！🎉 新しい目標を立てましょう！');
+            renderGoalArea(PAGE_DATA.goalData, PAGE_DATA.bestTypingRecord);
+          }, 100);
+        }
+    } else {
+        showError({ message: result.message });
+    }
+    document.querySelectorAll('button.save-btn:disabled').forEach(btn => setButtonLoading(btn, false));
+}
+
+function handleStudentSelection(e) {
+  const studentEmail = e.target.value;
+  const dataView = document.getElementById('teacher-student-data-view');
+  const mainView = document.getElementById('teacher-main-view');
+
+  if (!studentEmail) {
+    dataView.innerHTML = '';
+    dataView.classList.add('hidden');
+    mainView.classList.remove('hidden');
+    return;
+  }
+
+  showLoading('児童のデータを読み込み中...');
+  mainView.classList.add('hidden');
+  dataView.classList.remove('hidden');
+
+  google.script.run
+    .withSuccessHandler(data => {
+      renderTeacherStudentView(data);
+      hideLoading();
+    })
+    .withFailureHandler(err => {
+      dataView.innerHTML = `<p class="text-red-500">データの取得に失敗しました: ${err.message}</p>`;
+      hideLoading();
+    })
+    .getStudentDataForTeacher(studentEmail);
+}
+
+function handleCreatePortfolio(e) {
+  const term = e.target.dataset.term;
+  if (!confirm(`${term}学期のポートフォリオPDFを作成します。よろしいですか？`)) return;
+  showLoading('PDFを作成中です...');
+  google.script.run
+    .withSuccessHandler(result => {
+      hideLoading();
+      if (result.success) {
+        alert(result.message);
+        window.open(result.fileUrl, '_blank');
+      } else {
+        showError({ message: result.message });
+      }
+    })
+    .withFailureHandler(showError)
+    .createPortfolioPdf({ term: parseInt(term) });
+}
+
+function renderTeacherStudentView(data) {
+    const dataView = document.getElementById('teacher-student-data-view');
+    const studentName = PAGE_DATA.studentList.find(s => s.email === document.getElementById('student-selector').value)?.name || '選択された児童';
+    
+    dataView.innerHTML = `
+        <h2 class="text-2xl font-bold text-gray-800 mb-4">${escapeHtml(studentName)} さんの<ruby><rb>記録</rb><rt>きろく</rt></ruby></h2>
+        <div class="border-b border-gray-200 mb-6">
+            <nav class="flex -mb-px space-x-2 md:space-x-4 overflow-x-auto" aria-label="Tabs">
+                <button data-tab="typing" class="teacher-tab-button tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-keyboard mr-2"></i>タイピング</button>
+                <button data-tab="hyakumasu" class="teacher-tab-button tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-calculator mr-2"></i>100マス<ruby><rb>計算</rb><rt>けいさん</rt></ruby></button>
+                <button data-tab="reading" class="teacher-tab-button tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-book-open mr-2"></i><ruby><rb>読書</rb><rt>どくしょ</rt></ruby></button>
+                <button data-tab="growth" class="teacher-tab-button tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-seedling mr-2"></i><ruby><rb>成長</rb><rt>せいちょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby></button>
+                <button data-tab="study" class="teacher-tab-button tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-lightbulb mr-2"></i><ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby></button>
+            </nav>
+        </div>
+        <div id="teacher-content-typing" class="teacher-tab-content tab-content"></div>
+        <div id="teacher-content-hyakumasu" class="teacher-tab-content tab-content"></div>
+        <div id="teacher-content-reading" class="teacher-tab-content tab-content"></div>
+        <div id="teacher-content-growth" class="teacher-tab-content tab-content"></div>
+        <div id="teacher-content-study" class="teacher-tab-content tab-content"></div>
+    `;
+
+    document.getElementById('teacher-content-typing').innerHTML = `
+        <section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>目標</rb><rt>もくひょう</rt></ruby></h3><div id="teacher-goal-area" class="p-4 border rounded-lg shadow-sm bg-white"></div></section>
+        <section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>達成</rb><rt>たっせい</rt></ruby>した<ruby><rb>目標</rb><rt>もくひょう</rt></ruby></h3><div id="teacher-achieved-goals-area" class="p-4 border rounded-lg shadow-sm bg-gray-50"></div></section>
+        <section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>成長</rb><rt>せいちょう</rt></ruby>グラフ</h3><div class="p-4 border rounded-lg shadow-sm bg-white"><div id="teacher-typing-chart-div" style="width: 100%; height: 300px;"></div></div></section>
+        <section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>記録</rb><rt>きろく</rt></ruby><ruby><rb>一覧</rb><rt>いちらん</rt></ruby></h3><div id="teacher-typing-record-table-wrapper" class="table-wrapper shadow-md rounded-lg max-h-96 overflow-y-auto"></div></section>`;
+    
+    document.getElementById('teacher-content-hyakumasu').innerHTML = `
+        <section class="mb-6"><div class="flex items-center justify-between mb-3"><h3 class="text-xl font-semibold text-gray-700"><ruby><rb>成長</rb><rt>せいちょう</rt></ruby>グラフ (タイム)</h3><div id="teacher-hyakumasu-chart-selector-area"></div></div><div class="p-4 border rounded-lg shadow-sm bg-white"><div id="teacher-hyakumasu-chart-div" style="width: 100%; height: 300px;"></div></div></section>
+        <section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>記録</rb><rt>きろく</rt></ruby><ruby><rb>一覧</rb><rt>いちらん</rt></ruby></h3><div id="teacher-hyakumasu-record-table-wrapper" class="table-wrapper shadow-md rounded-lg max-h-96 overflow-y-auto"></div></section>`;
+
+    document.getElementById('teacher-content-reading').innerHTML = `<section class="mb-6"><h3 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>読書</rb><rt>どくしょ</rt></ruby><ruby><rb>記録</rb><rt>きろく</rt></ruby></h3><div id="teacher-reading-summary-area" class="p-4 border rounded-lg shadow-sm bg-white"></div></section><section><h3 class="text-xl font-semibold text-gray-700 mb-3"><ruby><rb>読</rb><rt>よ</rt></ruby>んだ<ruby><rb>本</rb><rt>ほん</rt></ruby>リスト</h3><div id="teacher-reading-records-area" class="space-y-4"></div></section>`;
+    document.getElementById('teacher-content-growth').innerHTML = `<section><h3 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>成長</rb><rt>せいちょう</rt></ruby></h3><div id="teacher-growth-records-area" class="space-y-4"></div></section>`;
+    document.getElementById('teacher-content-study').innerHTML = `<section><h3 class="text-xl font-semibold text-gray-700 mb-3">これまでの<ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby></h3><div id="teacher-independent-study-records-area" class="space-y-4"></div></section>`;
+    
+    renderGoalArea(data.goalData, data.bestTypingRecord, 'teacher-goal-area');
+    renderAchievedGoals(data.goalData, 'teacher-achieved-goals-area');
+    displayTypingRecords(data.typingRecords, 'teacher-typing-record-table-wrapper');
+    displayHyakumasuRecords(data.hyakumasuRecords, 'teacher-hyakumasu-record-table-wrapper');
+    if(data.readingData) {
+        renderReadingSummary(data.readingData.summary, 'teacher-reading-summary-area');
+        renderReadingRecords(data.readingData.records, 'teacher-reading-records-area');
+    }
+    renderGrowthRecords(data.growthData, 'teacher-growth-records-area');
+    renderIndependentStudyRecords(data.independentStudyData, 'teacher-independent-study-records-area');
+
+    document.querySelectorAll('.teacher-tab-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+            switchTeacherTab(e.currentTarget.dataset.tab, data);
+        });
+    });
+    
+    switchTeacherTab('typing', data);
+}
+
+function switchTeacherTab(tabName, data) {
+    document.querySelectorAll('.teacher-tab-button').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tabName));
+    document.querySelectorAll('.teacher-tab-content').forEach(content => content.classList.toggle('active', content.id === `teacher-content-${tabName}`));
+
+    if (CHARTS_READY) {
+        if (tabName === 'typing') {
+            drawChart('teacher-typing-chart-div', data.typingChartData, { title: 'タイピングの成長記録', series: { 0: { targetAxisIndex: 0, color: '#3b82f6' }, 1: { targetAxisIndex: 1, color: '#10b981' } }, vAxes: { 0: { title: '速さ (打/秒)' }, 1: { title: '正答率 (%)' } } });
+        } else if (tabName === 'hyakumasu') {
+            renderHyakumasuChartAndSelector(data.hyakumasuChartData, 'teacher-hyakumasu-chart-selector-area', 'teacher-hyakumasu-chart-div', data.hyakumasuRecords);
+        }
+    }
+}
+
+
+// ======================== UIヘルパー ========================
+function switchTab(tabName) {
+  ['input', 'typing', 'hyakumasu', 'reading', 'growth', 'study'].forEach(name => {
+    document.getElementById(`tab-${name}`).classList.toggle('active', name === tabName);
+    document.getElementById(`content-${name}`).classList.toggle('active', name === tabName);
+  });
+
+  if (CHARTS_READY) {
+    if (tabName === 'typing') {
+        drawChart('typing-chart-div', PAGE_DATA.typingChartData, { title: 'タイピングの成長記録', series: { 0: { targetAxisIndex: 0, color: '#3b82f6' }, 1: { targetAxisIndex: 1, color: '#10b981' } }, vAxes: { 0: { title: '速さ (打/秒)' }, 1: { title: '正答率 (%)' } } });
+    } else if (tabName === 'hyakumasu') {
+        renderHyakumasuChartAndSelector(PAGE_DATA.hyakumasuChartData, `hyakumasu-chart-selector-area`, `hyakumasu-chart-div`, PAGE_DATA.hyakumasuRecords);
+    }
+  }
+}
+
+function createAccordionForm(type, title) {
+  let formFields = '';
+  switch(type) {
+    case 'typing':
+      formFields = `<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div><label class="block text-sm font-medium text-gray-700"><ruby><rb>正</rb><rt>ただ</rt></ruby>しく<ruby><rb>打</rb><rt>う</rt></ruby>てた<ruby><rb>数</rb><rt>かず</rt></ruby></label><input type="number" name="correct" class="mt-1 block w-full p-2 border rounded" required></div>
+          <div><label class="block text-sm font-medium text-gray-700"><ruby><rb>打</rb><rt>う</rt></ruby>った<ruby><rb>全体</rb><rt>ぜんたい</rt></ruby>の<ruby><rb>数</rb><rt>かず</rt></ruby></label><input type="number" name="total" class="mt-1 block w-full p-2 border rounded" required></div>
+          <div><label class="block text-sm font-medium text-gray-700">かかった<ruby><rb>時間</rb><rt>じかん</rt></ruby>（<ruby><rb>秒</rb><rt>びょう</rt></ruby>）</label><input type="number" name="time" class="mt-1 block w-full p-2 border rounded" required></div>
+        </div>`;
+      break;
+    case 'goal':
+      formFields = `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium text-gray-700"><ruby><rb>目標</rb><rt>もくひょう</rt></ruby>スピード (<ruby><rb>打</rb><rt>だ</rt></ruby>/<ruby><rb>秒</rb><rt>びょう</rt></ruby>)</label><input type="number" name="speedGoal" step="0.1" class="mt-1 w-full p-2 border rounded" placeholder="例: 5.0"></div>
+          <div><label class="block text-sm font-medium text-gray-700"><ruby><rb>目標</rb><rt>もくひょう</rt></ruby><ruby><rb>正答率</rb><rt>せいとうりつ</rt></ruby> (%)</label><input type="number" name="accuracyGoal" step="0.1" min="0" max="100" class="mt-1 w-full p-2 border rounded" placeholder="例: 95.0"></div>
+        </div>`;
+      break;
+    case 'reading':
+      formFields = `<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div><label class="block text-sm font-medium"><ruby><rb>本</rb><rt>ほん</rt></ruby>の<ruby><rb>題名</rb><rt>だいめい</rt></ruby></label><input type="text" name="title" class="mt-1 block w-full p-2 border rounded" required></div>
+          <div><label class="block text-sm font-medium"><ruby><rb>本</rb><rt>ほん</rt></ruby>の<ruby><rb>種類</rb><rt>しゅるい</rt></ruby></label><select name="genre" class="mt-1 block w-full p-2 border rounded" required>${populateBookGenreOptions()}</select></div>
+          <div><label class="block text-sm font-medium">ページ<ruby><rb>数</rb><rt>すう</rt></ruby></label><input type="number" name="pages" class="mt-1 block w-full p-2 border rounded" required></div>
+          <div><label class="block text-sm font-medium">おすすめ<ruby><rb>度</rb><rt>ど</rt></ruby></label><div class="rating-stars text-3xl mt-1" data-value="0"><span data-value="1">★</span><span data-value="2">★</span><span data-value="3">★</span><span data-value="4">★</span><span data-value="5">★</span></div></div>
+          <div class="md:col-span-2"><label class="block text-sm font-medium"><ruby><rb>感想</rb><rt>かんそう</rt></ruby></label><textarea name="comment" rows="3" class="mt-1 block w-full p-2 border rounded"></textarea></div>
+        </div>`;
+      break;
+    case 'growth':
+       formFields = `<div class="space-y-4">
+          <div><label class="block text-lg font-medium">できるようになったことは？</label><textarea name="content" rows="3" class="mt-1 block w-full p-2 border rounded" placeholder="例：難しい漢字が書けるようになった！" required></textarea></div>
+          <div><label class="block text-lg font-medium">ひとこと（<ruby><rb>気持</rb><rt>きも</rt></ruby>ちなど）</label><input type="text" name="comment" class="mt-1 block w-full p-2 border rounded" placeholder="例：うれしかった！"></div>
+        </div>`;
+      break;
+    case 'study':
+      formFields = `<div class="space-y-2">
+          <div><label class="block text-lg font-medium">テーマ・ぎもん</label><textarea name="theme" rows="2" class="mt-1 block w-full p-2 border rounded" placeholder="例：なんで空は青いの？" required></textarea></div>
+          <div class="text-center text-2xl text-blue-500">▼</div>
+          <div><label class="block text-lg font-medium">わかったこと・まとめ</label><textarea name="summary" rows="4" class="mt-1 block w-full p-2 border rounded" placeholder="例：光の「さんらん」というげんしょうが関係していることがわかった。" required></textarea></div>
+          <div class="text-center text-2xl text-green-500">▼</div>
+          <div><label class="block text-lg font-medium">もっと<ruby><rb>知</rb><rt>し</rt></ruby>りたいこと</label><textarea name="next" rows="2" class="mt-1 block w-full p-2 border rounded" placeholder="例：じゃあ、夕焼けはなんで赤いの？"></textarea></div>
+        </div>`;
+      break;
+  }
+  return `<details class="border rounded-md bg-white"><summary class="w-full p-4 font-semibold cursor-pointer text-lg">${title}</summary>
+    <form class="p-4 border-t" data-type="${type}">
+      ${formFields}
+      <button type="submit" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded save-btn">この<ruby><rb>内容</rb><rt>ないよう</rt></ruby>で<ruby><rb>記録</rb><rt>きろく</rt></ruby>する</button>
+    </form>
+  </details>`;
+}
+
+function showLoading(message = '<ruby><rb>処理中</rb><rt>しょりちゅう</rt></ruby>...') { 
+    document.getElementById('loading-message').textContent = message;
+    document.getElementById('loading').classList.remove('hidden');
+}
+function hideLoading() { 
+    document.getElementById('loading').classList.add('hidden');
+}
+function showError(error) {
+  hideLoading();
+  console.error('エラー:', error);
+  const errorMessage = error.message || '<ruby><rb>不明</rb><rt>ふめい</rt></ruby>なエラーが<ruby><rb>発生</rb><rt>はっせい</rt></ruby>しました。';
+  showToast(errorMessage, 'error');
+}
+function showToast(message, type = 'success') {
+    const toast = document.getElementById('toast');
+    toast.textContent = message;
+    toast.className = `fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-md z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+    toast.classList.remove('hidden');
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateX(0)';
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateX(100%)';
+        setTimeout(() => toast.classList.add('hidden'), 500);
+    }, 4000);
+}
+function escapeHtml(unsafe) {
+    if (unsafe === null || typeof unsafe === 'undefined') return '';
+    return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+function setButtonLoading(button, isLoading, loadingText = '<ruby><rb>保存中</rb><rt>ほぞんちゅう</rt></ruby>...') {
+    if (!button) return;
+    if (!button.dataset.originalText) button.dataset.originalText = button.innerHTML;
+    button.disabled = isLoading;
+    if (isLoading) {
+        button.innerHTML = `<i class="fas fa-spinner fa-spin mr-2"></i>${loadingText}`;
+    } else {
+        button.innerHTML = button.dataset.originalText;
+    }
+}
+function populateBookGenreOptions() {
+  const genres = {"900": "文学（物語）", "200": "歴史", "400": "自然科学（理科）", "700": "芸術（図工、音楽）", "300": "社会科学", "500": "技術", "600": "産業", "800": "言語", "100": "哲学", "000": "総記"};
+  let options = '<option value="">種類をえらぶ</option>';
+  for (const code in genres) {
+    options += `<option value="${genres[code]}">${genres[code]}</option>`;
+  }
+  return options;
+}
+function setupRatingStars() {
+    document.querySelectorAll('.rating-stars').forEach(starContainer => {
+        starContainer.addEventListener('click', (e) => {
+            if (e.target.tagName === 'SPAN') {
+                starContainer.dataset.value = e.target.dataset.value;
+                updateStars(starContainer);
+            }
+        });
+    });
+}
+function updateStars(container) {
+    if (!container) return;
+    const value = container.dataset.value;
+    container.querySelectorAll('span').forEach(s => {
+        s.classList.toggle('selected', s.dataset.value <= value);
+    });
+}
+function displayTypingRecords(records, elementId = 'typing-record-table-wrapper') {
+    const wrapper = document.getElementById(elementId);
+    if (!wrapper) return;
+    if (!records || records.length === 0) {
+        wrapper.innerHTML = '<p class="text-gray-500 p-4">まだタイピングの<ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+        return;
+    }
+    let tableHTML = '<table class="min-w-full bg-white"><thead><tr class="bg-gray-50"><th class="p-2 text-left text-xs font-medium text-gray-500">日付</th><th class="p-2 text-right text-xs font-medium text-gray-500">正答率(%)</th><th class="p-2 text-right text-xs font-medium text-gray-500">速さ(打/秒)</th></tr></thead><tbody>';
+    records.forEach(r => {
+        tableHTML += `<tr><td class="p-2 border-t">${r.date}</td><td class="p-2 border-t text-right">${r.accuracy}</td><td class="p-2 border-t text-right">${r.speed}</td></tr>`;
+    });
+    tableHTML += '</tbody></table>';
+    wrapper.innerHTML = tableHTML;
+}
+function displayHyakumasuRecords(records, elementId = 'hyakumasu-record-table-wrapper') {
+    const wrapper = document.getElementById(elementId);
+    if (!wrapper) return;
+    if (!records || records.length === 0) {
+        wrapper.innerHTML = '<p class="text-gray-500 p-4">まだ100マス<ruby><rb>計算</rb><rt>けいさん</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+        return;
+    }
+    let tableHTML = '<table class="min-w-full bg-white"><thead><tr class="bg-gray-50"><th class="p-2 text-left text-xs font-medium text-gray-500">日付</th><th class="p-2 text-left text-xs font-medium text-gray-500">モード</th><th class="p-2 text-right text-xs font-medium text-gray-500">点数</th><th class="p-2 text-right text-xs font-medium text-gray-500">タイム(秒)</th></tr></thead><tbody>';
+    records.forEach(r => {
+        tableHTML += `<tr><td class="p-2 border-t">${r.date}</td><td class="p-2 border-t">${r.mode}</td><td class="p-2 border-t text-right">${r.score}</td><td class="p-2 border-t text-right">${r.time}</td></tr>`;
+    });
+    tableHTML += '</tbody></table>';
+    wrapper.innerHTML = tableHTML;
+}
+function renderGoalArea(goalData, bestRecord, elementId = 'goal-area') {
+    const area = document.getElementById(elementId);
+    if (!area) return;
+    const { currentGoal } = goalData;
+    if (currentGoal) {
+        const speedGoal = currentGoal.speedGoal || 0;
+        const accuracyGoal = currentGoal.accuracyGoal || 0;
+        const bestSpeed = bestRecord ? bestRecord.bestSpeed : 0;
+        const bestAccuracy = bestRecord ? bestRecord.bestAccuracy : 0;
+        const speedProgress = speedGoal > 0 ? Math.min((bestSpeed / speedGoal) * 100, 100) : 100;
+        const accuracyProgress = accuracyGoal > 0 ? Math.min((bestAccuracy / accuracyGoal) * 100, 100) : 100;
+        area.innerHTML = `<h3 class="font-semibold text-lg mb-4"><ruby><rb>挑戦中</rb><rt>ちょうせんちゅう</rt></ruby>の<ruby><rb>目標</rb><rt>もくひょう</rt></ruby></h3><div class="space-y-4">
+            ${speedGoal > 0 ? `<div><div class="flex justify-between mb-1"><span>スピード: ${bestSpeed.toFixed(2)} / ${speedGoal} <ruby><rb>打</rb><rt>だ</rt></ruby>/<ruby><rb>秒</rb><rt>びょう</rt></ruby></span></div><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-blue-600 h-2.5 rounded-full" style="width: ${speedProgress}%"></div></div></div>` : ''}
+            ${accuracyGoal > 0 ? `<div><div class="flex justify-between mb-1"><span><ruby><rb>正答率</rb><rt>せいとうりつ</rt></ruby>: ${bestAccuracy.toFixed(2)} / ${accuracyGoal} %</span></div><div class="w-full bg-gray-200 rounded-full h-2.5"><div class="bg-green-600 h-2.5 rounded-full" style="width: ${accuracyProgress}%"></div></div></div>` : ''}
+        </div>`;
+    } else {
+        area.innerHTML = '<p class="text-gray-500"><ruby><rb>現在</rb><rt>げんざい</rt></ruby><ruby><rb>挑戦中</rb><rt>ちょうせんちゅう</rt></ruby>の<ruby><rb>目標</rb><rt>もくひょう</rt></ruby>はありません。「<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>入</rb><rt>い</rt></ruby>れる」タブから<ruby><rb>新</rb><rt>あたら</rt></ruby>しい<ruby><rb>目標</rb><rt>もくひょう</rt></ruby>を<ruby><rb>立</rb><rt>た</rt></ruby>てよう！</p>';
+    }
+}
+function renderAchievedGoals(goalData, elementId = 'achieved-goals-area') {
+    const area = document.getElementById(elementId);
+    if (!area) return;
+    const { achievedGoals } = goalData;
+    if (!achievedGoals || achievedGoals.length === 0) {
+        area.innerHTML = '<p class="text-gray-500">まだ<ruby><rb>達成</rb><rt>たっせい</rt></ruby>した<ruby><rb>目標</rb><rt>もくひょう</rt></ruby>はありません。がんばろう！</p>';
+        return;
+    }
+    let listHTML = '<ul class="space-y-3">';
+    achievedGoals.forEach(goal => {
+        listHTML += `<li class="flex items-center p-3 bg-white rounded-lg shadow-sm"><i class="fas fa-trophy text-yellow-500 text-2xl mr-4"></i><div>
+            <p class="font-semibold">${goal.speedGoal ? `スピード: ${goal.speedGoal}<ruby><rb>打</rb><rt>だ</rt></ruby>/<ruby><rb>秒</rb><rt>びょう</rt></ruby>` : ''} ${goal.accuracyGoal ? `<ruby><rb>正答率</rb><rt>せいとうりつ</rt></ruby>: ${goal.accuracyGoal}%` : ''}</p>
+            <p class="text-sm text-gray-500"><ruby><rb>達成日</rb><rt>たっせいび</rt></ruby>: ${goal.achievedDate}</p>
+        </div></li>`;
+    });
+    listHTML += '</ul>';
+    area.innerHTML = listHTML;
+}
+function renderHyakumasuChartAndSelector(chartData, selectorId, chartId, records) {
+    const selectorArea = document.getElementById(selectorId);
+    const chartDiv = document.getElementById(chartId);
+    if (!selectorArea || !chartDiv) return;
+    if (!chartData || Object.keys(chartData).length === 0) {
+        chartDiv.innerHTML = '<p class="text-center text-gray-500 p-4">グラフをかくための<ruby><rb>記録</rb><rt>きろく</rt></ruby>がまだありません。</p>';
+        return;
+    }
+    const questionCounts = Object.keys(chartData).sort((a, b) => b - a);
+    let selectorHTML = `<select id="${selectorId}-select" class="rounded-md border-gray-300 shadow-sm p-2">`;
+    questionCounts.forEach(qCount => {
+        selectorHTML += `<option value="${qCount}">${qCount}問のグラフ</option>`;
+    });
+    selectorHTML += '</select>';
+    selectorArea.innerHTML = selectorHTML;
+    
+    const latestRecord = records?.[0];
+    let defaultKey = questionCounts[0];
+    if (latestRecord && questionCounts.includes(String(latestRecord.questions))) {
+        defaultKey = String(latestRecord.questions);
+    }
+
+    const selector = document.getElementById(`${selectorId}-select`);
+    selector.value = defaultKey;
+    drawChart(chartId, chartData[defaultKey], { title: `${defaultKey}問の成長記録`, vAxis: { title: 'タイム(秒)', direction: -1 } });
+    
+    selector.addEventListener('change', (e) => {
+        const qCount = e.target.value;
+        if (qCount) {
+            drawChart(chartId, chartData[qCount], { title: `${qCount}問の成長記録`, vAxis: { title: 'タイム(秒)', direction: -1 } });
+        }
+    });
+}
+function renderHyakumasuRankings(targetId, rankingData) {
+    const area = document.getElementById(targetId);
+    if (!area || !rankingData) return;
+    const modes = Object.keys(rankingData);
+    if (modes.length === 0) {
+        area.innerHTML = '<p class="text-gray-500">まだランキングデータがありません。</p>';
+        return;
+    }
+    let tabsHTML = '<div class="flex border-b mb-4">';
+    modes.forEach((mode, index) => {
+        tabsHTML += `<button class="rank-tab flex-1 py-2 px-4 text-sm font-medium text-gray-500 ${index === 0 ? 'active' : ''}" data-mode="${mode}">${mode}</button>`;
+    });
+    tabsHTML += '</div>';
+    let contentHTML = '';
+    modes.forEach((mode, index) => {
+        contentHTML += `<div id="${targetId}-content-${mode}" class="rank-content ${index === 0 ? 'active' : ''}"><ol class="space-y-2"></ol></div>`;
+    });
+    area.innerHTML = tabsHTML + contentHTML;
+    modes.forEach(mode => {
+        displayRanking(rankingData[mode], area.querySelector(`#${targetId}-content-${mode} ol`), true);
+    });
+    area.querySelectorAll('.rank-tab').forEach(tab => {
+        tab.addEventListener('click', e => {
+            const selectedMode = e.target.dataset.mode;
+            area.querySelectorAll('.rank-tab').forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            area.querySelectorAll('.rank-content').forEach(c => c.classList.remove('active'));
+            area.querySelector(`#${targetId}-content-${selectedMode}`).classList.add('active');
+        });
+    });
+}
+function renderReadingSummary(summary, elementId) {
+    const area = document.getElementById(elementId);
+    if (!area || !summary) return;
+    area.innerHTML = `<div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
+        <div><p class="text-sm text-gray-500"><ruby><rb>合計</rb><rt>ごうけい</rt></ruby>さっ<ruby><rb>数</rb><rt>すう</rt></ruby></p><p class="text-2xl font-bold">${summary.totalBooks}</p></div>
+        <div><p class="text-sm text-gray-500"><ruby><rb>合計</rb><rt>ごうけい</rt></ruby>ページ<ruby><rb>数</rb><rt>すう</rt></ruby></p><p class="text-2xl font-bold">${summary.totalPages}</p></div>
+    </div>`;
+}
+function renderReadingRecords(records, elementId) {
+    const area = document.getElementById(elementId);
+    if (!area) return;
+    if (!records || records.length === 0) {
+        area.innerHTML = '<p class="text-center text-gray-500 p-4">まだ<ruby><rb>読書</rb><rt>どくしょ</rt></ruby><ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+        return;
+    }
+    area.innerHTML = records.map(book => {
+        let starsHTML = '';
+        for (let i = 1; i <= 5; i++) {
+            starsHTML += `<i class="fas fa-star ${i <= book.rating ? 'text-yellow-400' : 'text-gray-300'}"></i>`;
+        }
+        return `<div class="p-4 border rounded-lg shadow-sm bg-white">
+            <div class="flex justify-between items-start">
+                <div><h4 class="font-bold text-lg text-blue-800">${escapeHtml(book.title)}</h4><p class="text-sm text-gray-500">${escapeHtml(book.genre)} / ${book.pages}ページ</p></div>
+                <div class="text-right flex-shrink-0 ml-4"><p class="text-sm">${book.date}</p><div class="text-lg">${starsHTML}</div></div>
+            </div>
+            ${book.comment ? `<p class="mt-2 p-3 bg-gray-50 rounded text-gray-700 whitespace-pre-wrap">${escapeHtml(book.comment)}</p>` : ''}
+        </div>`;
+    }).join('');
+}
+function renderGrowthRecords(records, elementId) {
+    const area = document.getElementById(elementId);
+    if (!area) return;
+    if (!records || records.length === 0) {
+        area.innerHTML = '<p class="text-center text-gray-500 p-4">まだ<ruby><rb>成長</rb><rt>せいちょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+        return;
+    }
+    area.innerHTML = records.map(record => `
+        <div class="p-4 border rounded-lg shadow-sm bg-white">
+            <p class="text-sm text-gray-500 text-right">${record.date}</p>
+            <p class="font-semibold text-lg text-green-700">${escapeHtml(record.content)}</p>
+            ${record.comment ? `<p class="mt-2 p-3 bg-green-50 rounded text-gray-700"><span class="font-bold">💬 ひとこと:</span> ${escapeHtml(record.comment)}</p>` : ''}
+        </div>`).join('');
+}
+function renderIndependentStudyRecords(records, elementId) {
+    const area = document.getElementById(elementId);
+    if (!area) return;
+    if (!records || records.length === 0) {
+        area.innerHTML = '<p class="text-center text-gray-500 p-4">まだ<ruby><rb>自主学習</rb><rt>じしゅがくしゅう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+        return;
+    }
+    area.innerHTML = records.map(record => `
+        <div class="p-4 border rounded-lg shadow-sm bg-white">
+            <p class="text-sm text-gray-500 text-right">${record.date}</p>
+            <div class="space-y-3">
+                <div><h4 class="font-bold text-blue-800">【テーマ・ぎもん】</h4><p class="p-2 bg-blue-50 rounded">${escapeHtml(record.theme)}</p></div>
+                <div><h4 class="font-bold text-green-800">【わかったこと・まとめ】</h4><p class="p-2 bg-green-50 rounded whitespace-pre-wrap">${escapeHtml(record.summary)}</p></div>
+                ${record.next ? `<div><h4 class="font-bold text-purple-800">【もっと<ruby><rb>知</rb><rt>し</rt></ruby>りたいこと】</h4><p class="p-2 bg-purple-50 rounded">${escapeHtml(record.next)}</p></div>` : ''}
+            </div>
+        </div>`).join('');
+}
+function drawChart(elementId, data, options) {
+    const container = document.getElementById(elementId);
+    if (!container) return;
+    if (!data || data.length <= 1) {
+        container.innerHTML = '<p class="text-center text-gray-500 p-4">グラフをかくための<ruby><rb>記録</rb><rt>きろく</rt></ruby>がまだありません。</p>';
+        return;
+    }
+    try {
+        const dataTable = google.visualization.arrayToDataTable(data);
+        const chart = new google.visualization.LineChart(container);
+        chart.draw(dataTable, options);
+    } catch (e) {
+        console.error("グラフの<ruby><rb>描画</rb><rt>びょうが</rt></ruby>に<ruby><rb>失敗</rb><rt>しっぱい</rt></ruby>しました:", e);
+        container.innerHTML = '<p class="text-center text-red-500 p-4">グラフの<ruby><rb>表示中</rb><rt>ひょうじちゅう</rt></ruby>にエラーが<ruby><rb>起</rb><rt>お</rt></ruby>きました。</p>';
+    }
+}
+function displayRanking(rankingData, target, timeBased = false) {
+    const targetOl = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!targetOl) return;
+    targetOl.innerHTML = '';
+    if (!rankingData || rankingData.length === 0) {
+        targetOl.innerHTML = '<li class="text-gray-500">まだランキングデータがありません。</li>';
+        return;
+    }
+    rankingData.forEach(item => {
+        const li = document.createElement('li');
+        li.className = 'flex items-center p-2 rounded-md odd:bg-gray-50';
+        let medal = '';
+        if (item.rank === 1) medal = '<i class="fas fa-medal text-yellow-400 text-xl mr-2"></i>';
+        else if (item.rank === 2) medal = '<i class="fas fa-medal text-gray-400 text-xl mr-2"></i>';
+        else if (item.rank === 3) medal = '<i class="fas fa-medal text-orange-400 text-xl mr-2"></i>';
+        const unit = timeBased ? '秒' : '打/秒';
+        li.innerHTML = `<div class="font-bold text-lg w-12 text-center">${medal || item.rank + '位'}</div><div class="flex-grow font-medium text-gray-800">${escapeHtml(item.name)}</div><div class="font-bold text-blue-600">${escapeHtml(item.value)} <span class="text-sm font-normal">${unit}</span></div>`;
+        targetOl.appendChild(li);
+    });
+}
+</script>
+</body>
+</html>
