@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <title><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>🏫</title>
+  <!-- Tailwind CSS と Chart.js を読み込みます -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Font Awesome (アイコン) を読み込みます -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+  <style>
+    /* 基本的なフォントとアニメーションのスタイルを設定します */
+    body { font-family: 'Helvetica Neue', 'Arial', 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', 'Meiryo', sans-serif; }
+    .overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 9999; backdrop-filter: blur(3px); transition: opacity 0.3s; opacity: 0; }
+    .loader { border: 5px solid #f3f3f3; border-top: 5px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .tab-button.active { border-color: #3b82f6; color: #3b82f6; background-color: #eff6ff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    .result-message-area { margin-top: 1rem; padding: 0.75rem; border-radius: 0.375rem; text-align: center; font-weight: 500; display: none; transition: all 0.3s;}
+    .message-success { background-color: #dcfce7; color: #166534; }
+    .message-error { background-color: #fee2e2; color: #991b1b; }
+    .hidden { display: none !important; }
+    .portfolio-tab-content { display: none; }
+    .portfolio-tab-content.active { display: block; }
+    .rating-buttons button { border: 1px solid #d1d5db; background-color: white; padding: 0.5rem 1rem; border-radius: 0.375rem; transition: all 0.2s; }
+    .rating-buttons button.selected { background-color: #3b82f6; color: white; border-color: #3b82f6; font-weight: bold; }
+  </style>
+</head>
+<body class="bg-gray-100">
+
+  <!-- ふり返り表示用モーダル -->
+  <div id="reflection-modal" class="overlay hidden items-center justify-center">
+    <div class="bg-white p-6 rounded-lg shadow-xl max-w-lg w-full mx-4 relative">
+      <button id="modal-close-btn" class="absolute top-2 right-3 text-gray-500 hover:text-gray-800 text-3xl font-bold">&times;</button>
+      <h3 class="text-xl font-bold mb-4">ふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り</h3>
+      <div class="bg-gray-50 p-4 rounded-md max-h-80 overflow-y-auto">
+        <p id="modal-reflection-text" class="whitespace-pre-wrap text-gray-700"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ローディング画面 -->
+  <div id="loading" class="overlay hidden">
+    <div class="loader"></div>
+    <p id="loading-message" class="mt-4 font-semibold text-white"></p>
+  </div>
+  
+  <!-- 通知メッセージ表示用のコンテナ -->
+  <div id="toast" class="hidden fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-md z-50"></div>
+
+  <!-- メインコンテンツ -->
+  <div id="app" class="container mx-auto max-w-5xl bg-white p-4 md:p-6 rounded-lg shadow-md my-4">
+    <header class="mb-6">
+      <h1 class="text-2xl md:text-3xl font-bold text-blue-700"><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>🏫</h1>
+      <p id="welcome-message" class="text-lg mt-2">こんにちは、<span class="font-semibold"></span>さん！</p>
+    </header>
+
+    <!-- =================================================================== -->
+    <!-- 教員用ビュー -->
+    <!-- =================================================================== -->
+    <main id="teacher-view" class="hidden">
+      <div class="bg-blue-50 border-l-4 border-blue-500 text-blue-700 p-4 mb-6 rounded shadow-sm">
+        <p class="font-bold text-lg mb-2"><ruby><rb>担任</rb><rt>たんにん</rt></ruby>メニュー</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label for="student-selector" class="block text-sm font-medium text-gray-700"><ruby><rb>児童</rb><rt>じどう</rt></ruby>を<ruby><rb>選択</rb><rt>せんたく</rt></ruby>して<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>見</rb><rt>み</rt></ruby>る</label>
+            <select id="student-selector" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2">
+              <option value="">-- <ruby><rb>児童</rb><rt>じどう</rt></ruby>を<ruby><rb>選択</rb><rt>せんたく</rt></ruby> --</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-gray-700"><ruby><rb>学期</rb><rt>がっき</rt></ruby>ごとポートフォリオPDF<ruby><rb>出力</rb><rt>しゅつりょく</rt></ruby></label>
+            <div class="mt-1 flex space-x-2">
+              <button id="pdf-term1-btn" class="flex-1 bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 1<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+              <button id="pdf-term2-btn" class="flex-1 bg-green-500 hover:bg-green-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 2<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+              <button id="pdf-term3-btn" class="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-3 rounded text-sm">🖨️ 3<ruby><rb>学期</rb><rt>がっき</rt></ruby></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="teacher-student-data-view" class="hidden mt-6 border-t pt-6">
+        <!-- ここに選択した児童のデータが表示されます -->
+      </div>
+    </main>
+
+    <!-- =================================================================== -->
+    <!-- 児童用ビュー -->
+    <!-- =================================================================== -->
+    <main id="student-view" class="hidden">
+      <div class="border-b border-gray-200 mb-6">
+        <nav class="flex -mb-px space-x-2 md:space-x-4 overflow-x-auto" aria-label="Tabs">
+          <button id="tab-input" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-pencil-alt mr-2"></i><ruby><rb>記録</rb><rt>きろく</rt></ruby>をいれる</button>
+          <button id="tab-test" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-file-alt mr-2"></i>テスト</button>
+          <button id="tab-lesson" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-chalkboard-teacher mr-2"></i><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby></button>
+          <button id="tab-moral" class="tab-button whitespace-nowrap py-3 px-2 md:px-4 border-b-2 font-medium text-sm md:text-lg"><i class="fas fa-book-heart mr-2"></i><ruby><rb>道徳</rb><rt>どうとく</rt></ruby></button>
+        </nav>
+      </div>
+      
+      <!-- 記録入力タブ -->
+      <div id="content-input" class="tab-content">
+        <h2 class="text-xl font-semibold text-gray-700 mb-4"><ruby><rb>学習</rb><rt>がくしゅう</rt></ruby>の<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>入力</rb><rt>にゅうりょく</rt></ruby>する</h2>
+        <div id="input-forms-area">
+          <!-- ここに入力フォームが動的に生成されます -->
+        </div>
+      </div>
+
+      <!-- テスト記録タブ -->
+      <div id="content-test" class="tab-content"></div>
+      <!-- 授業記録タブ -->
+      <div id="content-lesson" class="tab-content"></div>
+      <!-- 道徳記録タブ -->
+      <div id="content-moral" class="tab-content"></div>
+    </main>
+  </div>
+
+  <script>
+    // ===================================================================
+    // グローバル変数と初期化
+    // ===================================================================
+    let currentUser = {};
+    let studentList = [];
+    let moralMaterials = [];
+    let testUnits = {};
+    let subjectList = [];
+    const loader = document.getElementById('loading');
+    const toast = document.getElementById('toast');
+    const reflectionModal = document.getElementById('reflection-modal');
+    const modalCloseBtn = document.getElementById('modal-close-btn');
+    const modalReflectionText = document.getElementById('modal-reflection-text');
+
+    document.addEventListener('DOMContentLoaded', () => {
+      showLoader('データを<ruby><rb>読</rb><rt>よ</rt></ruby>み<ruby><rb>込</rb><rt>こ</rt></ruby>んでいます...');
+      google.script.run
+        .withSuccessHandler(setupUI)
+        .withFailureHandler(showError)
+        .getInitialData();
+      
+      modalCloseBtn.addEventListener('click', () => reflectionModal.classList.add('hidden'));
+      reflectionModal.addEventListener('click', (e) => {
+        if (e.target === reflectionModal) {
+            reflectionModal.classList.add('hidden');
+        }
+      });
+      document.getElementById('app').addEventListener('click', handleAppClick);
+      document.getElementById('app').addEventListener('change', handleAppChange);
+    });
+
+    /** UIの初期セットアップ */
+    function setupUI(data) {
+      if (data.error) {
+        showError({ message: data.error });
+        return;
+      }
+      currentUser = data;
+      subjectList = data.subjectList || [];
+      moralMaterials = data.moralMaterials || [];
+      document.querySelector('#welcome-message span').textContent = escapeHtml(currentUser.studentName);
+      
+      if (currentUser.isTeacher) {
+        setupTeacherView();
+      } else {
+        setupStudentView();
+      }
+      hideLoader();
+    }
+
+    // ===================================================================
+    // 教員用ビューのセットアップと処理
+    // ===================================================================
+    function setupTeacherView() {
+      document.getElementById('teacher-view').classList.remove('hidden');
+      studentList = currentUser.studentList;
+      const selector = document.getElementById('student-selector');
+      studentList.forEach(student => {
+        const option = document.createElement('option');
+        option.value = student.id;
+        option.textContent = `${student.id}: ${escapeHtml(student.name)}`;
+        selector.appendChild(option);
+      });
+      selector.addEventListener('change', handleStudentSelect);
+      document.getElementById('pdf-term1-btn').addEventListener('click', () => handlePdfExport('1学期'));
+      document.getElementById('pdf-term2-btn').addEventListener('click', () => handlePdfExport('2学期'));
+      document.getElementById('pdf-term3-btn').addEventListener('click', () => handlePdfExport('3学期'));
+    }
+
+    function handleStudentSelect(event) {
+      const studentId = event.target.value;
+      const dataView = document.getElementById('teacher-student-data-view');
+      if (studentId) {
+        dataView.classList.remove('hidden');
+        loadStudentData(studentId, true);
+      } else {
+        dataView.classList.add('hidden');
+        dataView.innerHTML = '';
+      }
+    }
+
+    function handlePdfExport(term) {
+      showLoader(`${term}のPDFを<ruby><rb>作成中</rb><rt>さくせいちゅう</rt></ruby>です...`);
+      google.script.run
+        .withSuccessHandler(result => {
+          hideLoader();
+          if(result.success) {
+            showToast(result.message, 'success');
+            window.open(result.url, '_blank');
+          } else {
+            showError({ message: result.message });
+          }
+        })
+        .withFailureHandler(showError)
+        .createPortfolioPdf(term);
+    }
+
+    // ===================================================================
+    // 児童用ビューのセットアップと処理
+    // ===================================================================
+    function setupStudentView() {
+      document.getElementById('student-view').classList.remove('hidden');
+      moralMaterials = currentUser.moralMaterials;
+      testUnits = currentUser.testUnits;
+      
+      ['input', 'test', 'lesson', 'moral'].forEach(tabName => {
+        document.getElementById(`tab-${tabName}`).addEventListener('click', () => switchTab(tabName));
+      });
+      
+      switchTab('input'); // 初期表示は入力タブ
+      loadStudentData(currentUser.studentId, false);
+      renderInputForms();
+    }
+
+    function switchTab(tabName) {
+      ['input', 'test', 'lesson', 'moral'].forEach(name => {
+        document.getElementById(`tab-${name}`).classList.toggle('active', name === tabName);
+        document.getElementById(`content-${name}`).classList.toggle('active', name === tabName);
+      });
+    }
+
+    function renderInputForms() {
+      const area = document.getElementById('input-forms-area');
+      area.innerHTML = `
+        ${generateAccordionForm('test', '📝 テストのふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り')}
+        ${generateAccordionForm('lesson', '✍️ <ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>のふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り')}
+        ${generateAccordionForm('moral', '📔 <ruby><rb>道徳</rb><rt>どうとく</rt></ruby>ノート')}
+      `;
+      setupFormEventListeners();
+    }
+
+    // ===================================================================
+    // データ取得と描画 (共通)
+    // ===================================================================
+    function loadStudentData(studentId, isTeacher) {
+      showLoader('データを<ruby><rb>読</rb><rt>よ</rt></ruby>み<ruby><rb>込</rb><rt>こ</rt></ruby>んでいます...');
+      google.script.run
+        .withSuccessHandler(data => {
+          if (data.error) {
+            showError({ message: data.error });
+            return;
+          }
+          if(isTeacher) {
+            const targetElement = document.getElementById('teacher-student-data-view');
+            targetElement.innerHTML = generatePortfolioHtml(data, true);
+            setupPortfolioEventListeners('teacher-student-data-view');
+          } else {
+            document.getElementById('content-test').innerHTML = generateTestDataHtml(data.testData);
+            document.getElementById('content-lesson').innerHTML = generateLessonDataHtml(data.lessonData);
+            document.getElementById('content-moral').innerHTML = generateMoralDataHtml(data.moralData);
+          }
+          hideLoader();
+        })
+        .withFailureHandler(showError)
+        .getStudentData(studentId);
+    }
+
+    function generatePortfolioHtml(data, isTeacher) {
+      const studentName = isTeacher ? studentList.find(s => s.id == document.getElementById('student-selector').value)?.name : currentUser.studentName;
+      const observationFormHtml = isTeacher ? generateObservationForm() : '';
+      
+      return `
+        ${isTeacher ? `<h2 class="text-2xl font-bold text-gray-800 mb-4">${escapeHtml(studentName)} さんの<ruby><rb>記録</rb><rt>きろく</rt></ruby></h2>` : ''}
+        <div class="border-b border-gray-200 mb-4">
+          <nav class="flex -mb-px space-x-2 md:space-x-4 overflow-x-auto">
+            <button data-target="test" class="portfolio-tab-button active"><i class="fas fa-file-alt mr-2"></i>テスト</button>
+            <button data-target="lesson" class="portfolio-tab-button"><i class="fas fa-chalkboard-teacher mr-2"></i><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby></button>
+            <button data-target="moral" class="portfolio-tab-button"><i class="fas fa-book-heart mr-2"></i><ruby><rb>道徳</rb><rt>どうとく</rt></ruby></button>
+            ${isTeacher ? '<button data-target="observation" class="portfolio-tab-button"><i class="fas fa-edit mr-2"></i><ruby><rb>所見</rb><rt>しょけん</rt></ruby><ruby><rb>材料</rb><rt>ざいりょう</rt></ruby></button>' : ''}
+          </nav>
+        </div>
+        <div data-content="test" class="portfolio-tab-content active">${generateTestDataHtml(data.testData)}</div>
+        <div data-content="lesson" class="portfolio-tab-content">${generateLessonDataHtml(data.lessonData)}</div>
+        <div data-content="moral" class="portfolio-tab-content">${generateMoralDataHtml(data.moralData)}</div>
+        ${isTeacher ? `<div data-content="observation" class="portfolio-tab-content">${observationFormHtml}</div>` : ''}
+      `;
+    }
+
+    function generateTestDataHtml(testData) {
+      if (!testData || testData.length === 0) return '<p class="text-gray-500 p-4"><ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+
+      const dataBySubject = {};
+      testData.forEach(d => {
+        if (!dataBySubject[d.subject]) dataBySubject[d.subject] = [];
+        dataBySubject[d.subject].push(d);
+      });
+
+      let html = '';
+      for (const subject in dataBySubject) {
+        const subjectData = dataBySubject[subject];
+        const canvasId = `scoreChart-${subject.replace(/[^a-zA-Z0-9]/g, '')}-${Math.random().toString(36).substring(7)}`; 
+        html += `<div class="mb-8">
+                   <h3 class="text-xl font-semibold text-gray-800 mb-2">${escapeHtml(subject)}</h3>
+                   <div class="p-4 border rounded-lg shadow-sm bg-white mb-4"><canvas id="${canvasId}"></canvas></div>
+                   <div class="overflow-x-auto">
+                     <table class="min-w-full bg-white border">
+                       <thead>
+                         <tr class="bg-gray-100">
+                           <th class="p-2 border text-left text-xs font-medium text-gray-600"><ruby><rb>日付</rb><rt>ひづけ</rt></ruby></th>
+                           <th class="p-2 border text-left text-xs font-medium text-gray-600"><ruby><rb>単元名</rb><rt>たんげんめい</rt></ruby></th>
+                           <th class="p-2 border text-center text-xs font-medium text-gray-600"><ruby><rb>表</rb><rt>おもて</rt></ruby></th>
+                           <th class="p-2 border text-center text-xs font-medium text-gray-600"><ruby><rb>裏</rb><rt>うら</rt></ruby></th>
+                           <th class="p-2 border text-center text-xs font-medium text-gray-600"><ruby><rb>合計</rb><rt>ごうけい</rt></ruby></th>
+                         </tr>
+                       </thead>
+                       <tbody class="text-gray-700 text-sm">`;
+        
+        subjectData.forEach(d => {
+            html += `<tr class="border-b hover:bg-gray-50">
+                       <td class="p-2 border-r align-middle">${d.date}</td>
+                       <td class="p-2 border-r align-middle">${escapeHtml(d.unitName)} <button class="reflection-btn text-blue-500 hover:text-blue-700 text-lg" data-reflection="${escapeHtml(d.reflection)}">💬</button></td>
+                       ${createScoreCellHtml(d.score1, d.expectedScore1)}
+                       ${createScoreCellHtml(d.score2, d.expectedScore2)}
+                       <td class="p-2 text-center align-middle font-bold">${d.totalScore}</td>
+                     </tr>`;
+        });
+
+        html += `</tbody></table></div></div>`;
+        
+        setTimeout(() => {
+          const ctx = document.getElementById(canvasId);
+          if (ctx) renderChart(ctx, subjectData, subject);
+        }, 0);
+      }
+      return html;
+    }
+    
+    function generateLessonDataHtml(lessonData) {
+      const subjectOptions = ['すべて', ...new Set(subjectList)].map(s => `<option value="${s}">${escapeHtml(s)}</option>`).join('');
+      const filterHtml = `
+        <div class="p-4 border rounded-lg bg-gray-50 mb-4">
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label for="lesson-subject-filter" class="block text-sm font-medium text-gray-700"><ruby><rb>教科</rb><rt>きょうか</rt></ruby></label>
+              <select id="lesson-subject-filter" class="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm">${subjectOptions}</select>
+            </div>
+            <div>
+              <label for="lesson-date-filter" class="block text-sm font-medium text-gray-700"><ruby><rb>日付</rb><rt>ひづけ</rt></ruby></label>
+              <input type="date" id="lesson-date-filter" class="mt-1 block w-full p-2 border-gray-300 rounded-md shadow-sm">
+            </div>
+            <button id="lesson-filter-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"><ruby><rb>絞</rb><rt>しぼ</rt></ruby>り<ruby><rb>込</rb><rt>こ</rt></ruby>む</button>
+          </div>
+        </div>
+      `;
+      return filterHtml + `<div id="lesson-table-container">${generateTableHtml(lessonData, ['<ruby><rb>日付</rb><rt>ひづけ</rt></ruby>', '<ruby><rb>教科</rb><rt>きょうか</rt></ruby>', 'ふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り'], ['date', 'subject', 'reflection'])}</div>`;
+    }
+
+    function generateMoralDataHtml(moralData) {
+      if (!moralData || moralData.length === 0) {
+        return '<p class="text-gray-500 p-4"><ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+      }
+      let html = '<div class="space-y-4">';
+      moralData.forEach(d => {
+        html += `
+          <div class="p-4 border rounded-lg shadow-sm bg-white">
+            <div class="flex justify-between items-start mb-2">
+              <h4 class="font-bold text-lg text-blue-800">${escapeHtml(d.materialName)}</h4>
+              <p class="text-sm text-gray-500">${d.date}</p>
+            </div>
+            <div class="space-y-3">
+              <div>
+                <h5 class="font-bold text-gray-700">【<ruby><rb>問</rb><rt>と</rt></ruby>い】</h5>
+                <p class="p-2 bg-blue-50 rounded text-gray-800">${escapeHtml(d.question)}</p>
+              </div>
+              <div>
+                <h5 class="font-bold text-gray-700">【<ruby><rb>自分</rb><rt>じぶん</rt></ruby>の<ruby><rb>考</rb><rt>かんが</rt></ruby>え】</h5>
+                <p class="p-2 bg-green-50 rounded text-gray-800 whitespace-pre-wrap">${escapeHtml(d.myThought)}</p>
+              </div>
+              <div>
+                <h5 class="font-bold text-gray-700">【<ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>のふ<ruby><rb>返</rb><rt>かえ</rt></ruby>り】</h5>
+                <p class="p-2 bg-yellow-50 rounded text-gray-800 whitespace-pre-wrap">${escapeHtml(d.reflection)}</p>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function generateObservationForm() {
+      return `
+        <div class="p-4 border rounded-lg shadow-sm bg-gray-50">
+          <form id="observation-form">
+            <div class="mb-2">
+              <label for="obs-category" class="block text-sm font-medium text-gray-700"><ruby><rb>記録</rb><rt>きろく</rt></ruby><ruby><rb>区分</rb><rt>くぶん</rt></ruby></label>
+              <select id="obs-category" name="category" required class="mt-1 block w-full p-2 border rounded-md">
+                <option><ruby><rb>学習面</rb><rt>がくしゅうめん</rt></ruby>(<ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>)</option><option><ruby><rb>学習面</rb><rt>がくしゅうめん</rt></ruby>(テスト)</option><option><ruby><rb>生活面</rb><rt>せいかつめん</rt></ruby></option>
+                <option><ruby><rb>係</rb><rt>かかり</rt></ruby>・<ruby><rb>当番</rb><rt>とうばん</rt></ruby></option><option><ruby><rb>行事</rb><rt>ぎょうじ</rt></ruby></option><option>その<ruby><rb>他</rb><rt>ほか</rt></ruby></option>
+              </select>
+            </div>
+            <div class="mb-2">
+              <label for="obs-episode" class="block text-sm font-medium text-gray-700"><ruby><rb>具体</rb><rt>ぐたい</rt></ruby><ruby><rb>的</rb><rt>てき</rt></ruby>な<ruby><rb>様子</rb><rt>ようす</rt></ruby>・エピソード</label>
+              <textarea id="obs-episode" name="episode" rows="3" required class="mt-1 block w-full p-2 border rounded-md"></textarea>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded">この<ruby><rb>内容</rb><rt>ないよう</rt></ruby>で<ruby><rb>記録</rb><rt>きろく</rt></ruby>する</button>
+          </form>
+        </div>`;
+    }
+
+    function generateTableHtml(dataArray, headers, keys) {
+      if (!dataArray || dataArray.length === 0) return '<p class="text-gray-500 p-4"><ruby><rb>記録</rb><rt>きろく</rt></ruby>はありません。</p>';
+      let table = '<div class="overflow-x-auto"><table class="min-w-full bg-white"><thead><tr class="bg-gray-50">';
+      headers.forEach(header => table += `<th class="p-2 text-left text-xs font-medium text-gray-500">${header}</th>`);
+      table += '</tr></thead><tbody class="text-gray-600 text-sm">';
+      dataArray.forEach(row => {
+        table += '<tr class="border-b border-gray-200 hover:bg-gray-50">';
+        keys.forEach(key => table += `<td class="p-2 whitespace-pre-wrap">${escapeHtml(row[key])}</td>`);
+        table += '</tr>';
+      });
+      table += '</tbody></table></div>';
+      return table;
+    }
+
+    function generateAccordionForm(type, title) {
+        let formFields = '';
+        switch(type) {
+            case 'test':
+                const subjectOptions = subjectList.map(sub => `<option value="${sub}">${escapeHtml(sub)}</option>`).join('');
+                formFields = `<div class="grid grid-cols-2 gap-4">
+                      <div><label><ruby><rb>教科</rb><rt>きょうか</rt></ruby>: <select name="subject" required class="w-full p-2 border rounded">${subjectOptions}</select></label></div>
+                      <div><label>テスト<ruby><rb>番号</rb><rt>ばんごう</rt></ruby>: <input type="number" name="testNumber" required class="w-full p-2 border rounded"></label></div>
+                      <div><label><ruby><rb>表面</rb><rt>おもてめん</rt></ruby>の<ruby><rb>予想</rb><rt>よそう</rt></ruby><ruby><rb>点数</rb><rt>てんすう</rt></ruby>: <input type="number" name="expectedScore1" class="w-full p-2 border rounded"></label></div>
+                      <div><label><ruby><rb>裏面</rb><rt>うらめん</rt></ruby>の<ruby><rb>予想</rb><rt>よそう</rt></ruby><ruby><rb>点数</rb><rt>てんすう</rt></ruby>: <input type="number" name="expectedScore2" class="w-full p-2 border rounded"></label></div>
+                      <div><label><ruby><rb>表面</rb><rt>おもてめん</rt></ruby>の<ruby><rb>点数</rb><rt>てんすう</rt></ruby>: <input type="number" name="score1" required class="w-full p-2 border rounded"></label></div>
+                      <div><label><ruby><rb>裏面</rb><rt>うらめん</rt></ruby>の<ruby><rb>点数</rb><rt>てんすう</rt></ruby>: <input type="number" name="score2" class="w-full p-2 border rounded"></label></div>
+                    </div>
+                    <div class="mt-4"><label>テストのふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り: <textarea name="reflection" rows="3" required class="w-full p-2 border rounded"></textarea></label></div>`;
+                break;
+            case 'lesson':
+                const lessonSubjectOptions = subjectList.map(sub => `<option value="${sub}">${escapeHtml(sub)}</option>`).join('');
+                formFields = `<div><label><ruby><rb>教科</rb><rt>きょうか</rt></ruby>: <select name="subject" required class="w-full p-2 border rounded">${lessonSubjectOptions}</select></label></div>
+                    <div class="mt-4 space-y-3">
+                      ${createRatingButtonsHtml('q1', '<ruby><rb>内容</rb><rt>ないよう</rt></ruby>がわかった（できた）')}
+                      ${createRatingButtonsHtml('q2', '<ruby><rb>考</rb><rt>かんが</rt></ruby>えが<ruby><rb>深</rb><rt>ふか</rt></ruby>まった')}
+                      ${createRatingButtonsHtml('q3', 'すすんで<ruby><rb>学習</rb><rt>がくしゅう</rt></ruby>できた')}
+                    </div>
+                    <div class="mt-4"><label><ruby><rb>挙手</rb><rt>きょしゅ</rt></ruby><ruby><rb>回数</rb><rt>かいすう</rt></ruby>: <input type="number" name="handRaises" value="0" class="w-full p-2 border rounded"></label></div>
+                    <div class="mt-4"><label><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>のふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り: <textarea name="reflection" rows="3" required class="w-full p-2 border rounded"></textarea></label></div>`;
+                break;
+            case 'moral':
+                const materialOptions = moralMaterials.map(m => `<option value="${m.number}">${escapeHtml(m.name)}</option>`).join('');
+                formFields = `<div><label><ruby><rb>教材名</rb><rt>きょうざいめい</rt></ruby>: <select name="materialNumber" id="moral-material-select" required class="w-full p-2 border rounded"><option value="">えらんでね</option>${materialOptions}</select></label></div>
+                    <div id="moral-question-display" class="mt-4 p-3 bg-gray-100 rounded-md text-gray-800 hidden"></div>
+                    <div class="mt-4"><label><ruby><rb>自分</rb><rt>じぶん</rt></ruby>の<ruby><rb>考</rb><rt>かんが</rt></ruby>え: <textarea name="myThought" rows="3" required class="w-full p-2 border rounded"></textarea></label></div>
+                    <div class="mt-4"><label><ruby><rb>授業</rb><rt>じゅぎょう</rt></ruby>のふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り: <textarea name="reflection" rows="3" required class="w-full p-2 border rounded"></textarea></label></div>`;
+                break;
+        }
+        return `<details class="border rounded-md mb-2 bg-white"><summary class="w-full p-4 font-semibold cursor-pointer">${title}</summary>
+                  <form class="p-4 border-t reflection-form" data-type="${type}">${formFields}
+                    <button type="submit" class="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">この<ruby><rb>内容</rb><rt>ないよう</rt></ruby>で<ruby><rb>記録</rb><rt>きろく</rt></ruby>する</button>
+                  </form></details>`;
+    }
+
+    // ===================================================================
+    // イベントハンドラとリスナー設定
+    // ===================================================================
+    function setupPortfolioEventListeners(containerId) {
+      const container = document.getElementById(containerId);
+      container.querySelectorAll('.portfolio-tab-button').forEach(button => {
+        button.addEventListener('click', (e) => {
+          const target = e.currentTarget.dataset.target;
+          container.querySelectorAll('.portfolio-tab-button').forEach(btn => btn.classList.remove('active'));
+          e.currentTarget.classList.add('active');
+          container.querySelectorAll('.portfolio-tab-content').forEach(content => {
+            content.classList.toggle('active', content.dataset.content === target);
+          });
+        });
+      });
+      const obsForm = document.getElementById('observation-form');
+      if (obsForm) obsForm.addEventListener('submit', handleSaveObservation);
+      
+      const filterBtn = container.querySelector('#lesson-filter-btn');
+      if (filterBtn) filterBtn.addEventListener('click', handleLessonFilter);
+    }
+
+    function setupFormEventListeners() {
+      document.querySelectorAll('.reflection-form').forEach(form => {
+        form.addEventListener('submit', handleSaveReflection);
+      });
+    }
+
+    function handleSaveReflection(event) {
+        event.preventDefault();
+        showLoader('<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>保存</rb><rt>ほぞん</rt></ruby>しています...');
+        const form = event.target;
+        const type = form.dataset.type;
+        const formData = {};
+        new FormData(form).forEach((value, key) => formData[key] = value);
+
+        google.script.run
+            .withSuccessHandler(result => {
+                hideLoader();
+                showToast(result.message, result.success ? 'success' : 'error');
+                if(result.success) {
+                    form.reset();
+                    loadStudentData(currentUser.studentId, false);
+                }
+            })
+            .withFailureHandler(showError)
+            .saveReflection({ type, formData });
+    }
+
+    function handleSaveObservation(event) {
+        event.preventDefault();
+        showLoader('<ruby><rb>所見</rb><rt>しょけん</rt></ruby><ruby><rb>材料</rb><rt>ざいりょう</rt></ruby>を<ruby><rb>保存</rb><rt>ほぞん</rt></ruby>しています...');
+        const form = event.target;
+        const studentId = document.getElementById('student-selector').value;
+        const formData = { studentId };
+        new FormData(form).forEach((value, key) => formData[key] = value);
+
+        google.script.run
+            .withSuccessHandler(result => {
+                hideLoader();
+                showToast(result.message, result.success ? 'success' : 'error');
+                if(result.success) form.reset();
+            })
+            .withFailureHandler(showError)
+            .saveObservation(formData);
+    }
+    
+    function handleLessonFilter() {
+      const studentId = currentUser.isTeacher ? document.getElementById('student-selector').value : currentUser.studentId;
+      const subject = document.getElementById('lesson-subject-filter').value;
+      const date = document.getElementById('lesson-date-filter').value;
+      
+      showLoader('<ruby><rb>記録</rb><rt>きろく</rt></ruby>を<ruby><rb>検索中</rb><rt>けんさくちゅう</rt></ruby>...');
+      google.script.run
+        .withSuccessHandler(filteredData => {
+            const container = document.getElementById('lesson-table-container');
+            container.innerHTML = generateTableHtml(filteredData, ['<ruby><rb>日付</rb><rt>ひづけ</rt></ruby>', '<ruby><rb>教科</rb><rt>きょうか</rt></ruby>', 'ふり<ruby><rb>返</rb><rt>かえ</rt></ruby>り'], ['date', 'subject', 'reflection']);
+            hideLoader();
+        })
+        .withFailureHandler(showError)
+        .getFilteredLessonData({ studentId, subject, date });
+    }
+
+    function handleAppClick(event) {
+      if (event.target.classList.contains('reflection-btn')) {
+        const reflectionText = event.target.dataset.reflection;
+        modalReflectionText.textContent = reflectionText || '（ふり<ruby><rb>返</rb><rt>かえ</rt></ruby>りの<ruby><rb>記述</rb><rt>きじゅつ</rt></ruby>はありません）';
+        reflectionModal.classList.remove('hidden');
+        setTimeout(() => { reflectionModal.style.opacity = '1'; }, 10);
+        return;
+      }
+      
+      if (event.target.id === 'lesson-filter-btn') {
+        handleLessonFilter();
+        return;
+      }
+      
+      if (event.target.matches('.rating-buttons button')) {
+        const button = event.target;
+        const parent = button.parentElement;
+        const hiddenInput = parent.nextElementSibling;
+        parent.querySelectorAll('button').forEach(btn => btn.classList.remove('selected'));
+        button.classList.add('selected');
+        hiddenInput.value = button.dataset.value;
+        return;
+      }
+    }
+    
+    function handleAppChange(event) {
+        if (event.target.id === 'moral-material-select') {
+        const select = event.target;
+        const questionDiv = select.closest('form').querySelector('#moral-question-display');
+        const selectedNumber = select.value;
+        if (selectedNumber) {
+          const material = moralMaterials.find(m => m.number == selectedNumber);
+          if (material && material.question) {
+            questionDiv.innerHTML = `【<ruby><rb>問</rb><rt>と</rt></ruby>い】${escapeHtml(material.question)}`;
+            questionDiv.classList.remove('hidden');
+          } else {
+            questionDiv.classList.add('hidden');
+          }
+        } else {
+          questionDiv.classList.add('hidden');
+        }
+      }
+    }
+
+    // ===================================================================
+    // ユーティリティ関数
+    // ===================================================================
+    function createScoreCellHtml(score, expectedScore) {
+      if (score === null || score === undefined) return '<td class="p-2 border-r text-center align-middle">-</td>';
+      let diffHtml = '', bgColorClass = '';
+      if (expectedScore !== null && expectedScore !== undefined) {
+          const diff = score - expectedScore;
+          let colorClass = 'text-gray-500';
+          if (diff > 0) { colorClass = 'text-green-600'; bgColorClass = 'bg-green-50'; }
+          if (diff < 0) { colorClass = 'text-red-600'; bgColorClass = 'bg-red-50'; }
+          const sign = diff > 0 ? '+' : '';
+          diffHtml = `<span class="block text-xs ${colorClass}">(${sign}${diff})</span>`;
+      }
+      return `<td class="p-2 border-r text-center align-middle ${bgColorClass}"><div class="font-semibold text-lg">${score}${diffHtml}</div></td>`;
+    }
+
+    function createRatingButtonsHtml(name, label) {
+      return `
+        <div class="flex items-center justify-between">
+          <label class="text-sm font-medium text-gray-700">${label}:</label>
+          <div class="rating-buttons space-x-2" data-input-name="${name}">
+            <button type="button" data-value="◎">◎</button>
+            <button type="button" data-value="◯">◯</button>
+            <button type="button" data-value="△">△</button>
+          </div>
+          <input type="hidden" name="${name}" value="">
+        </div>`;
+    }
+
+    function renderChart(ctx, subjectData, subjectName) {
+      const labels = subjectData.map(d => d.unitName || `テスト${d.testNumber}`);
+      const datasets = [
+        { label: '自分(表)', data: subjectData.map(d => d.score1), borderColor: 'rgb(59, 130, 246)', tension: 0.1 },
+        { label: '自分(裏)', data: subjectData.map(d => d.score2), borderColor: 'rgb(239, 68, 68)', tension: 0.1 },
+        { label: '平均(表)', data: subjectData.map(d => d.avgScore1), borderColor: 'rgb(59, 130, 246)', borderDash: [5, 5], tension: 0.1 },
+        { label: '平均(裏)', data: subjectData.map(d => d.avgScore2), borderColor: 'rgb(239, 68, 68)', borderDash: [5, 5], tension: 0.1 }
+      ];
+      new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'top' }, title: { display: true, text: `${subjectName}の点数推移` } },
+          scales: {
+            y: { title: { display: true, text: '点数' }, min: 0, max: 100 },
+            x: { title: { display: true, text: 'テスト単元' } }
+          }
+        }
+      });
+    }
+
+    function showLoader(message = '') {
+      document.getElementById('loading-message').innerHTML = message;
+      loader.classList.remove('hidden');
+      setTimeout(() => { loader.style.opacity = '1'; }, 10);
+    }
+
+    function hideLoader() {
+      loader.style.opacity = '0';
+      setTimeout(() => { loader.classList.add('hidden'); }, 300);
+    }
+
+    function showToast(message, type = 'success') {
+      toast.innerHTML = message;
+      toast.className = `fixed top-5 right-5 text-white py-2 px-4 rounded-lg shadow-md z-50 ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+      toast.classList.remove('hidden');
+      setTimeout(() => { toast.classList.add('hidden'); }, 4000);
+    }
+
+    function showError(error) {
+      hideLoader();
+      console.error('エラー:', error);
+      showToast(error.message || '<ruby><rb>不明</rb><rt>ふめい</rt></ruby>なエラーが<ruby><rb>発生</rb><rt>はっせい</rt></ruby>しました。', 'error');
+    }
+    
+    function escapeHtml(unsafe) {
+      if (unsafe === null || typeof unsafe === 'undefined') return '';
+      return unsafe.toString().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+    }
+  </script>
+</body>
+</html>
