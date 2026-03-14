@@ -1,0 +1,1800 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>まなびポータル</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700;900&display=swap" rel="stylesheet">
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: { sans: ['Zen Maru Gothic', 'sans-serif'] },
+      colors: {
+        primary: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#2563eb',700:'#1d4ed8',800:'#1e40af',900:'#1e3a8a' },
+        accent: { 50:'#fdf4ff',100:'#fae8ff',200:'#f5d0fe',300:'#f0abfc',400:'#e879f9',500:'#d946ef',600:'#c026d3',700:'#a21caf' },
+        gamify: { gold:'#f59e0b',green:'#10b981',red:'#ef4444',purple:'#8b5cf6' },
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'slide-up': 'slideUp 0.4s ease-out',
+        'bounce-in': 'bounceIn 0.5s ease-out',
+        'pulse-glow': 'pulseGlow 2s infinite',
+        'spin-slow': 'spin 3s linear infinite',
+        'confetti': 'confetti 1s ease-out forwards',
+      },
+      keyframes: {
+        fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+        slideUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+        bounceIn: { '0%': { opacity:'0', transform:'scale(0.3)' }, '50%': { transform:'scale(1.05)' }, '100%': { opacity:'1', transform:'scale(1)' } },
+        pulseGlow: { '0%,100%': { boxShadow:'0 0 5px rgba(59,130,246,0.5)' }, '50%': { boxShadow:'0 0 20px rgba(59,130,246,0.8)' } },
+        confetti: { '0%': { transform:'translateY(0) rotate(0)', opacity:'1' }, '100%': { transform:'translateY(-100px) rotate(720deg)', opacity:'0' } },
+      }
+    }
+  }
+}
+</script>
+<style>
+  * { scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  .glass { background: rgba(255,255,255,0.8); backdrop-filter: blur(10px); }
+  .card-hover { transition: all 0.3s ease; }
+  .card-hover:hover { transform: translateY(-2px); box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
+  .rarity-N { border-color: #9ca3af; background: linear-gradient(135deg, #f9fafb, #e5e7eb); }
+  .rarity-R { border-color: #3b82f6; background: linear-gradient(135deg, #eff6ff, #bfdbfe); }
+  .rarity-SR { border-color: #f59e0b; background: linear-gradient(135deg, #fffbeb, #fde68a); }
+  .gacha-reveal { animation: bounceIn 0.6s ease-out; }
+  @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+  .shimmer { background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+  .tab-active { border-bottom: 3px solid #3b82f6; color: #2563eb; background-color: #eff6ff; }
+  .nav-item { transition: all 0.2s; }
+  .nav-item:hover { background-color: #f1f5f9; }
+  .stat-card { background: linear-gradient(135deg, var(--tw-gradient-from), var(--tw-gradient-to)); }
+  input:focus, select:focus, textarea:focus { outline: none; box-shadow: 0 0 0 3px rgba(59,130,246,0.3); }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+<div id="root"></div>
+<script type="text/babel">
+// ============================================================
+// API Wrapper
+// ============================================================
+const api = {
+  call(fn, ...args) {
+    return new Promise((resolve, reject) => {
+      const runner = google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject);
+      if (args.length > 0) runner[fn](...args);
+      else runner[fn]();
+    });
+  }
+};
+
+// ============================================================
+// Utility Hooks & Helpers
+// ============================================================
+const { useState, useEffect, useCallback, useRef, useMemo, createContext, useContext } = React;
+
+function cls(...classes) { return classes.filter(Boolean).join(' '); }
+function formatNum(n) { return Number(n || 0).toLocaleString(); }
+function truncate(s, len=30) { return s && s.length > len ? s.slice(0, len) + '...' : s; }
+
+const toast = (title, icon='success') => Swal.fire({ toast:true, position:'top-end', icon, title, showConfirmButton:false, timer:2500, timerProgressBar:true });
+const confirm = (title, text) => Swal.fire({ title, text, icon:'question', showCancelButton:true, confirmButtonText:'はい', cancelButtonText:'キャンセル', confirmButtonColor:'#3b82f6' });
+
+// ============================================================
+// Context
+// ============================================================
+const AppContext = createContext(null);
+
+function useApp() { return useContext(AppContext); }
+
+// ============================================================
+// Chart Component
+// ============================================================
+function ChartCanvas({ type, data, options, height = '250px' }) {
+  const canvasRef = useRef(null);
+  const chartRef = useRef(null);
+  useEffect(() => {
+    if (chartRef.current) chartRef.current.destroy();
+    if (!canvasRef.current || !data) return;
+    chartRef.current = new Chart(canvasRef.current, { type, data, options: { responsive: true, maintainAspectRatio: false, ...options } });
+    return () => { if (chartRef.current) chartRef.current.destroy(); };
+  }, [type, data, options]);
+  return <div style={{ height }}><canvas ref={canvasRef} /></div>;
+}
+
+// ============================================================
+// Shared UI Components
+// ============================================================
+function Spinner() {
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-[9999]">
+      <div className="bg-white rounded-2xl p-8 flex flex-col items-center gap-3 shadow-2xl">
+        <div className="w-12 h-12 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+        <p className="text-gray-600 font-medium">読み込み中...</p>
+      </div>
+    </div>
+  );
+}
+
+function Badge({ children, color = 'blue', size = 'sm' }) {
+  const colors = { blue:'bg-blue-100 text-blue-700', green:'bg-green-100 text-green-700', yellow:'bg-yellow-100 text-yellow-700', red:'bg-red-100 text-red-700', purple:'bg-purple-100 text-purple-700', gray:'bg-gray-100 text-gray-600', orange:'bg-orange-100 text-orange-700' };
+  const sizes = { xs:'text-xs px-1.5 py-0.5', sm:'text-xs px-2 py-1', md:'text-sm px-3 py-1' };
+  return <span className={cls('rounded-full font-bold inline-flex items-center', colors[color], sizes[size])}>{children}</span>;
+}
+
+function Card({ children, className, onClick, hover=true }) {
+  return <div onClick={onClick} className={cls('bg-white rounded-xl shadow-sm border border-gray-100 p-4', hover && 'card-hover', onClick && 'cursor-pointer', className)}>{children}</div>;
+}
+
+function StatCard({ icon, label, value, sub, gradient }) {
+  const gradients = { blue:'from-blue-500 to-blue-600', green:'from-green-500 to-green-600', purple:'from-purple-500 to-purple-600', orange:'from-orange-400 to-orange-500', pink:'from-pink-500 to-pink-600', yellow:'from-yellow-400 to-yellow-500' };
+  return (
+    <div className={cls('rounded-xl p-4 text-white bg-gradient-to-br', gradients[gradient] || gradients.blue)}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-2xl">{icon}</span>
+        {sub && <span className="text-xs bg-white/20 rounded-full px-2 py-0.5">{sub}</span>}
+      </div>
+      <p className="text-2xl font-black">{value}</p>
+      <p className="text-sm opacity-80">{label}</p>
+    </div>
+  );
+}
+
+function EmptyState({ icon='📭', message='データがありません', sub }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+      <span className="text-5xl mb-3">{icon}</span>
+      <p className="font-bold text-lg">{message}</p>
+      {sub && <p className="text-sm mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function TabBar({ tabs, active, onChange }) {
+  return (
+    <div className="flex overflow-x-auto border-b border-gray-200 bg-white rounded-t-xl">
+      {tabs.map(t => (
+        <button key={t.id} onClick={() => onChange(t.id)}
+          className={cls('nav-item flex items-center gap-1.5 px-4 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-all',
+            active === t.id ? 'border-primary-500 text-primary-600 bg-primary-50' : 'border-transparent text-gray-500 hover:text-gray-700')}>
+          <span>{t.icon}</span><span>{t.label}</span>
+          {t.badge && <span className="ml-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{t.badge}</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children, wide }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 animate-fade-in" onClick={onClose}>
+      <div className={cls('bg-white rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto animate-slide-up', wide ? 'w-full max-w-4xl' : 'w-full max-w-lg')} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b border-gray-100 sticky top-0 bg-white rounded-t-2xl z-10">
+          <h3 className="text-lg font-black text-gray-800">{title}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 text-xl">&times;</button>
+        </div>
+        <div className="p-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function FormField({ label, children, required }) {
+  return (
+    <div className="mb-3">
+      <label className="block text-sm font-bold text-gray-700 mb-1">{label}{required && <span className="text-red-500 ml-0.5">*</span>}</label>
+      {children}
+    </div>
+  );
+}
+
+function Input(props) {
+  return <input {...props} className={cls('w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-primary-500', props.className)} />;
+}
+
+function Select({ options, ...props }) {
+  return (
+    <select {...props} className={cls('w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm transition focus:border-primary-500', props.className)}>
+      {options.map(o => typeof o === 'string' ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
+function Btn({ children, variant='primary', size='md', className, ...props }) {
+  const base = 'inline-flex items-center justify-center gap-2 font-bold rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed';
+  const variants = {
+    primary: 'bg-primary-500 hover:bg-primary-600 text-white shadow-lg shadow-primary-200',
+    secondary: 'bg-gray-100 hover:bg-gray-200 text-gray-700',
+    success: 'bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-200',
+    danger: 'bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200',
+    warning: 'bg-yellow-400 hover:bg-yellow-500 text-white shadow-lg shadow-yellow-200',
+    ghost: 'hover:bg-gray-100 text-gray-600',
+    outline: 'border-2 border-primary-500 text-primary-600 hover:bg-primary-50',
+  };
+  const sizes = { xs:'text-xs px-2.5 py-1.5', sm:'text-sm px-3 py-2', md:'text-sm px-4 py-2.5', lg:'text-base px-6 py-3' };
+  return <button {...props} className={cls(base, variants[variant], sizes[size], className)}>{children}</button>;
+}
+
+function ProgressBar({ value, max, color='blue', showLabel=true, height='h-3' }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  const colors = { blue:'bg-blue-500', green:'bg-green-500', purple:'bg-purple-500', yellow:'bg-yellow-400', orange:'bg-orange-500' };
+  return (
+    <div>
+      {showLabel && <div className="flex justify-between text-xs text-gray-500 mb-1"><span>{value} / {max}</span><span>{Math.round(pct)}%</span></div>}
+      <div className={cls('w-full bg-gray-200 rounded-full overflow-hidden', height)}>
+        <div className={cls('rounded-full transition-all duration-500', colors[color] || colors.blue, height)} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
+function DataTable({ columns, data, onRowClick, emptyMessage='データがありません' }) {
+  if (!data || data.length === 0) return <EmptyState message={emptyMessage} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead><tr className="bg-gray-50 border-b border-gray-200">
+          {columns.map(c => <th key={c.key} className="text-left px-3 py-2.5 font-bold text-gray-600 whitespace-nowrap">{c.label}</th>)}
+        </tr></thead>
+        <tbody>
+          {data.map((row, i) => (
+            <tr key={i} onClick={() => onRowClick && onRowClick(row)} className={cls('border-b border-gray-50 hover:bg-blue-50/50 transition', onRowClick && 'cursor-pointer')}>
+              {columns.map(c => <td key={c.key} className="px-3 py-2.5 text-gray-700">{c.render ? c.render(row[c.key], row) : row[c.key]}</td>)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ============================================================
+// STUDENT: Gamification Screen
+// ============================================================
+function StudentGamification() {
+  const { state, setState, loading, setLoading } = useApp();
+  const d = state.data;
+  const [gachaTab, setGachaTab] = useState('single');
+  const [gachaResult, setGachaResult] = useState(null);
+  const [gacha10Result, setGacha10Result] = useState(null);
+  const [showInventory, setShowInventory] = useState(false);
+  const [showMissions, setShowMissions] = useState(false);
+  const [showPlaza, setShowPlaza] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [profileForm, setProfileForm] = useState({ motto: d.userProfile?.motto || '', favorite: d.userProfile?.favorite || '', goal: d.userProfile?.goal || '' });
+  const [subTab, setSubTab] = useState('home');
+
+  const profile = d.profile || {};
+  const levelInfo = { level: profile.level || 1, progress: profile.progress || 0 };
+
+  const playGacha = async () => {
+    if (profile.exp < (d.gachaCost || 200)) return toast('経験値が足りません', 'warning');
+    setLoading(true);
+    try {
+      const r = await api.call('playGacha');
+      if (r.success) {
+        setGachaResult(r);
+        profile.exp -= d.gachaCost || 200;
+        if (!r.isDuplicate && r.wonItem) d.inventory.push(r.wonItem['アイテムID']);
+        setState(prev => ({ ...prev }));
+      } else toast(r.message, 'error');
+    } catch(e) { toast('エラーが発生しました', 'error'); }
+    setLoading(false);
+  };
+
+  const playGacha10 = async () => {
+    if (profile.exp < (d.gacha10Cost || 1800)) return toast('経験値が足りません', 'warning');
+    setLoading(true);
+    try {
+      const r = await api.call('playGacha10');
+      if (r.success) {
+        setGacha10Result(r);
+        profile.exp -= d.gacha10Cost || 1800;
+        setState(prev => ({ ...prev }));
+      } else toast(r.message, 'error');
+    } catch(e) { toast('エラーが発生しました', 'error'); }
+    setLoading(false);
+  };
+
+  const claimMission = async (missionId) => {
+    setLoading(true);
+    try {
+      const r = await api.call('claimMissionReward', missionId);
+      if (r.success) { toast('報酬を受け取りました！'); setState(prev => ({ ...prev })); }
+      else toast(r.message, 'error');
+    } catch(e) { toast('エラーが発生しました', 'error'); }
+    setLoading(false);
+  };
+
+  const saveProfileData = async () => {
+    setLoading(true);
+    try {
+      const r = await api.call('saveProfile', profileForm);
+      if (r.success) { toast('プロフィールを保存しました'); d.userProfile = profileForm; }
+      else toast(r.message, 'error');
+    } catch(e) { toast('エラーが発生しました', 'error'); }
+    setLoading(false);
+  };
+
+  const gameTabs = [
+    { id:'home', icon:'🏠', label:'ホーム' },
+    { id:'gacha', icon:'🎰', label:'ガチャ' },
+    { id:'items', icon:'🎒', label:'コレクション' },
+    { id:'missions', icon:'🎯', label:'ミッション', badge: (d.missions||[]).filter(m=>m.isComplete && !m.isClaimed).length || null },
+    { id:'plaza', icon:'🏟️', label:'みんなの広場' },
+    { id:'profile', icon:'👤', label:'プロフィール' },
+  ];
+
+  return (
+    <div>
+      <TabBar tabs={gameTabs} active={subTab} onChange={setSubTab} />
+      <div className="p-4">
+
+        {/* ===== HOME ===== */}
+        {subTab === 'home' && (
+          <div className="animate-fade-in space-y-4">
+            {/* Welcome Banner */}
+            <div className="bg-gradient-to-r from-primary-500 via-purple-500 to-pink-500 rounded-2xl p-6 text-white relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-40 h-40 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/2" />
+              <div className="absolute bottom-0 left-10 w-24 h-24 bg-white/10 rounded-full translate-y-1/2" />
+              <div className="relative z-10">
+                <p className="text-sm opacity-80">ようこそ！</p>
+                <h2 className="text-2xl font-black mt-1">{profile.nickname || 'ユーザー'} さん</h2>
+                <div className="flex items-center gap-3 mt-3">
+                  <span className="bg-white/20 rounded-full px-3 py-1 text-sm font-bold">Lv.{levelInfo.level}</span>
+                  <div className="flex-1 max-w-xs">
+                    <div className="bg-white/20 rounded-full h-2.5 overflow-hidden">
+                      <div className="bg-white rounded-full h-full transition-all" style={{ width: `${levelInfo.progress}%` }} />
+                    </div>
+                  </div>
+                  <span className="text-xs opacity-80">{levelInfo.progress}%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Stats Row */}
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard icon="⭐" label="経験値" value={formatNum(profile.exp)} gradient="blue" />
+              <StatCard icon="💎" label="交換ポイント" value={formatNum(profile.exchangePoints)} gradient="purple" />
+              <StatCard icon="🎒" label="コレクション" value={`${(d.inventory||[]).length}個`} gradient="green" />
+            </div>
+
+            {/* Login Bonus */}
+            {d.bonusApplied && (
+              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 border-2 border-yellow-300 rounded-xl p-4 animate-bounce-in">
+                <div className="flex items-center gap-3">
+                  <span className="text-3xl">🎁</span>
+                  <div>
+                    <p className="font-black text-yellow-700">ログインボーナス!</p>
+                    <p className="text-sm text-yellow-600">+{d.bonusPoints} EXP を獲得しました！</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Announcements */}
+            {(d.announcements||[]).length > 0 && (
+              <Card>
+                <h3 className="font-black text-gray-800 mb-3 flex items-center gap-2">📢 お知らせ</h3>
+                <div className="space-y-2 max-h-40 overflow-y-auto">
+                  {d.announcements.slice(-5).reverse().map((a, i) => (
+                    <div key={i} className="bg-blue-50 rounded-lg p-3 text-sm">
+                      <p className="text-gray-800">{a[1]}</p>
+                      <p className="text-xs text-gray-400 mt-1">{a[2]} ・ {new Date(a[0]).toLocaleDateString('ja-JP')}</p>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+
+            {/* Recent Activity */}
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3 flex items-center gap-2">📋 最近のアクティビティ</h3>
+              {(d.recentActivity||[]).length > 0 ? (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {d.recentActivity.slice(0, 10).map((a, i) => (
+                    <div key={i} className="flex items-center justify-between text-sm py-1.5 border-b border-gray-50">
+                      <span className="text-gray-600">{a.details || a.message}</span>
+                      <span className="text-xs text-gray-400 whitespace-nowrap ml-2">{a.timestamp ? new Date(a.timestamp).toLocaleDateString('ja-JP') : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState icon="📝" message="まだアクティビティはありません" />}
+            </Card>
+          </div>
+        )}
+
+        {/* ===== GACHA ===== */}
+        {subTab === 'gacha' && (
+          <div className="animate-fade-in space-y-4">
+            <Card className="text-center">
+              <h3 className="text-xl font-black text-gray-800 mb-2">🎰 ガチャ</h3>
+              <p className="text-sm text-gray-500 mb-4">経験値を使ってアイテムをゲットしよう！</p>
+              <div className="bg-gray-50 rounded-xl p-4 mb-4">
+                <p className="text-sm text-gray-500">所持経験値</p>
+                <p className="text-3xl font-black text-primary-600">{formatNum(profile.exp)} <span className="text-sm">EXP</span></p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="border-2 border-primary-200 rounded-xl p-4">
+                  <p className="font-bold text-primary-600">1回ガチャ</p>
+                  <p className="text-2xl font-black text-gray-800 my-2">{formatNum(d.gachaCost || 200)}</p>
+                  <p className="text-xs text-gray-400 mb-3">EXP</p>
+                  <Btn onClick={playGacha} disabled={profile.exp < (d.gachaCost || 200)} className="w-full">回す！</Btn>
+                </div>
+                <div className="border-2 border-yellow-300 rounded-xl p-4 bg-yellow-50/30">
+                  <p className="font-bold text-yellow-600">10連ガチャ</p>
+                  <p className="text-2xl font-black text-gray-800 my-2">{formatNum(d.gacha10Cost || 1800)}</p>
+                  <p className="text-xs text-gray-400 mb-3">EXP</p>
+                  <Btn variant="warning" onClick={playGacha10} disabled={profile.exp < (d.gacha10Cost || 1800)} className="w-full">10連！</Btn>
+                </div>
+              </div>
+              <div className="mt-4 text-xs text-gray-400">
+                <p>ドロップ率: N - 通常 / R - レア / SR - スーパーレア</p>
+                <p>※ 持っているアイテムが当たると交換ポイントに変換されます</p>
+              </div>
+            </Card>
+
+            {/* Gacha Result Modal */}
+            <Modal open={!!gachaResult} onClose={() => setGachaResult(null)} title="🎊 ガチャ結果">
+              {gachaResult && gachaResult.wonItem && (
+                <div className="text-center py-4">
+                  <div className={cls('gacha-reveal inline-block border-4 rounded-2xl p-6 mb-4', `rarity-${gachaResult.wonItem['レアリティー']}`)}>
+                    <p className="text-5xl mb-2">{gachaResult.wonItem['アイコン'] || '🎁'}</p>
+                    <Badge color={gachaResult.wonItem['レアリティー'] === 'SR' ? 'yellow' : gachaResult.wonItem['レアリティー'] === 'R' ? 'blue' : 'gray'} size="md">
+                      {gachaResult.wonItem['レアリティー']}
+                    </Badge>
+                  </div>
+                  <h3 className="text-xl font-black text-gray-800">{gachaResult.wonItem['アイテム名']}</h3>
+                  <p className="text-sm text-gray-500 mt-1">{gachaResult.wonItem['カテゴリー']}</p>
+                  {gachaResult.isDuplicate && (
+                    <div className="mt-3 bg-purple-50 rounded-lg p-3">
+                      <p className="text-sm text-purple-600 font-bold">持っているアイテムでした！</p>
+                      <p className="text-purple-500 text-sm">+{gachaResult.awardedExchangePoints} 交換ポイント獲得</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Modal>
+
+            {/* 10-pull result */}
+            <Modal open={!!gacha10Result} onClose={() => setGacha10Result(null)} title="🎊 10連ガチャ結果" wide>
+              {gacha10Result && gacha10Result.results && (
+                <div>
+                  <div className="grid grid-cols-5 gap-2 mb-4">
+                    {gacha10Result.results.map((item, i) => (
+                      <div key={i} className={cls('gacha-reveal border-2 rounded-xl p-3 text-center', `rarity-${item['レアリティー']}`)}>
+                        <p className="text-2xl">{item['アイコン'] || '🎁'}</p>
+                        <p className="text-xs font-bold mt-1 truncate">{item['アイテム名']}</p>
+                        <Badge color={item['レアリティー'] === 'SR' ? 'yellow' : item['レアリティー'] === 'R' ? 'blue' : 'gray'} size="xs">{item['レアリティー']}</Badge>
+                        {item.isDuplicate && <p className="text-xs text-purple-500 mt-0.5">重複</p>}
+                      </div>
+                    ))}
+                  </div>
+                  {gacha10Result.summary && (
+                    <div className="bg-gray-50 rounded-lg p-3 text-center text-sm">
+                      <span className="text-green-600 font-bold">新規: {gacha10Result.summary.newItemsCount}個</span>
+                      <span className="mx-3">|</span>
+                      <span className="text-purple-600 font-bold">交換Pt: +{gacha10Result.summary.awardedExchangePoints}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </Modal>
+          </div>
+        )}
+
+        {/* ===== ITEMS / COLLECTION ===== */}
+        {subTab === 'items' && (
+          <div className="animate-fade-in space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">🎒 コレクション ({(d.inventory||[]).length}個)</h3>
+              {(d.allItems||[]).length > 0 ? (
+                <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
+                  {d.allItems.map((item, i) => {
+                    const owned = (d.inventory||[]).includes(item['アイテムID']);
+                    return (
+                      <div key={i} className={cls('border-2 rounded-xl p-3 text-center transition-all', owned ? `rarity-${item['レアリティー']}` : 'border-gray-200 bg-gray-50 opacity-40')}>
+                        <p className="text-2xl">{owned ? (item['アイコン'] || '🎁') : '❓'}</p>
+                        <p className="text-xs font-bold mt-1 truncate">{owned ? item['アイテム名'] : '???'}</p>
+                        <Badge color={item['レアリティー'] === 'SR' ? 'yellow' : item['レアリティー'] === 'R' ? 'blue' : 'gray'} size="xs">{item['レアリティー']}</Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : <EmptyState icon="🎁" message="アイテムがまだありません" />}
+            </Card>
+          </div>
+        )}
+
+        {/* ===== MISSIONS ===== */}
+        {subTab === 'missions' && (
+          <div className="animate-fade-in space-y-3">
+            <h3 className="font-black text-gray-800 text-lg">🎯 ミッション</h3>
+            {(d.missions||[]).length > 0 ? d.missions.map((m, i) => (
+              <Card key={i}>
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <p className="font-bold text-gray-800">{m.content}</p>
+                      {m.isComplete && m.isClaimed && <Badge color="green">完了</Badge>}
+                      {m.isComplete && !m.isClaimed && <Badge color="orange">受取可能！</Badge>}
+                    </div>
+                    <ProgressBar value={m.progress} max={m.target} color={m.isComplete ? 'green' : 'blue'} />
+                    <p className="text-xs text-gray-400 mt-1">報酬: {m.rewardType} +{m.rewardAmount}</p>
+                  </div>
+                  {m.isComplete && !m.isClaimed && (
+                    <Btn variant="success" size="sm" onClick={() => claimMission(m.id)} className="ml-3 shrink-0">
+                      受け取る
+                    </Btn>
+                  )}
+                </div>
+              </Card>
+            )) : <EmptyState icon="🎯" message="ミッションはまだありません" />}
+          </div>
+        )}
+
+        {/* ===== PLAZA ===== */}
+        {subTab === 'plaza' && (
+          <div className="animate-fade-in space-y-3">
+            <h3 className="font-black text-gray-800 text-lg">🏟️ みんなの広場</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {(d.plazaData||[]).map((p, i) => (
+                <Card key={i}>
+                  <div className="text-center">
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-primary-400 to-purple-400 flex items-center justify-center text-white text-xl font-black mx-auto mb-2">
+                      {(p.nickname||'?')[0]}
+                    </div>
+                    <p className="font-bold text-sm text-gray-800">{p.nickname}</p>
+                    <Badge color="blue" size="xs">Lv.{p.level}</Badge>
+                    {p.motto && <p className="text-xs text-gray-500 mt-2 italic">"{p.motto}"</p>}
+                  </div>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ===== PROFILE ===== */}
+        {subTab === 'profile' && (
+          <div className="animate-fade-in">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-4">👤 マイプロフィール</h3>
+              <FormField label="ひとこと">
+                <Input value={profileForm.motto} onChange={e => setProfileForm(p => ({...p, motto: e.target.value}))} placeholder="今日も頑張るぞ！" maxLength={50} />
+              </FormField>
+              <FormField label="すきなもの">
+                <Input value={profileForm.favorite} onChange={e => setProfileForm(p => ({...p, favorite: e.target.value}))} placeholder="サッカー、読書..." maxLength={50} />
+              </FormField>
+              <FormField label="目標">
+                <Input value={profileForm.goal} onChange={e => setProfileForm(p => ({...p, goal: e.target.value}))} placeholder="漢字テスト100点！" maxLength={50} />
+              </FormField>
+              <Btn onClick={saveProfileData} className="w-full mt-2">保存する</Btn>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// STUDENT: Data Input Screen
+// ============================================================
+function StudentInput() {
+  const { state, setState, setLoading } = useApp();
+  const d = state.data;
+  const [subTab, setSubTab] = useState('typing');
+
+  // Form states
+  const [typingForm, setTypingForm] = useState({ correct:'', total:'', time:'' });
+  const [goalForm, setGoalForm] = useState({ speedGoal:'', accuracyGoal:'' });
+  const [readingForm, setReadingForm] = useState({ title:'', genre:'物語', pages:'', rating:'5', comment:'' });
+  const [growthForm, setGrowthForm] = useState({ content:'', comment:'' });
+  const [studyForm, setStudyForm] = useState({ theme:'', summary:'', next:'' });
+  const [testForm, setTestForm] = useState({ subject:'', testNumber:'', expectedScore1:'', expectedScore2:'', score1:'', score2:'', reflection:'' });
+  const [lessonForm, setLessonForm] = useState({ subject:'', q1:'5', q2:'5', q3:'5', handRaises:'0', reflection:'' });
+  const [moralForm, setMoralForm] = useState({ materialNumber:'', myThought:'', reflection:'' });
+
+  const subjectList = d.lessonData?.subjectList || [];
+  const testUnits = d.lessonData?.testUnits || {};
+  const moralMaterials = d.lessonData?.moralMaterials || [];
+  const genres = ['物語', '伝記', '図鑑', '科学', 'マンガ', 'その他'];
+
+  const savePortfolio = async (type, formData, resetFn) => {
+    setLoading(true);
+    try {
+      const r = await api.call('savePortfolioRecord', { type, formData });
+      if (r.success) {
+        toast(r.message);
+        if (r.goalAchieved) {
+          await Swal.fire({ icon:'success', title:'🎉 目標達成！', text:'おめでとう！目標を達成しました！', confirmButtonColor:'#3b82f6' });
+        }
+        if (r.newData) { d.portfolio = r.newData; setState(prev => ({...prev})); }
+        resetFn();
+      } else toast(r.message, 'error');
+    } catch(e) { toast('保存に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const saveReflection = async (type, formData, resetFn) => {
+    setLoading(true);
+    try {
+      const r = await api.call('saveReflection', { type, formData });
+      if (r.success) { toast(r.message); resetFn(); }
+      else toast(r.message, 'error');
+    } catch(e) { toast('保存に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const inputTabs = [
+    { id:'typing', icon:'⌨️', label:'タイピング' },
+    { id:'goal', icon:'🎯', label:'目標' },
+    { id:'reading', icon:'📚', label:'読書' },
+    { id:'growth', icon:'🌱', label:'成長' },
+    { id:'study', icon:'📝', label:'自主学習' },
+    { id:'test', icon:'📊', label:'テスト振り返り' },
+    { id:'lesson', icon:'✍️', label:'授業振り返り' },
+    { id:'moral', icon:'💖', label:'道徳ノート' },
+  ];
+
+  return (
+    <div>
+      <TabBar tabs={inputTabs} active={subTab} onChange={setSubTab} />
+      <div className="p-4 animate-fade-in">
+
+        {/* TYPING */}
+        {subTab === 'typing' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">⌨️ タイピング記録</h3>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <FormField label="正解数" required>
+                <Input type="number" min="0" value={typingForm.correct} onChange={e => setTypingForm(f=>({...f, correct:e.target.value}))} placeholder="例: 85" />
+              </FormField>
+              <FormField label="問題数" required>
+                <Input type="number" min="1" value={typingForm.total} onChange={e => setTypingForm(f=>({...f, total:e.target.value}))} placeholder="例: 100" />
+              </FormField>
+              <FormField label="時間(秒)" required>
+                <Input type="number" min="0.1" step="0.1" value={typingForm.time} onChange={e => setTypingForm(f=>({...f, time:e.target.value}))} placeholder="例: 60" />
+              </FormField>
+            </div>
+            {typingForm.total > 0 && typingForm.time > 0 && (
+              <div className="bg-blue-50 rounded-lg p-3 mb-3 grid grid-cols-2 gap-4 text-center">
+                <div><p className="text-xs text-gray-500">速さ</p><p className="text-lg font-black text-primary-600">{(typingForm.total / typingForm.time).toFixed(2)} <span className="text-xs">打/秒</span></p></div>
+                <div><p className="text-xs text-gray-500">正答率</p><p className="text-lg font-black text-green-600">{((typingForm.correct / typingForm.total) * 100).toFixed(1)}%</p></div>
+              </div>
+            )}
+            {/* Current Goal */}
+            {d.portfolio?.goalData?.currentGoal && (
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-3">
+                <p className="text-sm font-bold text-yellow-700">🎯 現在の目標</p>
+                <div className="flex gap-4 mt-1 text-sm">
+                  {d.portfolio.goalData.currentGoal.speedGoal && <span>速さ: {d.portfolio.goalData.currentGoal.speedGoal} 打/秒以上</span>}
+                  {d.portfolio.goalData.currentGoal.accuracyGoal && <span>正答率: {d.portfolio.goalData.currentGoal.accuracyGoal}% 以上</span>}
+                </div>
+              </div>
+            )}
+            <Btn onClick={() => savePortfolio('typing', typingForm, () => setTypingForm({ correct:'', total:'', time:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* GOAL */}
+        {subTab === 'goal' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">🎯 目標設定</h3>
+            {d.portfolio?.goalData?.currentGoal ? (
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4 text-center">
+                <p className="font-bold text-green-700">現在の目標が設定されています</p>
+                <div className="flex gap-4 mt-2 justify-center text-sm">
+                  {d.portfolio.goalData.currentGoal.speedGoal && <span className="bg-white rounded-lg px-3 py-1">速さ: {d.portfolio.goalData.currentGoal.speedGoal} 打/秒</span>}
+                  {d.portfolio.goalData.currentGoal.accuracyGoal && <span className="bg-white rounded-lg px-3 py-1">正答率: {d.portfolio.goalData.currentGoal.accuracyGoal}%</span>}
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="text-sm text-gray-500 mb-3">タイピングの目標を設定しよう！（どちらか一方でもOK）</p>
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <FormField label="速さの目標 (打/秒)">
+                    <Input type="number" min="0" step="0.1" value={goalForm.speedGoal} onChange={e => setGoalForm(f=>({...f, speedGoal:e.target.value}))} placeholder="例: 3.0" />
+                  </FormField>
+                  <FormField label="正答率の目標 (%)">
+                    <Input type="number" min="0" max="100" value={goalForm.accuracyGoal} onChange={e => setGoalForm(f=>({...f, accuracyGoal:e.target.value}))} placeholder="例: 95" />
+                  </FormField>
+                </div>
+                <Btn onClick={() => savePortfolio('goal', goalForm, () => setGoalForm({ speedGoal:'', accuracyGoal:'' }))} className="w-full">目標をセット</Btn>
+              </div>
+            )}
+            {/* Achieved Goals */}
+            {(d.portfolio?.goalData?.achievedGoals||[]).length > 0 && (
+              <div className="mt-4">
+                <h4 className="font-bold text-sm text-gray-600 mb-2">🏆 達成した目標</h4>
+                {d.portfolio.goalData.achievedGoals.map((g, i) => (
+                  <div key={i} className="flex items-center gap-2 text-sm bg-yellow-50 rounded-lg p-2 mb-1">
+                    <span>🏅</span>
+                    <span>{g.speedGoal ? `速さ:${g.speedGoal}` : ''} {g.accuracyGoal ? `正答率:${g.accuracyGoal}%` : ''}</span>
+                    <span className="text-xs text-gray-400 ml-auto">{g.achievedDate}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* READING */}
+        {subTab === 'reading' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">📚 読書記録</h3>
+            <FormField label="本のタイトル" required>
+              <Input value={readingForm.title} onChange={e => setReadingForm(f=>({...f, title:e.target.value}))} placeholder="本のタイトルを入力" />
+            </FormField>
+            <div className="grid grid-cols-3 gap-3">
+              <FormField label="ジャンル" required>
+                <Select options={genres} value={readingForm.genre} onChange={e => setReadingForm(f=>({...f, genre:e.target.value}))} />
+              </FormField>
+              <FormField label="ページ数" required>
+                <Input type="number" min="1" value={readingForm.pages} onChange={e => setReadingForm(f=>({...f, pages:e.target.value}))} placeholder="例: 120" />
+              </FormField>
+              <FormField label="おすすめ度" required>
+                <Select options={[{value:'5',label:'⭐5'},{value:'4',label:'⭐4'},{value:'3',label:'⭐3'},{value:'2',label:'⭐2'},{value:'1',label:'⭐1'}]} value={readingForm.rating} onChange={e => setReadingForm(f=>({...f, rating:e.target.value}))} />
+              </FormField>
+            </div>
+            <FormField label="感想・コメント">
+              <textarea value={readingForm.comment} onChange={e => setReadingForm(f=>({...f, comment:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="読んだ感想を書こう" />
+            </FormField>
+            <Btn onClick={() => savePortfolio('reading', readingForm, () => setReadingForm({ title:'', genre:'物語', pages:'', rating:'5', comment:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* GROWTH */}
+        {subTab === 'growth' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">🌱 成長記録</h3>
+            <FormField label="どんなことができるようになった？" required>
+              <textarea value={growthForm.content} onChange={e => setGrowthForm(f=>({...f, content:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="例: 逆上がりができるようになった！" />
+            </FormField>
+            <FormField label="もっとくわしく（コメント）">
+              <textarea value={growthForm.comment} onChange={e => setGrowthForm(f=>({...f, comment:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={2} placeholder="詳しく書いてみよう" />
+            </FormField>
+            <Btn onClick={() => savePortfolio('growth', growthForm, () => setGrowthForm({ content:'', comment:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* STUDY */}
+        {subTab === 'study' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">📝 自主学習</h3>
+            <FormField label="テーマ" required>
+              <Input value={studyForm.theme} onChange={e => setStudyForm(f=>({...f, theme:e.target.value}))} placeholder="例: 都道府県の特産品" />
+            </FormField>
+            <FormField label="わかったこと・まとめ" required>
+              <textarea value={studyForm.summary} onChange={e => setStudyForm(f=>({...f, summary:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="調べてわかったことを書こう" />
+            </FormField>
+            <FormField label="次にやりたいこと">
+              <Input value={studyForm.next} onChange={e => setStudyForm(f=>({...f, next:e.target.value}))} placeholder="次に調べたいことなど" />
+            </FormField>
+            <Btn onClick={() => savePortfolio('study', studyForm, () => setStudyForm({ theme:'', summary:'', next:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* TEST REFLECTION */}
+        {subTab === 'test' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">📊 テスト振り返り</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="教科" required>
+                <Select options={[{value:'',label:'選択してください'}, ...subjectList.map(s=>({value:s,label:s}))]} value={testForm.subject} onChange={e => setTestForm(f=>({...f, subject:e.target.value, testNumber:''}))} />
+              </FormField>
+              <FormField label="テスト番号" required>
+                <Select options={[{value:'',label:'選択'}, ...((testUnits[testForm.subject]||[]).map(u=>({value:String(u.number), label:`${u.number}. ${u.name}`})))]} value={testForm.testNumber} onChange={e => setTestForm(f=>({...f, testNumber:e.target.value}))} />
+              </FormField>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <FormField label="予想(表)">
+                <Input type="number" min="0" max="100" value={testForm.expectedScore1} onChange={e => setTestForm(f=>({...f, expectedScore1:e.target.value}))} />
+              </FormField>
+              <FormField label="予想(裏)">
+                <Input type="number" min="0" max="100" value={testForm.expectedScore2} onChange={e => setTestForm(f=>({...f, expectedScore2:e.target.value}))} />
+              </FormField>
+              <FormField label="得点(表)" required>
+                <Input type="number" min="0" max="100" value={testForm.score1} onChange={e => setTestForm(f=>({...f, score1:e.target.value}))} />
+              </FormField>
+              <FormField label="得点(裏)" required>
+                <Input type="number" min="0" max="100" value={testForm.score2} onChange={e => setTestForm(f=>({...f, score2:e.target.value}))} />
+              </FormField>
+            </div>
+            <FormField label="振り返り">
+              <textarea value={testForm.reflection} onChange={e => setTestForm(f=>({...f, reflection:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="テストを振り返って" />
+            </FormField>
+            <Btn onClick={() => saveReflection('test', testForm, () => setTestForm({ subject:'', testNumber:'', expectedScore1:'', expectedScore2:'', score1:'', score2:'', reflection:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* LESSON REFLECTION */}
+        {subTab === 'lesson' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">✍️ 授業振り返り</h3>
+            <FormField label="教科" required>
+              <Select options={[{value:'',label:'選択してください'}, ...subjectList.map(s=>({value:s,label:s}))]} value={lessonForm.subject} onChange={e => setLessonForm(f=>({...f, subject:e.target.value}))} />
+            </FormField>
+            <div className="grid grid-cols-3 gap-3">
+              <FormField label="楽しさ (1-5)">
+                <Select options={['5','4','3','2','1']} value={lessonForm.q1} onChange={e => setLessonForm(f=>({...f, q1:e.target.value}))} />
+              </FormField>
+              <FormField label="わかりやすさ (1-5)">
+                <Select options={['5','4','3','2','1']} value={lessonForm.q2} onChange={e => setLessonForm(f=>({...f, q2:e.target.value}))} />
+              </FormField>
+              <FormField label="がんばり (1-5)">
+                <Select options={['5','4','3','2','1']} value={lessonForm.q3} onChange={e => setLessonForm(f=>({...f, q3:e.target.value}))} />
+              </FormField>
+            </div>
+            <FormField label="手を挙げた回数">
+              <Input type="number" min="0" value={lessonForm.handRaises} onChange={e => setLessonForm(f=>({...f, handRaises:e.target.value}))} />
+            </FormField>
+            <FormField label="振り返り">
+              <textarea value={lessonForm.reflection} onChange={e => setLessonForm(f=>({...f, reflection:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="今日の授業でわかったこと、がんばったこと" />
+            </FormField>
+            <Btn onClick={() => saveReflection('lesson', lessonForm, () => setLessonForm({ subject:'', q1:'5', q2:'5', q3:'5', handRaises:'0', reflection:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+
+        {/* MORAL NOTE */}
+        {subTab === 'moral' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-4 flex items-center gap-2">💖 道徳ノート</h3>
+            <FormField label="教材" required>
+              <Select options={[{value:'',label:'選択してください'}, ...moralMaterials.map(m=>({value:String(m.number),label:`${m.number}. ${m.name}`}))]} value={moralForm.materialNumber} onChange={e => setMoralForm(f=>({...f, materialNumber:e.target.value}))} />
+            </FormField>
+            {moralForm.materialNumber && (() => {
+              const mat = moralMaterials.find(m => String(m.number) === moralForm.materialNumber);
+              return mat?.question ? <div className="bg-purple-50 rounded-lg p-3 mb-3 text-sm text-purple-700 font-medium">💭 {mat.question}</div> : null;
+            })()}
+            <FormField label="自分の考え" required>
+              <textarea value={moralForm.myThought} onChange={e => setMoralForm(f=>({...f, myThought:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="自分の考えを書こう" />
+            </FormField>
+            <FormField label="授業を通して考えたこと">
+              <textarea value={moralForm.reflection} onChange={e => setMoralForm(f=>({...f, reflection:e.target.value}))} className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="授業のあとに考えたこと" />
+            </FormField>
+            <Btn onClick={() => saveReflection('moral', moralForm, () => setMoralForm({ materialNumber:'', myThought:'', reflection:'' }))} className="w-full">記録を保存</Btn>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// STUDENT: Dashboard Screen
+// ============================================================
+function StudentDashboard() {
+  const { state } = useApp();
+  const d = state.data;
+  const p = d.portfolio || {};
+  const lesson = d.lessonData?.studentData || {};
+  const [subTab, setSubTab] = useState('overview');
+
+  const dashTabs = [
+    { id:'overview', icon:'📊', label:'概要' },
+    { id:'typing', icon:'⌨️', label:'タイピング' },
+    { id:'hyakumasu', icon:'🔢', label:'100マス' },
+    { id:'reading', icon:'📚', label:'読書' },
+    { id:'growth', icon:'🌱', label:'成長' },
+    { id:'study', icon:'📝', label:'自主学習' },
+    { id:'tests', icon:'📋', label:'テスト' },
+    { id:'lessons', icon:'✍️', label:'授業' },
+    { id:'moral', icon:'💖', label:'道徳' },
+    { id:'ranking', icon:'🏆', label:'ランキング' },
+  ];
+
+  // Chart data helpers
+  const typingChartData = useMemo(() => {
+    const raw = p.typingChartData;
+    if (!raw || raw.length <= 1) return null;
+    const labels = raw.slice(1).map(r => r[0]);
+    return {
+      labels,
+      datasets: [
+        { label: '速さ (打/秒)', data: raw.slice(1).map(r => r[1]), borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', tension: 0.3, fill: true, yAxisID: 'y' },
+        { label: '正答率 (%)', data: raw.slice(1).map(r => r[2]), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', tension: 0.3, fill: true, yAxisID: 'y1' },
+      ]
+    };
+  }, [p.typingChartData]);
+
+  const readingSummary = p.readingData?.summary || { totalBooks:0, totalPages:0, byGenre:{} };
+
+  const readingChartData = useMemo(() => {
+    const genres = readingSummary.byGenre || {};
+    const labels = Object.keys(genres);
+    if (labels.length === 0) return null;
+    return {
+      labels,
+      datasets: [{ data: labels.map(l => genres[l].books), backgroundColor: ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#ec4899'] }]
+    };
+  }, [readingSummary]);
+
+  return (
+    <div>
+      <TabBar tabs={dashTabs} active={subTab} onChange={setSubTab} />
+      <div className="p-4 animate-fade-in">
+
+        {/* OVERVIEW */}
+        {subTab === 'overview' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <StatCard icon="⌨️" label="タイピング記録" value={`${(p.typingRecords||[]).length}回`} gradient="blue" />
+              <StatCard icon="📚" label="読んだ本" value={`${readingSummary.totalBooks}冊`} gradient="green" />
+              <StatCard icon="🌱" label="成長記録" value={`${(p.growthData||[]).length}件`} gradient="purple" />
+              <StatCard icon="📝" label="自主学習" value={`${(p.independentStudyData||[]).length}件`} gradient="orange" />
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <StatCard icon="📋" label="テスト記録" value={`${(lesson.testData||[]).length}件`} gradient="pink" />
+              <StatCard icon="✍️" label="授業振り返り" value={`${(lesson.lessonData||[]).length}件`} gradient="blue" />
+              <StatCard icon="💖" label="道徳ノート" value={`${(lesson.moralData||[]).length}件`} gradient="purple" />
+            </div>
+            {p.bestTypingRecord && (
+              <Card>
+                <h3 className="font-black text-gray-800 mb-3">🏅 自己ベスト (タイピング)</h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-blue-50 rounded-xl p-4 text-center">
+                    <p className="text-sm text-gray-500">最高速度</p>
+                    <p className="text-2xl font-black text-primary-600">{Number(p.bestTypingRecord.bestSpeed).toFixed(2)} <span className="text-xs">打/秒</span></p>
+                  </div>
+                  <div className="bg-green-50 rounded-xl p-4 text-center">
+                    <p className="text-sm text-gray-500">最高正答率</p>
+                    <p className="text-2xl font-black text-green-600">{Number(p.bestTypingRecord.bestAccuracy).toFixed(1)}%</p>
+                  </div>
+                </div>
+              </Card>
+            )}
+            {typingChartData && (
+              <Card>
+                <h3 className="font-black text-gray-800 mb-3">📈 タイピング推移</h3>
+                <ChartCanvas type="line" data={typingChartData} options={{
+                  scales: {
+                    y: { type:'linear', position:'left', title:{ display:true, text:'速さ' } },
+                    y1: { type:'linear', position:'right', title:{ display:true, text:'正答率' }, grid:{ drawOnChartArea:false } }
+                  }
+                }} />
+              </Card>
+            )}
+          </div>
+        )}
+
+        {/* TYPING RECORDS */}
+        {subTab === 'typing' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">⌨️ タイピング記録一覧</h3>
+            <DataTable
+              columns={[
+                { key:'date', label:'日付' },
+                { key:'speed', label:'速さ', render: v => <span className="font-bold text-primary-600">{v} 打/秒</span> },
+                { key:'accuracy', label:'正答率', render: v => <span className="font-bold text-green-600">{v}%</span> },
+              ]}
+              data={p.typingRecords || []}
+              emptyMessage="タイピング記録はまだありません"
+            />
+            {typingChartData && <div className="mt-4"><ChartCanvas type="line" data={typingChartData} options={{ scales: { y:{ position:'left' }, y1:{ position:'right', grid:{drawOnChartArea:false} } } }} /></div>}
+          </Card>
+        )}
+
+        {/* 100MASU */}
+        {subTab === 'hyakumasu' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">🔢 100マス計算記録</h3>
+            <DataTable
+              columns={[
+                { key:'date', label:'日付' },
+                { key:'mode', label:'種類', render: v => <Badge color="blue">{v}</Badge> },
+                { key:'questions', label:'問題数' },
+                { key:'score', label:'点数', render: v => <span className="font-bold">{v}点</span> },
+                { key:'time', label:'タイム', render: v => <span className="font-bold text-primary-600">{v}秒</span> },
+              ]}
+              data={p.hyakumasuRecords || []}
+              emptyMessage="100マス計算の記録はまだありません"
+            />
+          </Card>
+        )}
+
+        {/* READING */}
+        {subTab === 'reading' && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <StatCard icon="📚" label="読んだ冊数" value={readingSummary.totalBooks} gradient="green" />
+              <StatCard icon="📄" label="読んだページ数" value={formatNum(readingSummary.totalPages)} gradient="blue" />
+              <StatCard icon="📊" label="ジャンル数" value={Object.keys(readingSummary.byGenre||{}).length} gradient="purple" />
+            </div>
+            {readingChartData && (
+              <Card><h3 className="font-black text-gray-800 mb-3">ジャンル別</h3><ChartCanvas type="doughnut" data={readingChartData} height="200px" /></Card>
+            )}
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">📚 読書記録</h3>
+              <DataTable
+                columns={[
+                  { key:'date', label:'日付' },
+                  { key:'title', label:'タイトル', render: v => <span className="font-bold">{v}</span> },
+                  { key:'genre', label:'ジャンル', render: v => <Badge>{v}</Badge> },
+                  { key:'pages', label:'ページ' },
+                  { key:'rating', label:'評価', render: v => '⭐'.repeat(v) },
+                ]}
+                data={p.readingData?.records || []}
+                emptyMessage="読書記録はまだありません"
+              />
+            </Card>
+          </div>
+        )}
+
+        {/* GROWTH */}
+        {subTab === 'growth' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">🌱 成長記録</h3>
+            {(p.growthData||[]).length > 0 ? (
+              <div className="space-y-3">
+                {p.growthData.map((g, i) => (
+                  <div key={i} className="border-l-4 border-green-400 bg-green-50 rounded-r-lg p-3">
+                    <p className="font-bold text-gray-800">{g.content}</p>
+                    {g.comment && <p className="text-sm text-gray-600 mt-1">{g.comment}</p>}
+                    <p className="text-xs text-gray-400 mt-1">{g.date}</p>
+                  </div>
+                ))}
+              </div>
+            ) : <EmptyState icon="🌱" message="成長記録はまだありません" />}
+          </Card>
+        )}
+
+        {/* STUDY */}
+        {subTab === 'study' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">📝 自主学習記録</h3>
+            {(p.independentStudyData||[]).length > 0 ? (
+              <div className="space-y-3">
+                {p.independentStudyData.map((s, i) => (
+                  <div key={i} className="border border-gray-200 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-bold text-gray-800">{s.theme}</h4>
+                      <span className="text-xs text-gray-400">{s.date}</span>
+                    </div>
+                    <p className="text-sm text-gray-600">{s.summary}</p>
+                    {s.next && <p className="text-sm text-primary-600 mt-2">次: {s.next}</p>}
+                  </div>
+                ))}
+              </div>
+            ) : <EmptyState icon="📝" message="自主学習記録はまだありません" />}
+          </Card>
+        )}
+
+        {/* TESTS */}
+        {subTab === 'tests' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">📋 テスト記録</h3>
+            <DataTable
+              columns={[
+                { key:'date', label:'日付' },
+                { key:'subject', label:'教科', render: v => <Badge>{v}</Badge> },
+                { key:'score1', label:'表', render: v => <span className="font-bold">{v}</span> },
+                { key:'score2', label:'裏', render: v => <span className="font-bold">{v}</span> },
+                { key:'totalScore', label:'合計', render: v => <span className="font-black text-primary-600">{v}</span> },
+                { key:'reflection', label:'振り返り', render: v => <span className="text-xs text-gray-500">{truncate(v, 20)}</span> },
+              ]}
+              data={lesson.testData || []}
+              emptyMessage="テスト記録はまだありません"
+            />
+          </Card>
+        )}
+
+        {/* LESSONS */}
+        {subTab === 'lessons' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">✍️ 授業振り返り記録</h3>
+            <DataTable
+              columns={[
+                { key:'date', label:'日付' },
+                { key:'subject', label:'教科', render: v => <Badge>{v}</Badge> },
+                { key:'q1', label:'楽しさ' },
+                { key:'q2', label:'理解' },
+                { key:'q3', label:'頑張り' },
+                { key:'handRaises', label:'挙手', render: v => v > 0 ? <Badge color="green">{v}回</Badge> : '-' },
+              ]}
+              data={lesson.lessonData || []}
+              emptyMessage="授業振り返り記録はまだありません"
+            />
+          </Card>
+        )}
+
+        {/* MORAL */}
+        {subTab === 'moral' && (
+          <Card>
+            <h3 className="font-black text-gray-800 mb-3">💖 道徳ノート</h3>
+            {(lesson.moralData||[]).length > 0 ? (
+              <div className="space-y-3">
+                {lesson.moralData.map((m, i) => (
+                  <div key={i} className="border border-purple-200 bg-purple-50/30 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-bold text-purple-700">{m.materialName}</h4>
+                      <span className="text-xs text-gray-400">{m.date}</span>
+                    </div>
+                    {m.question && <p className="text-sm text-purple-500 mb-2 italic">Q. {m.question}</p>}
+                    <div className="bg-white rounded-lg p-3 mb-2">
+                      <p className="text-xs text-gray-400 mb-1">自分の考え</p>
+                      <p className="text-sm">{m.myThought}</p>
+                    </div>
+                    {m.reflection && (
+                      <div className="bg-white rounded-lg p-3">
+                        <p className="text-xs text-gray-400 mb-1">授業を通して</p>
+                        <p className="text-sm">{m.reflection}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : <EmptyState icon="💖" message="道徳ノートの記録はまだありません" />}
+          </Card>
+        )}
+
+        {/* RANKING */}
+        {subTab === 'ranking' && (
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">🏆 タイピング速さランキング</h3>
+              {(p.typingRankingData||[]).length > 0 ? (
+                <div className="space-y-1">
+                  {p.typingRankingData.map((r, i) => (
+                    <div key={i} className={cls('flex items-center gap-3 p-2.5 rounded-lg', r.rank <= 3 ? 'bg-yellow-50' : '')}>
+                      <span className="w-8 text-center font-black text-lg">{r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : `${r.rank}.`}</span>
+                      <span className="flex-1 font-bold">{r.name}</span>
+                      <span className="font-black text-primary-600">{r.value} 打/秒</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState icon="🏆" message="ランキングデータがありません" />}
+            </Card>
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">🔢 100マス計算ランキング</h3>
+              {Object.keys(p.hyakumasuRankingData||{}).length > 0 ? (
+                Object.entries(p.hyakumasuRankingData).map(([mode, rankings]) => (
+                  <div key={mode} className="mb-4">
+                    <h4 className="font-bold text-sm text-gray-600 mb-2"><Badge>{mode}</Badge></h4>
+                    <div className="space-y-1">
+                      {rankings.map((r, i) => (
+                        <div key={i} className={cls('flex items-center gap-3 p-2 rounded-lg', r.rank <= 3 ? 'bg-yellow-50' : '')}>
+                          <span className="w-8 text-center font-black">{r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : `${r.rank}.`}</span>
+                          <span className="flex-1 font-bold text-sm">{r.name}</span>
+                          <span className="font-black text-primary-600 text-sm">{r.value}秒</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              ) : <EmptyState icon="🔢" message="ランキングデータがありません" />}
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TEACHER: Management Screen
+// ============================================================
+function TeacherManagement() {
+  const { state, setState, setLoading } = useApp();
+  const d = state.data;
+  const [selectedStudent, setSelectedStudent] = useState(null);
+  const [studentDetail, setStudentDetail] = useState(null);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState('number');
+
+  const students = useMemo(() => {
+    let list = [...(d.students || [])];
+    if (search) list = list.filter(s => s.nickname.includes(search) || String(s.number).includes(search));
+    if (sortKey === 'number') list.sort((a,b) => a.number - b.number);
+    else if (sortKey === 'level') list.sort((a,b) => b.level - a.level);
+    else if (sortKey === 'name') list.sort((a,b) => a.nickname.localeCompare(b.nickname, 'ja'));
+    return list;
+  }, [d.students, search, sortKey]);
+
+  const loadStudent = async (email) => {
+    setLoading(true);
+    try {
+      const r = await api.call('getStudentDetails', email);
+      if (r.success) setStudentDetail(r.data);
+      else toast(r.message, 'error');
+    } catch(e) { toast('読み込みに失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  return (
+    <div className="p-4 space-y-4 animate-fade-in">
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3">
+        <StatCard icon="👥" label="児童数" value={d.students?.length || 0} gradient="blue" />
+        <StatCard icon="📊" label="平均レベル" value={d.students?.length ? (d.students.reduce((a,s)=>a+s.level,0)/d.students.length).toFixed(1) : 0} gradient="green" />
+        <StatCard icon="⭐" label="最高レベル" value={d.students?.length ? Math.max(...d.students.map(s=>s.level)) : 0} gradient="purple" />
+      </div>
+
+      {/* Search & Sort */}
+      <div className="flex gap-2">
+        <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="名前・番号で検索..." className="flex-1" />
+        <Select options={[{value:'number',label:'番号順'},{value:'name',label:'名前順'},{value:'level',label:'レベル順'}]} value={sortKey} onChange={e => setSortKey(e.target.value)} className="w-32" />
+      </div>
+
+      {/* Student List */}
+      <Card>
+        <h3 className="font-black text-gray-800 mb-3">👥 児童一覧</h3>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+          {students.map(s => (
+            <div key={s.email} onClick={() => { setSelectedStudent(s); loadStudent(s.email); }}
+              className="border border-gray-200 rounded-xl p-3 hover:border-primary-300 hover:bg-primary-50/30 cursor-pointer transition-all text-center">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-400 to-purple-400 flex items-center justify-center text-white font-black mx-auto mb-2">
+                {s.number}
+              </div>
+              <p className="font-bold text-sm">{s.nickname}</p>
+              <Badge color="blue" size="xs">Lv.{s.level}</Badge>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {/* Student Detail Modal */}
+      <Modal open={!!selectedStudent} onClose={() => { setSelectedStudent(null); setStudentDetail(null); }} title={`${selectedStudent?.nickname || ''} の詳細`} wide>
+        {studentDetail ? (
+          <div className="space-y-4">
+            {/* Profile */}
+            <div className="grid grid-cols-4 gap-3">
+              <StatCard icon="⭐" label="レベル" value={studentDetail.profile.level} gradient="blue" />
+              <StatCard icon="💎" label="累計EXP" value={formatNum(studentDetail.profile.totalExp)} gradient="green" />
+              <StatCard icon="🔄" label="交換Pt" value={formatNum(studentDetail.profile.exchangePoints)} gradient="purple" />
+              <StatCard icon="📊" label="テスト数" value={(studentDetail.lessonData?.testData||[]).length} gradient="orange" />
+            </div>
+
+            {/* Portfolio Summary */}
+            {studentDetail.portfolio && (
+              <Card>
+                <h4 className="font-bold text-gray-700 mb-3">課題ポートフォリオ</h4>
+                <div className="grid grid-cols-5 gap-2 text-center text-sm">
+                  <div className="bg-blue-50 rounded-lg p-2"><p className="font-black text-primary-600">{(studentDetail.portfolio.typingRecords||[]).length}</p><p className="text-xs text-gray-500">タイピング</p></div>
+                  <div className="bg-green-50 rounded-lg p-2"><p className="font-black text-green-600">{studentDetail.portfolio.readingData?.summary?.totalBooks || 0}</p><p className="text-xs text-gray-500">読書</p></div>
+                  <div className="bg-purple-50 rounded-lg p-2"><p className="font-black text-purple-600">{(studentDetail.portfolio.growthData||[]).length}</p><p className="text-xs text-gray-500">成長</p></div>
+                  <div className="bg-orange-50 rounded-lg p-2"><p className="font-black text-orange-600">{(studentDetail.portfolio.independentStudyData||[]).length}</p><p className="text-xs text-gray-500">自主学習</p></div>
+                  <div className="bg-yellow-50 rounded-lg p-2"><p className="font-black text-yellow-600">{(studentDetail.portfolio.hyakumasuRecords||[]).length}</p><p className="text-xs text-gray-500">100マス</p></div>
+                </div>
+              </Card>
+            )}
+
+            {/* Test Scores */}
+            {(studentDetail.lessonData?.testData||[]).length > 0 && (
+              <Card>
+                <h4 className="font-bold text-gray-700 mb-3">テスト成績</h4>
+                <DataTable
+                  columns={[
+                    { key:'date', label:'日付' },
+                    { key:'subject', label:'教科', render:v=><Badge>{v}</Badge> },
+                    { key:'score1', label:'表' },
+                    { key:'score2', label:'裏' },
+                    { key:'totalScore', label:'合計', render:v=><span className="font-black text-primary-600">{v}</span> },
+                  ]}
+                  data={studentDetail.lessonData.testData}
+                />
+              </Card>
+            )}
+
+            {/* Recent Activity */}
+            {(studentDetail.recentActivity||[]).length > 0 && (
+              <Card>
+                <h4 className="font-bold text-gray-700 mb-3">最近のアクティビティ</h4>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {studentDetail.recentActivity.slice(0,15).map((a,i) => (
+                    <div key={i} className="flex justify-between text-sm py-1 border-b border-gray-50">
+                      <span className="text-gray-600">{a.details || a.message}</span>
+                      <span className="text-xs text-gray-400">{a.timestamp ? new Date(a.timestamp).toLocaleDateString('ja-JP') : ''}</span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            )}
+          </div>
+        ) : (
+          <div className="flex items-center justify-center py-12">
+            <div className="w-8 h-8 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// TEACHER: Points & Announcements Screen
+// ============================================================
+function TeacherPoints() {
+  const { state, setState, setLoading } = useApp();
+  const d = state.data;
+  const [pointTab, setPointTab] = useState('grant');
+  const [selectedEmails, setSelectedEmails] = useState([]);
+  const [pointType, setPointType] = useState('exp');
+  const [pointAmount, setPointAmount] = useState('');
+  const [pointReason, setPointReason] = useState('');
+  const [selectAll, setSelectAll] = useState(false);
+  const [announcementText, setAnnouncementText] = useState('');
+
+  const toggleStudent = (email) => {
+    setSelectedEmails(prev => prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]);
+  };
+
+  const toggleAll = () => {
+    if (selectAll) { setSelectedEmails([]); } else { setSelectedEmails((d.students||[]).map(s => s.email)); }
+    setSelectAll(!selectAll);
+  };
+
+  const grantPoints = async () => {
+    if (selectedEmails.length === 0) return toast('児童を選択してください', 'warning');
+    if (!pointAmount || Number(pointAmount) <= 0) return toast('ポイント数を入力してください', 'warning');
+    const ok = await confirm('ポイント配付', `${selectedEmails.length}人に ${pointAmount} ${pointType === 'exp' ? 'EXP' : '交換Pt'} を配付しますか？`);
+    if (!ok.isConfirmed) return;
+    setLoading(true);
+    try {
+      const r = await api.call('grantPoints', { emails: selectedEmails, type: pointType, amount: Number(pointAmount), reason: pointReason });
+      if (r.success) { toast(r.message); setSelectedEmails([]); setPointAmount(''); setPointReason(''); setSelectAll(false); }
+      else toast(r.message, 'error');
+    } catch(e) { toast('配付に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const postAnnouncement = async () => {
+    if (!announcementText.trim()) return toast('メッセージを入力してください', 'warning');
+    setLoading(true);
+    try {
+      const r = await api.call('postAnnouncement', { message: announcementText, author: d.teacherName });
+      if (r.success) { toast('お知らせを投稿しました'); d.announcements = r.announcements; setState(prev=>({...prev})); setAnnouncementText(''); }
+      else toast(r.message, 'error');
+    } catch(e) { toast('投稿に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const deleteAnnouncement = async (rowNum) => {
+    const ok = await confirm('削除確認', 'このお知らせを削除しますか？');
+    if (!ok.isConfirmed) return;
+    setLoading(true);
+    try {
+      const r = await api.call('deleteAnnouncement', rowNum);
+      if (r.success) { toast('削除しました'); d.announcements = r.announcements; setState(prev=>({...prev})); }
+    } catch(e) { toast('削除に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const tabs = [
+    { id:'grant', icon:'🎁', label:'ポイント配付' },
+    { id:'announce', icon:'📢', label:'お知らせ管理' },
+  ];
+
+  return (
+    <div>
+      <TabBar tabs={tabs} active={pointTab} onChange={setPointTab} />
+      <div className="p-4 animate-fade-in">
+        {pointTab === 'grant' && (
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-4">🎁 ポイント配付</h3>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <FormField label="種類">
+                  <Select options={[{value:'exp',label:'経験値 (EXP)'},{value:'exchange',label:'交換ポイント'}]} value={pointType} onChange={e => setPointType(e.target.value)} />
+                </FormField>
+                <FormField label="ポイント数" required>
+                  <Input type="number" min="1" value={pointAmount} onChange={e => setPointAmount(e.target.value)} placeholder="例: 50" />
+                </FormField>
+                <FormField label="理由">
+                  <Input value={pointReason} onChange={e => setPointReason(e.target.value)} placeholder="例: 宿題完了" />
+                </FormField>
+              </div>
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm text-gray-500">選択中: <span className="font-bold text-primary-600">{selectedEmails.length}人</span></p>
+                <Btn variant="ghost" size="xs" onClick={toggleAll}>{selectAll ? '全解除' : '全選択'}</Btn>
+              </div>
+              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5 mb-4 max-h-48 overflow-y-auto">
+                {(d.students||[]).map(s => (
+                  <button key={s.email} onClick={() => toggleStudent(s.email)}
+                    className={cls('rounded-lg p-2 text-xs font-bold transition border-2', selectedEmails.includes(s.email) ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
+                    <span className="block text-base">{s.number}</span>{s.nickname}
+                  </button>
+                ))}
+              </div>
+              <Btn onClick={grantPoints} className="w-full" disabled={selectedEmails.length === 0}>配付する</Btn>
+            </Card>
+          </div>
+        )}
+
+        {pointTab === 'announce' && (
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-4">📢 お知らせ投稿</h3>
+              <FormField label="メッセージ" required>
+                <textarea value={announcementText} onChange={e => setAnnouncementText(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-primary-500" rows={3} placeholder="お知らせの内容を入力..." />
+              </FormField>
+              <Btn onClick={postAnnouncement} className="w-full">投稿する</Btn>
+            </Card>
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">📋 お知らせ一覧</h3>
+              {(d.announcements||[]).length > 0 ? (
+                <div className="space-y-2">
+                  {[...d.announcements].reverse().map((a, i) => (
+                    <div key={i} className="flex items-start gap-3 bg-gray-50 rounded-lg p-3">
+                      <div className="flex-1">
+                        <p className="text-sm text-gray-800">{a[1]}</p>
+                        <p className="text-xs text-gray-400 mt-1">{a[2]} ・ {a[0] ? new Date(a[0]).toLocaleDateString('ja-JP') : ''}</p>
+                      </div>
+                      <Btn variant="danger" size="xs" onClick={() => deleteAnnouncement(d.announcements.indexOf(a) + 1)}>削除</Btn>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState icon="📢" message="お知らせはまだありません" />}
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TEACHER: Rankings & PDF Screen
+// ============================================================
+function TeacherTools() {
+  const { state, setLoading } = useApp();
+  const d = state.data;
+  const [subTab, setSubTab] = useState('rankings');
+
+  const generatePdf = async (type, term) => {
+    const ok = await confirm('PDF生成', `${term}学期のPDFを生成しますか？（時間がかかる場合があります）`);
+    if (!ok.isConfirmed) return;
+    setLoading(true);
+    try {
+      let r;
+      if (type === 'assignment') r = await api.call('createAssignmentPortfolioPdf', { term });
+      else r = await api.call('createLessonPortfolioPdf', `${term}学期`);
+      if (r.success) {
+        await Swal.fire({ icon:'success', title:'PDF作成完了', html:`<p>${r.message}</p>${r.fileUrl || r.url ? `<a href="${r.fileUrl || r.url}" target="_blank" class="text-blue-600 underline">PDFを開く</a>` : ''}`, confirmButtonColor:'#3b82f6' });
+      } else toast(r.message, 'error');
+    } catch(e) { toast('PDF生成に失敗しました', 'error'); }
+    setLoading(false);
+  };
+
+  const tabs = [
+    { id:'rankings', icon:'🏆', label:'ランキング' },
+    { id:'pdf', icon:'📄', label:'PDF出力' },
+  ];
+
+  return (
+    <div>
+      <TabBar tabs={tabs} active={subTab} onChange={setSubTab} />
+      <div className="p-4 animate-fade-in">
+        {subTab === 'rankings' && (
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">⌨️ タイピング速さランキング</h3>
+              {(d.typingRankingData||[]).length > 0 ? (
+                <div className="space-y-1">
+                  {d.typingRankingData.map((r, i) => (
+                    <div key={i} className={cls('flex items-center gap-3 p-2.5 rounded-lg', r.rank <= 3 ? 'bg-yellow-50' : '')}>
+                      <span className="w-8 text-center font-black text-lg">{r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : `${r.rank}.`}</span>
+                      <span className="flex-1 font-bold">{r.name}</span>
+                      <span className="font-black text-primary-600">{r.value} 打/秒</span>
+                    </div>
+                  ))}
+                </div>
+              ) : <EmptyState icon="🏆" message="データがありません" />}
+            </Card>
+            <Card>
+              <h3 className="font-black text-gray-800 mb-3">🔢 100マス計算ランキング</h3>
+              {Object.keys(d.hyakumasuRankingData||{}).length > 0 ? (
+                Object.entries(d.hyakumasuRankingData).map(([mode, rankings]) => (
+                  <div key={mode} className="mb-4">
+                    <h4 className="font-bold text-sm mb-2"><Badge>{mode}</Badge></h4>
+                    {rankings.map((r, i) => (
+                      <div key={i} className={cls('flex items-center gap-3 p-2 rounded-lg', r.rank <= 3 ? 'bg-yellow-50' : '')}>
+                        <span className="w-8 text-center font-black">{r.rank <= 3 ? ['🥇','🥈','🥉'][r.rank-1] : `${r.rank}.`}</span>
+                        <span className="flex-1 font-bold text-sm">{r.name}</span>
+                        <span className="font-black text-primary-600 text-sm">{r.value}秒</span>
+                      </div>
+                    ))}
+                  </div>
+                ))
+              ) : <EmptyState icon="🔢" message="データがありません" />}
+            </Card>
+          </div>
+        )}
+
+        {subTab === 'pdf' && (
+          <div className="space-y-4">
+            <Card>
+              <h3 className="font-black text-gray-800 mb-4">📄 課題ポートフォリオ PDF</h3>
+              <p className="text-sm text-gray-500 mb-4">学期を選んでPDFを生成します。全児童分が一括で出力されます。</p>
+              <div className="grid grid-cols-3 gap-3">
+                {[1,2,3].map(t => (
+                  <Btn key={t} variant="outline" onClick={() => generatePdf('assignment', t)} className="py-4">
+                    <span className="text-2xl block mb-1">📑</span>{t}学期
+                  </Btn>
+                ))}
+              </div>
+            </Card>
+            <Card>
+              <h3 className="font-black text-gray-800 mb-4">📄 授業ポートフォリオ PDF</h3>
+              <p className="text-sm text-gray-500 mb-4">テスト成績・道徳ノートなどの授業記録をPDFに出力します。</p>
+              <div className="grid grid-cols-3 gap-3">
+                {[1,2,3].map(t => (
+                  <Btn key={t} variant="outline" onClick={() => generatePdf('lesson', t)} className="py-4">
+                    <span className="text-2xl block mb-1">📋</span>{t}学期
+                  </Btn>
+                ))}
+              </div>
+            </Card>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TEACHER: Settings Screen
+// ============================================================
+function TeacherSettings() {
+  const { state } = useApp();
+  const d = state.data;
+  const settings = d.lessonSettings || {};
+
+  return (
+    <div className="p-4 animate-fade-in space-y-4">
+      <Card>
+        <h3 className="font-black text-gray-800 mb-4">⚙️ アプリ設定情報</h3>
+        <div className="space-y-3">
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h4 className="font-bold text-gray-600 text-sm mb-2">教員情報</h4>
+            <p className="text-gray-800"><span className="text-gray-500 text-sm mr-2">名前:</span>{d.teacherName || '未設定'}</p>
+          </div>
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h4 className="font-bold text-gray-600 text-sm mb-2">登録児童数</h4>
+            <p className="text-2xl font-black text-primary-600">{(d.students||[]).length} <span className="text-sm text-gray-500">人</span></p>
+          </div>
+          {settings.subjectList && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-bold text-gray-600 text-sm mb-2">設定教科</h4>
+              <div className="flex flex-wrap gap-1.5">
+                {settings.subjectList.map((s, i) => <Badge key={i}>{s}</Badge>)}
+              </div>
+            </div>
+          )}
+          {settings.testUnits && Object.keys(settings.testUnits).length > 0 && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-bold text-gray-600 text-sm mb-2">テスト単元数</h4>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(settings.testUnits).map(([subj, units]) => (
+                  <span key={subj} className="text-sm"><Badge>{subj}</Badge> <span className="text-gray-500">{units.length}単元</span></span>
+                ))}
+              </div>
+            </div>
+          )}
+          {settings.moralMaterials && (
+            <div className="bg-gray-50 rounded-lg p-4">
+              <h4 className="font-bold text-gray-600 text-sm mb-2">道徳教材数</h4>
+              <p className="text-2xl font-black text-purple-600">{settings.moralMaterials.length} <span className="text-sm text-gray-500">教材</span></p>
+            </div>
+          )}
+        </div>
+      </Card>
+      <Card>
+        <h3 className="font-black text-gray-800 mb-3">💡 ヘルプ</h3>
+        <div className="text-sm text-gray-600 space-y-2">
+          <p>設定の変更はスプレッドシートから直接行えます。</p>
+          <div className="bg-blue-50 rounded-lg p-3">
+            <p className="font-bold text-blue-700 mb-1">主な設定シート</p>
+            <ul className="list-disc list-inside text-blue-600 space-y-1">
+              <li>初期設定 - ガチャコスト、レベル設定等</li>
+              <li>アイテムマスタ - ガチャアイテムの管理</li>
+              <li>ミッションマスタ - ミッションの管理</li>
+              <li>児童マスタ - 児童の登録・管理</li>
+              <li>[🏠初期設定] - 教科・学年の設定</li>
+              <li>[📝テスト単元リスト] - テスト単元の管理</li>
+              <li>[📚道徳教材リスト] - 道徳教材の管理</li>
+            </ul>
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+// ============================================================
+// Main App Component
+// ============================================================
+function App() {
+  const [state, setState] = useState({ role: null, data: null });
+  const [loading, setLoading] = useState(true);
+  const [activeScreen, setActiveScreen] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    const init = async () => {
+      try {
+        const r = await api.call('getInitialAppData');
+        if (r && r.success) {
+          setState({ role: r.role, data: r.data });
+          setActiveScreen(r.role === 'teacher' ? 'management' : 'gamification');
+        } else {
+          Swal.fire({ icon:'error', title:'エラー', text: r?.message || '初期データの読み込みに失敗しました。' });
+        }
+      } catch(e) {
+        Swal.fire({ icon:'error', title:'通信エラー', text: 'サーバーに接続できませんでした。ページを再読み込みしてください。' });
+      }
+      setLoading(false);
+    };
+    init();
+  }, []);
+
+  const studentMenus = [
+    { id:'gamification', icon:'🎮', label:'ゲーム', desc:'ガチャ・ミッション' },
+    { id:'input', icon:'📝', label:'記録する', desc:'学習データの入力' },
+    { id:'dashboard', icon:'📊', label:'ダッシュボード', desc:'成績・記録の確認' },
+  ];
+
+  const teacherMenus = [
+    { id:'management', icon:'👥', label:'児童管理', desc:'一覧・詳細確認' },
+    { id:'points', icon:'🎁', label:'配付・お知らせ', desc:'ポイント・通知' },
+    { id:'tools', icon:'🛠️', label:'ツール', desc:'ランキング・PDF' },
+    { id:'settings', icon:'⚙️', label:'設定', desc:'アプリ設定情報' },
+  ];
+
+  const menus = state.role === 'teacher' ? teacherMenus : studentMenus;
+
+  const renderScreen = () => {
+    if (state.role === 'student') {
+      switch(activeScreen) {
+        case 'gamification': return <StudentGamification />;
+        case 'input': return <StudentInput />;
+        case 'dashboard': return <StudentDashboard />;
+        default: return <StudentGamification />;
+      }
+    } else {
+      switch(activeScreen) {
+        case 'management': return <TeacherManagement />;
+        case 'points': return <TeacherPoints />;
+        case 'tools': return <TeacherTools />;
+        case 'settings': return <TeacherSettings />;
+        default: return <TeacherManagement />;
+      }
+    }
+  };
+
+  // Loading Screen
+  if (loading || !state.data) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-primary-500 via-purple-500 to-pink-500 flex items-center justify-center">
+        <div className="text-center text-white">
+          <div className="text-6xl mb-4 animate-bounce">📚</div>
+          <h1 className="text-3xl font-black mb-2">まなびポータル</h1>
+          <p className="text-white/70 mb-6">読み込み中...</p>
+          <div className="w-48 h-1.5 bg-white/20 rounded-full mx-auto overflow-hidden">
+            <div className="h-full bg-white rounded-full animate-pulse" style={{ width: '60%' }} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const ctxValue = { state, setState, loading, setLoading };
+
+  return (
+    <AppContext.Provider value={ctxValue}>
+      {loading && <Spinner />}
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+
+        {/* ===== TOP HEADER ===== */}
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-40 shadow-sm">
+          <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <button className="md:hidden p-1" onClick={() => setSidebarOpen(!sidebarOpen)}>
+                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
+              </button>
+              <span className="text-xl">📚</span>
+              <h1 className="text-lg font-black text-gray-800">まなびポータル</h1>
+              <Badge color={state.role === 'teacher' ? 'purple' : 'blue'} size="sm">
+                {state.role === 'teacher' ? '教員' : '児童'}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-2">
+              {state.role === 'student' && state.data?.profile && (
+                <div className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
+                  <span className="font-bold">{state.data.profile.nickname}</span>
+                  <Badge color="blue" size="xs">Lv.{state.data.profile.level}</Badge>
+                </div>
+              )}
+              {state.role === 'teacher' && (
+                <span className="hidden sm:block text-sm text-gray-600 font-bold">{state.data.teacherName}</span>
+              )}
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex max-w-6xl mx-auto w-full">
+
+          {/* ===== SIDEBAR (Desktop) ===== */}
+          <nav className="hidden md:block w-56 bg-white border-r border-gray-100 p-3 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto">
+            <div className="space-y-1">
+              {menus.map(m => (
+                <button key={m.id} onClick={() => setActiveScreen(m.id)}
+                  className={cls('w-full text-left rounded-xl p-3 transition-all flex items-center gap-3', activeScreen === m.id ? 'bg-primary-50 text-primary-700 shadow-sm' : 'text-gray-600 hover:bg-gray-50')}>
+                  <span className="text-xl">{m.icon}</span>
+                  <div>
+                    <p className="font-bold text-sm">{m.label}</p>
+                    <p className="text-xs opacity-60">{m.desc}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </nav>
+
+          {/* ===== MOBILE SIDEBAR OVERLAY ===== */}
+          {sidebarOpen && (
+            <div className="md:hidden fixed inset-0 z-50 flex">
+              <div className="absolute inset-0 bg-black/30" onClick={() => setSidebarOpen(false)} />
+              <div className="relative w-64 bg-white shadow-2xl animate-slide-up p-4">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="font-black text-gray-800">メニュー</h2>
+                  <button onClick={() => setSidebarOpen(false)} className="text-gray-400 text-xl">&times;</button>
+                </div>
+                <div className="space-y-1">
+                  {menus.map(m => (
+                    <button key={m.id} onClick={() => { setActiveScreen(m.id); setSidebarOpen(false); }}
+                      className={cls('w-full text-left rounded-xl p-3 flex items-center gap-3', activeScreen === m.id ? 'bg-primary-50 text-primary-700' : 'text-gray-600')}>
+                      <span className="text-xl">{m.icon}</span>
+                      <div>
+                        <p className="font-bold text-sm">{m.label}</p>
+                        <p className="text-xs opacity-60">{m.desc}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ===== MAIN CONTENT ===== */}
+          <main className="flex-1 min-w-0 overflow-y-auto">
+            {renderScreen()}
+          </main>
+        </div>
+
+        {/* ===== BOTTOM NAV (Mobile) ===== */}
+        <nav className="md:hidden bg-white border-t border-gray-200 sticky bottom-0 z-40 shadow-lg">
+          <div className="flex">
+            {menus.map(m => (
+              <button key={m.id} onClick={() => setActiveScreen(m.id)}
+                className={cls('flex-1 flex flex-col items-center py-2 transition', activeScreen === m.id ? 'text-primary-600' : 'text-gray-400')}>
+                <span className="text-xl">{m.icon}</span>
+                <span className="text-xs font-bold mt-0.5">{m.label}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      </div>
+    </AppContext.Provider>
+  );
+}
+
+// ============================================================
+// Render
+// ============================================================
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
