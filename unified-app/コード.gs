@@ -90,6 +90,7 @@ const SS_GRADE_PREFIX = '[📊';
 
 function doGet(e) {
   try {
+    ensureSheetsExist_();
     return HtmlService.createHtmlOutputFromFile('index')
       .setTitle('まなびポータル')
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
@@ -97,6 +98,284 @@ function doGet(e) {
     console.error('doGet Error:', e);
     return HtmlService.createHtmlOutput('<h1>エラーが発生しました</h1>');
   }
+}
+
+// ====================================================================
+// ■ 2.5. 初回セットアップ（シート自動生成）
+// ====================================================================
+
+/**
+ * スプレッドシートを開いたときにカスタムメニューを追加
+ */
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('📚 まなびポータル')
+    .addItem('🔧 初期セットアップを実行', 'runInitialSetup')
+    .addSeparator()
+    .addItem('📋 シート構成を確認', 'showSheetStatus')
+    .addToUi();
+}
+
+/**
+ * メニューから手動で実行できる初期セットアップ
+ */
+function runInitialSetup() {
+  const ui = SpreadsheetApp.getUi();
+  const result = ui.alert(
+    '初期セットアップ',
+    '必要なシートをすべて作成し、初期データを設定します。\n既存のシートは変更されません。\n\n実行しますか？',
+    ui.ButtonSet.YES_NO
+  );
+  if (result !== ui.Button.YES) return;
+
+  const created = ensureSheetsExist_();
+  if (created.length === 0) {
+    ui.alert('✅ 確認完了', '必要なシートはすべて揃っています。新規作成はありませんでした。', ui.ButtonSet.OK);
+  } else {
+    ui.alert('✅ セットアップ完了', `以下のシートを新規作成しました:\n\n${created.join('\n')}`, ui.ButtonSet.OK);
+  }
+}
+
+/**
+ * シート構成の確認表示
+ */
+function showSheetStatus() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const allRequired = getAllRequiredSheets_();
+  const lines = allRequired.map(s => {
+    const exists = ss.getSheetByName(s.name);
+    return `${exists ? '✅' : '❌'} ${s.name}`;
+  });
+  SpreadsheetApp.getUi().alert('📋 シート構成', lines.join('\n'), SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * 全必要シートの定義を返す
+ */
+function getAllRequiredSheets_() {
+  return [
+    // --- ゲーミフィケーション ---
+    {
+      name: GAME_SHEETS.USERS,
+      headers: ['番号', 'ニックネーム', 'メールアドレス', '累計経験値', '経験値', '交換ポイント'],
+      note: '「番号」列に「担任」と入力すると教員アカウントになります',
+    },
+    {
+      name: GAME_SHEETS.ITEMS,
+      headers: ['アイテムID', 'アイテム名', 'カテゴリー', 'レアリティー', 'アイコン', '説明'],
+      sampleData: [
+        ['item_001', 'ブロンズソード', '武器', 'N', '⚔️', '初心者用の剣'],
+        ['item_002', 'シルバーシールド', '防具', 'R', '🛡️', '銀の盾'],
+        ['item_003', 'ゴールドクラウン', 'アクセサリー', 'SR', '👑', '黄金の王冠'],
+      ],
+    },
+    {
+      name: GAME_SHEETS.INVENTORY,
+      headers: ['日時', 'メールアドレス', 'アイテムID', 'ユニークキー'],
+    },
+    {
+      name: GAME_SHEETS.AVATAR,
+      headers: ['メールアドレス', '頭', '体', '足', 'アクセサリー'],
+    },
+    {
+      name: GAME_SHEETS.LOG,
+      headers: ['日時', 'メールアドレス', 'アクション', '詳細'],
+    },
+    {
+      name: GAME_SHEETS.CONFIG,
+      headers: ['設定名', '値'],
+      sampleData: [
+        ['ガチャコスト', 200],
+        ['10連ガチャコスト', 1800],
+        ['デイリーボーナスEXP', 10],
+        ['レベルアップ基準経験値', 100],
+        ['レベルアップ倍率', 1.2],
+        ['SRドロップ率', 5],
+        ['Rドロップ率', 20],
+        ['重複時交換ポイント_N', 10],
+        ['重複時交換ポイント_R', 30],
+        ['重複時交換ポイント_SR', 100],
+      ],
+    },
+    {
+      name: GAME_SHEETS.MISSIONS,
+      headers: ['ミッションID', 'タイプ', '内容', '判定キー', '目標値', '報酬タイプ', '報酬量'],
+      sampleData: [
+        ['m_login3', 'ログイン', '3日ログインしよう', 'デイリーボーナス', 3, '経験値', 50],
+        ['m_gacha5', 'ガチャ', 'ガチャを5回引こう', 'アイテム', 5, '交換ポイント', 30],
+        ['m_typing10', 'タイピング', 'タイピングを10回記録しよう', 'タイピング記録', 10, '経験値', 100],
+      ],
+    },
+    {
+      name: GAME_SHEETS.BADGES,
+      headers: ['バッジID', 'バッジ名', 'アイコン', '条件', '説明'],
+    },
+    {
+      name: GAME_SHEETS.EARNED_BADGES,
+      headers: ['日時', 'メールアドレス', 'バッジID'],
+    },
+    {
+      name: GAME_SHEETS.ANNOUNCEMENTS,
+      headers: ['日時', 'メッセージ', '投稿者'],
+    },
+    {
+      name: GAME_SHEETS.PROFILE,
+      headers: ['メールアドレス', 'ひとこと', 'すきなもの', '目標'],
+    },
+
+    // --- 課題ポートフォリオ ---
+    {
+      name: PORTFOLIO_SHEETS.TYPING,
+      headers: ['日時', 'メールアドレス', '正解数', '問題数', '正答率', '誤答率', '速さ'],
+    },
+    {
+      name: PORTFOLIO_SHEETS.HYAKUMASU,
+      headers: ['日時', 'メールアドレス', '種類', '問題数', '点数', 'タイム'],
+    },
+    {
+      name: PORTFOLIO_SHEETS.GOAL,
+      headers: ['メールアドレス', '速さ目標', '正答率目標', 'ステータス', '設定日', '達成日'],
+    },
+    {
+      name: PORTFOLIO_SHEETS.READING,
+      headers: ['日時', 'メールアドレス', 'タイトル', 'ジャンル', 'ページ数', '評価', 'コメント'],
+    },
+    {
+      name: PORTFOLIO_SHEETS.GROWTH,
+      headers: ['日時', 'メールアドレス', '内容', 'コメント'],
+    },
+    {
+      name: PORTFOLIO_SHEETS.STUDY,
+      headers: ['日時', 'メールアドレス', 'テーマ', 'わかったこと', '次にやりたいこと'],
+    },
+
+    // --- 授業ポートフォリオ ---
+    {
+      name: LESSON_SHEETS.INITIAL_SETTINGS,
+      headers: ['設定名', '値'],
+      sampleData: [
+        ['処理対象教科リスト', '国語,算数,理科,社会,英語,音楽,図工,体育,家庭科'],
+        ['学年', '5'],
+        ['Geminiモデル (所見用)', 'gemini-2.0-flash'],
+        ['Geminiモデル (補助用)', 'gemini-2.0-flash'],
+        ['人間性評価A基準(平均点)', '4.0'],
+        ['人間性評価B基準(平均点)', '2.5'],
+        ['週案シートID', ''],
+      ],
+    },
+    {
+      name: LESSON_SHEETS.STUDENT_LIST,
+      headers: ['番号', '名前', 'メールアドレス'],
+      note: '児童マスタと同じメールアドレスを登録してください',
+    },
+    {
+      name: LESSON_SHEETS.TEST_UNITS,
+      headers: ['教科', '番号', '単元名'],
+      sampleData: [
+        ['国語', 1, '物語文の読解'],
+        ['国語', 2, '説明文の読解'],
+        ['算数', 1, '整数と小数'],
+        ['算数', 2, '体積'],
+        ['理科', 1, '天気の変化'],
+        ['社会', 1, '国土の地形と気候'],
+      ],
+    },
+    {
+      name: LESSON_SHEETS.TEST_RESPONSES,
+      headers: ['日時', 'メールアドレス', '教科', 'テスト番号', '予想(表)', '予想(裏)', '得点(表)', '得点(裏)', '振り返り', '処理'],
+    },
+    {
+      name: LESSON_SHEETS.LESSON_RESPONSES,
+      headers: ['日時', 'メールアドレス', '教科', 'Q1(楽しさ)', 'Q2(わかりやすさ)', 'Q3(がんばり)', '挙手回数', '振り返り', '処理'],
+    },
+    {
+      name: LESSON_SHEETS.SHOKEN_MATERIALS,
+      headers: ['日時', '児童ID', 'カテゴリー', 'エピソード'],
+    },
+    {
+      name: LESSON_SHEETS.MORAL_MATERIALS,
+      headers: ['番号', '教材名', '発問'],
+      sampleData: [
+        [1, '手品師', 'うそをつかないで正直に生きるとはどういうことでしょう'],
+        [2, 'ブランコ乗りとピエロ', '相手のことを考えるとはどういうことでしょう'],
+        [3, '銀のしょく台', '広い心とはどのような心でしょう'],
+      ],
+    },
+    {
+      name: LESSON_SHEETS.MORAL_NOTES,
+      headers: ['日時', 'メールアドレス', '学年', '教材番号', '自分の考え', '振り返り'],
+    },
+    {
+      name: LESSON_SHEETS.GENERAL_SHOKEN,
+      headers: ['メールアドレス', '名前', '所見'],
+    },
+    {
+      name: LESSON_SHEETS.MORAL_SHOKEN,
+      headers: ['メールアドレス', '名前', '所見'],
+    },
+    {
+      name: LESSON_SHEETS.YOUROKU_SHOKEN,
+      headers: ['メールアドレス', '名前', '所見'],
+    },
+  ];
+}
+
+/**
+ * 全シートの存在を確認し、無いものを自動作成する
+ * @returns {string[]} 新規作成されたシート名の配列
+ */
+function ensureSheetsExist_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const allSheets = getAllRequiredSheets_();
+  const created = [];
+
+  allSheets.forEach(def => {
+    let sheet = ss.getSheetByName(def.name);
+    if (sheet) return; // 既に存在する場合はスキップ
+
+    // シートを新規作成
+    sheet = ss.insertSheet(def.name);
+    created.push(def.name);
+
+    // ヘッダー行を書き込み
+    if (def.headers && def.headers.length > 0) {
+      const headerRange = sheet.getRange(1, 1, 1, def.headers.length);
+      headerRange.setValues([def.headers]);
+      headerRange.setFontWeight('bold');
+      headerRange.setBackground('#4285f4');
+      headerRange.setFontColor('#ffffff');
+      sheet.setFrozenRows(1);
+
+      // 列幅を自動調整
+      for (let i = 1; i <= def.headers.length; i++) {
+        sheet.setColumnWidth(i, 140);
+      }
+    }
+
+    // サンプルデータを挿入
+    if (def.sampleData && def.sampleData.length > 0) {
+      sheet.getRange(2, 1, def.sampleData.length, def.sampleData[0].length).setValues(def.sampleData);
+    }
+
+    // メモ（注釈）をA1に追加
+    if (def.note) {
+      sheet.getRange(1, 1).setNote(def.note);
+    }
+  });
+
+  // 最初から存在する「シート1」を削除（全シート作成後に他シートがある場合のみ）
+  if (created.length > 0) {
+    try {
+      const defaultSheet = ss.getSheetByName('シート1') || ss.getSheetByName('Sheet1');
+      if (defaultSheet && ss.getSheets().length > 1) {
+        ss.deleteSheet(defaultSheet);
+      }
+    } catch (e) {
+      // デフォルトシートがない場合や削除できない場合は無視
+    }
+  }
+
+  return created;
 }
 
 // ====================================================================
