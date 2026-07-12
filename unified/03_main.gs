@@ -1,0 +1,343 @@
+/**
+ * =====================================================================
+ * 03_main.gs — Webアプリ エントリーポイント・共通ヘルパー
+ * =====================================================================
+ */
+
+/**
+ * Webアプリの初期表示。役割の判定はクライアントから getInitialAppData() で行います。
+ */
+function doGet() {
+  try {
+    return HtmlService.createTemplateFromFile('index')
+      .evaluate()
+      .setTitle('まなびクエスト')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+  } catch (e) {
+    console.error(`doGet Error: ${e.message}`);
+    return HtmlService.createHtmlOutput('<h1>エラー</h1><p>アプリの起動に失敗しました。管理者に連絡してください。</p>');
+  }
+}
+
+/** HTMLテンプレートに部分ファイルを差し込むためのヘルパー */
+function include(filename) {
+  return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+/**
+ * ログインユーザーの役割を判定し、初期データ一式を返します。
+ * @returns {Object} { role: 'teacher'|'student', data: Object }
+ */
+function getInitialAppData() {
+  try {
+    const email = getCurrentEmail_();
+    const user = findUserByEmail_(email);
+    if (!user) {
+      return { success: false, notRegistered: true, message: `このアカウント（${email}）は児童マスタに登録されていません。先生に伝えてください。` };
+    }
+    if (user['出席番号'] == TEACHER_ROLE_ID) {
+      return { success: true, role: 'teacher', data: getTeacherData() };
+    }
+    return { success: true, role: 'student', data: getStudentAppData() };
+  } catch (e) {
+    console.error(`getInitialAppData Error: ${e.message}, Stack: ${e.stack}`);
+    return { success: false, message: `サーバーエラー: ${e.message}` };
+  }
+}
+
+/**
+ * 児童用の初期データを一括で取得します（ログインボーナス処理を含む）。
+ */
+function getStudentAppData() {
+  const email = getCurrentEmail_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const config = getConfig_();
+
+  const { user, bonusApplied, bonusPoints } = processLoginBonus_(ss, email, config);
+  const levelInfo = calculateLevel(user.totalExp, config);
+  user.level = levelInfo.level;
+  user.progress = levelInfo.progress;
+  user.nextLevelExp = levelInfo.nextLevelExp;
+  user.currentLevelExp = levelInfo.currentLevelExp;
+
+  const allItems = getAllItems_(ss);
+  const badgesMaster = getBadges_(ss);
+  const earnedBadges = getEarnedBadges_(ss, email);
+  const { updatedEarnedBadges, newlyAwarded } = checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadges);
+
+  return {
+    success: true,
+    profile: user,
+    userProfile: getProfileData_(ss, email),
+    inventory: getInventory_(ss, email),
+    avatar: getAvatarComposition_(ss, email),
+    allItems: allItems.items,
+    itemCategories: allItems.categories,
+    gachaCost: getConfigNumber_(config, 'ガチャコスト', 200),
+    gacha10Cost: getConfigNumber_(config, '10連ガチャコスト', 1800),
+    announcements: getAnnouncements_(false),
+    rankings: getRankings_(ss, config),
+    missions: getMissionStatus_(ss, email),
+    badges: updatedEarnedBadges,
+    allBadges: badgesMaster,
+    newlyAwardedBadges: newlyAwarded,
+    plazaData: getPlazaData_(ss, config),
+    recentActivity: getRecentLogs_(ss, email),
+    records: getMyRecords(email),
+    moralMaterials: getMoralMaterials_(ss),
+    testUnits: getTestUnits_(ss),
+    bonusApplied,
+    bonusPoints
+  };
+}
+
+// =====================================================================
+// ユーザー関連ヘルパー
+// =====================================================================
+
+/** 現在のユーザーのメールアドレス（小文字化） */
+function getCurrentEmail_() {
+  const email = Session.getActiveUser().getEmail();
+  if (!email) throw new Error('メールアドレスが取得できませんでした。学校のGoogleアカウントでログインしてください。');
+  return String(email).toLowerCase().trim();
+}
+
+/**
+ * 児童マスタからメールアドレスでユーザーを検索します。
+ * @returns {Object|null} 行データ（ヘッダーをキーとするオブジェクト、_row に行番号）
+ */
+function findUserByEmail_(email) {
+  const result = findRowData_(SpreadsheetApp.getActiveSpreadsheet(), SHEETS.USERS, 4, email);
+  if (!result.data) return null;
+  result.data._row = result.row;
+  return result.data;
+}
+
+/** 教員権限をチェックし、教員でなければ例外を投げます */
+function assertTeacher_() {
+  const user = findUserByEmail_(getCurrentEmail_());
+  if (!user || user['出席番号'] != TEACHER_ROLE_ID) {
+    throw new Error('この操作を行う権限がありません。');
+  }
+  return user;
+}
+
+/**
+ * ログインボーナスを処理し、ユーザーの基本情報を返します。
+ */
+function processLoginBonus_(ss, email, config) {
+  const userSheet = ss.getSheetByName(SHEETS.USERS);
+  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  if (!found.data) throw new Error('児童マスタに登録されていません。');
+
+  const user = {
+    number: found.data['出席番号'],
+    name: found.data['名前'],
+    nickname: found.data['ニックネーム'] || found.data['名前'],
+    email: email,
+    totalExp: Number(found.data['累計経験値'] || 0),
+    exp: Number(found.data['経験値'] || 0),
+    exchangePoints: Number(found.data['交換ポイント'] || 0),
+    row: found.row
+  };
+
+  const lastLogin = found.data['最終ログイン日'] instanceof Date
+    ? Utilities.formatDate(found.data['最終ログイン日'], 'JST', 'yyyy-MM-dd')
+    : String(found.data['最終ログイン日'] || '');
+  const today = Utilities.formatDate(new Date(), 'JST', 'yyyy-MM-dd');
+
+  let bonusApplied = false, bonusPoints = 0;
+  if (lastLogin !== today) {
+    bonusApplied = true;
+    bonusPoints = getConfigNumber_(config, 'ログインボーナス経験値', 20);
+    user.exp += bonusPoints;
+    user.totalExp += bonusPoints;
+    userSheet.getRange(user.row, 5, 1, 4).setValues([[user.totalExp, user.exp, user.exchangePoints, today]]);
+    writeLog_(ss, email, LOG_ACTIONS.LOGIN_BONUS, `ログインボーナス: +${bonusPoints}EXP`);
+    checkLevelUp_(ss, email, user.totalExp - bonusPoints, user.totalExp, config);
+  }
+  return { user, bonusApplied, bonusPoints };
+}
+
+// =====================================================================
+// 経験値・レベル
+// =====================================================================
+
+/**
+ * 累計経験値からレベル・進捗率を計算します。
+ * レベルnに必要な経験値 = 基本 + 加算 ×(n−2) の累積。
+ */
+function calculateLevel(totalExp, config) {
+  const baseExp = getConfigNumber_(config, 'レベルアップ基本経験値', 100);
+  const incrementalExp = getConfigNumber_(config, 'レベルアップ加算経験値', 50);
+
+  let level = 1;
+  let totalExpForLevelUp = baseExp;
+  let expForThisLevel = baseExp;
+  while (totalExp >= totalExpForLevelUp) {
+    level++;
+    expForThisLevel += incrementalExp;
+    totalExpForLevelUp += expForThisLevel;
+  }
+  const expForPreviousLevel = totalExpForLevelUp - expForThisLevel;
+  const expInCurrentLevel = totalExp - expForPreviousLevel;
+  const progress = expForThisLevel > 0 ? Math.floor((expInCurrentLevel / expForThisLevel) * 100) : 100;
+  return {
+    level,
+    progress,
+    currentLevelExp: expInCurrentLevel,
+    nextLevelExp: expForThisLevel
+  };
+}
+
+/**
+ * 指定ユーザーに経験値を加算し、レベルアップ判定・ログ記録まで行います。
+ * 学習記録の保存時などに呼び出す中心的な関数です。
+ * @param {Spreadsheet} ss
+ * @param {string} email
+ * @param {number} amount - 加算する経験値
+ * @param {string} sourceLabel - ログに残す獲得元の名前（例: '読書記録'）
+ * @returns {{totalExp:number, exp:number, level:number, leveledUp:boolean}}
+ */
+function addExp_(ss, email, amount, sourceLabel) {
+  if (!amount || amount <= 0) return null;
+  const config = getConfig_();
+  const userSheet = ss.getSheetByName(SHEETS.USERS);
+  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  if (!found.data) return null;
+
+  const oldTotal = Number(found.data['累計経験値'] || 0);
+  const newTotal = oldTotal + amount;
+  const newExp = Number(found.data['経験値'] || 0) + amount;
+  userSheet.getRange(found.row, 5, 1, 2).setValues([[newTotal, newExp]]);
+  writeLog_(ss, email, LOG_ACTIONS.EXP_GAIN, `${sourceLabel}: +${amount}EXP`);
+  const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
+  const level = calculateLevel(newTotal, config).level;
+  return { totalExp: newTotal, exp: newExp, level, leveledUp };
+}
+
+/** レベルアップしていればログに記録します */
+function checkLevelUp_(ss, email, oldTotalExp, newTotalExp, config) {
+  const oldLevel = calculateLevel(oldTotalExp, config).level;
+  const newLevel = calculateLevel(newTotalExp, config).level;
+  if (newLevel > oldLevel) {
+    writeLog_(ss, email, LOG_ACTIONS.LEVEL_UP, `レベル${newLevel}にアップ！`);
+    return true;
+  }
+  return false;
+}
+
+// =====================================================================
+// 汎用ヘルパー
+// =====================================================================
+
+/**
+ * シートから特定の値を検索し、行番号とヘッダーをキーとするオブジェクトを返します。
+ * メールアドレス列は大文字小文字を無視して比較します。
+ */
+function findRowData_(ss, sheetName, col, value) {
+  const sheet = ss.getSheetByName(sheetName);
+  if (!sheet || sheet.getLastRow() === 0) return { row: null, data: null };
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const target = String(value).toLowerCase().trim();
+  for (let i = 1; i < data.length; i++) {
+    if (String(data[i][col - 1]).toLowerCase().trim() === target) {
+      const rowData = {};
+      headers.forEach((header, index) => { rowData[header] = data[i][index]; });
+      return { row: i + 1, data: rowData };
+    }
+  }
+  return { row: null, data: null };
+}
+
+/** 「ログ」シートに1行追記します */
+function writeLog_(ss, email, actionType, details) {
+  try {
+    const logSheet = ss.getSheetByName(SHEETS.LOG);
+    if (logSheet) logSheet.appendRow([new Date(), email, actionType, details]);
+  } catch (e) {
+    console.error(`ログ書き込みエラー: ${e.message}`);
+  }
+}
+
+/**
+ * 排他ロックの下で処理を実行する共通ラッパー。
+ * すべての書き込み系APIで使用し、同時アクセスによるデータ破損を防ぎます。
+ */
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) {
+    return { success: false, message: 'こんでいます。少しまってからもう一度ためしてください。' };
+  }
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** 週の開始（月曜0時）と終了（日曜23:59）を返します */
+function getWeekRange_() {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diff);
+  const endOfWeek = new Date(startOfWeek);
+  endOfWeek.setDate(startOfWeek.getDate() + 6);
+  endOfWeek.setHours(23, 59, 59, 999);
+  return { startOfWeek, endOfWeek };
+}
+
+/** 年度（4月始まり）を返します */
+function getFiscalYear_() {
+  const today = new Date();
+  return today.getMonth() < 3 ? today.getFullYear() - 1 : today.getFullYear();
+}
+
+/**
+ * 学期の開始日・終了日を返します（初期設定シートの「n学期開始/終了」を使用）。
+ * @param {number} term - 1 | 2 | 3
+ */
+function getTermDates_(term) {
+  const year = getFiscalYear_();
+  const config = getConfig_();
+  const parse = (key, fallbackMonth, fallbackDay, yearOffset) => {
+    const raw = String(config[key] || '');
+    const m = raw.match(/(\d{1,2})[\/月](\d{1,2})/);
+    const month = m ? Number(m[1]) : fallbackMonth;
+    const dayOfMonth = m ? Number(m[2]) : fallbackDay;
+    // 1〜3月は翌年扱い
+    const offset = (yearOffset !== undefined) ? yearOffset : (month <= 3 ? 1 : 0);
+    return new Date(year + offset, month - 1, dayOfMonth);
+  };
+  const t1End = parse('1学期終了', 7, 20);
+  const t2End = parse('2学期終了', 12, 25);
+  const t3End = parse('3学期終了', 3, 31);
+  const endOfDay = d => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+
+  switch (Number(term)) {
+    case 1: return { start: parse('1学期開始', 4, 1), end: endOfDay(t1End) };
+    case 2: return { start: new Date(t1End.getFullYear(), t1End.getMonth(), t1End.getDate() + 1), end: endOfDay(t2End) };
+    case 3: return { start: new Date(t2End.getFullYear(), t2End.getMonth(), t2End.getDate() + 1), end: endOfDay(t3End) };
+    default: throw new Error('学期は1〜3で指定してください。');
+  }
+}
+
+/** Date/文字列を Date に正規化。無効なら null */
+function parseTimestamp_(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) return date;
+  }
+  return null;
+}
+
+/** HTMLエスケープ（PDF生成などサーバー側でHTMLを組み立てる場合に使用） */
+function escapeHtml_(unsafe) {
+  if (unsafe === null || unsafe === undefined) return '';
+  return String(unsafe)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}

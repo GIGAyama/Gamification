@@ -1,0 +1,854 @@
+<script>
+/* =====================================================================
+ * js_student.html — 児童用ビュー
+ * ===================================================================== */
+
+let chartsReady = false;
+google.charts.load('current', { packages: ['corechart'], language: 'ja' });
+google.charts.setOnLoadCallback(() => { chartsReady = true; });
+
+function initStudentApp(data) {
+  renderStudentHeader(data.profile);
+  renderHome(data);
+  renderRecordsView(data);
+  renderQuestView(data);
+  renderPlazaView(data);
+  bindStudentEvents();
+
+  if (data.bonusApplied) {
+    Swal.fire({
+      icon: 'success', title: 'ログインボーナス！',
+      html: `今日もよく来たね！<br><b>+${data.bonusPoints} EXP</b> ゲット！`,
+      confirmButtonText: 'やったー！'
+    }).then(() => showNewBadges(data.newlyAwardedBadges));
+  } else {
+    showNewBadges(data.newlyAwardedBadges);
+  }
+}
+
+function showNewBadges(badges) {
+  if (!badges || badges.length === 0) return;
+  const names = badges.map(b => `「${esc(b.name)}」`).join('・');
+  Swal.fire({
+    icon: 'success', title: 'あたらしいバッジ！',
+    html: `${names} を手に入れました！<br><span class="text-muted small">ホームのバッジらんを見てみよう</span>`
+  });
+}
+
+/* ---------------- ヘッダー・ホーム ---------------- */
+
+function renderStudentHeader(profile) {
+  document.getElementById('nav-nickname').textContent = profile.nickname;
+  document.getElementById('nav-level').textContent = profile.level;
+}
+
+function renderHome(data) {
+  const p = data.profile;
+  document.getElementById('home-nickname').textContent = p.nickname;
+  document.getElementById('home-level').textContent = p.level;
+  document.getElementById('home-exp').textContent = p.exp;
+  document.getElementById('home-exchange').textContent = p.exchangePoints;
+  document.getElementById('home-progress-text').textContent = `${p.currentLevelExp} / ${p.nextLevelExp}`;
+  document.getElementById('home-progress-bar').style.width = `${p.progress}%`;
+  const motto = data.userProfile && data.userProfile.motto;
+  document.getElementById('home-motto').textContent = motto ? `「${motto}」` : '';
+
+  renderAvatar(document.getElementById('home-avatar'), data.avatar, data.allItems);
+  renderMissions(data.missions);
+  renderAnnouncements('home-announcements', data.announcements, false);
+  renderActivity(data.recentActivity);
+  renderBadges(data.badges, data.allBadges);
+}
+
+function renderMissions(missions) {
+  const container = document.getElementById('home-missions');
+  if (!missions || missions.length === 0) {
+    container.innerHTML = emptyMessage('ミッションはまだありません');
+    return;
+  }
+  const typeBadge = { 'デイリー': 'bg-info', 'ウィークリー': 'bg-primary', '協力': 'bg-danger' };
+  container.innerHTML = missions.map(m => {
+    const pct = m.target > 0 ? Math.floor((m.progress / m.target) * 100) : 0;
+    let action = '';
+    if (m.isClaimed) {
+      action = '<span class="badge bg-secondary">うけとりずみ</span>';
+    } else if (m.isComplete) {
+      action = `<button class="btn btn-sm btn-warning fw-bold claim-btn" data-mission="${esc(m.id)}">うけとる！</button>`;
+    } else {
+      action = `<span class="small text-muted">${m.progress} / ${m.target}</span>`;
+    }
+    return `<div class="mission-item ${m.isComplete ? 'complete' : ''} ${m.isClaimed ? 'claimed' : ''}">
+      <div class="d-flex justify-content-between align-items-center gap-2">
+        <div class="flex-grow-1">
+          <span class="badge ${typeBadge[m.type] || 'bg-secondary'} mission-type-badge">${esc(m.type)}</span>
+          <span class="fw-bold small ms-1">${esc(m.content)}</span>
+          <div class="progress mt-1" style="height:6px;"><div class="progress-bar bg-success" style="width:${pct}%"></div></div>
+        </div>
+        <div class="text-end" style="min-width:80px;">
+          ${action}
+          <div class="small text-warning-emphasis fw-bold mt-1">${esc(m.rewardType)} +${m.rewardAmount}</div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('.claim-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const result = await apiWithLoading('うけとり中...', 'claimMissionReward', btn.dataset.mission);
+      if (result.success) {
+        toast(result.message);
+        if (result.newExp !== undefined) {
+          App.data.profile.exp = result.newExp;
+          App.data.profile.exchangePoints = result.newExchangePoints;
+          document.getElementById('home-exp').textContent = result.newExp;
+          document.getElementById('home-exchange').textContent = result.newExchangePoints;
+          document.getElementById('quest-exchange').textContent = result.newExchangePoints;
+        }
+        refreshMissions();
+      } else {
+        Swal.fire('うけとれません', esc(result.message), 'warning');
+      }
+    });
+  });
+}
+
+async function refreshMissions() {
+  try {
+    const data = await api('getStudentAppData');
+    if (data.success) {
+      App.data = { ...App.data, ...data };
+      renderMissions(data.missions);
+      renderStudentHeader(data.profile);
+      renderHome(data);
+    }
+  } catch (e) { /* 表示更新の失敗は致命的ではない */ }
+}
+
+function renderAnnouncements(containerId, announcements, forTeacher) {
+  const container = document.getElementById(containerId);
+  if (!announcements || announcements.length === 0) {
+    container.innerHTML = emptyMessage('おしらせはありません');
+    return;
+  }
+  container.innerHTML = announcements.map(a => `
+    <div class="border-bottom pb-2 mb-2">
+      <div class="small text-muted">${fmtDate(a.timestamp)} ${esc(a.author || '')}</div>
+      <div>${esc(a.message)}</div>
+      ${forTeacher ? `<button class="btn btn-sm btn-outline-danger mt-1 del-announce-btn" data-row="${a.rowNum}"><i class="bi bi-trash"></i> 削除</button>` : ''}
+    </div>`).join('');
+}
+
+function renderActivity(logs) {
+  const container = document.getElementById('home-activity');
+  if (!logs || logs.length === 0) {
+    container.innerHTML = emptyMessage('まだきろくがありません');
+    return;
+  }
+  container.innerHTML = logs.map(log => `
+    <div class="d-flex gap-2 border-bottom py-1 small">
+      <span class="text-muted" style="min-width:2.6rem;">${fmtDate(log.timestamp)}</span>
+      <span>${esc(log.message)}</span>
+    </div>`).join('');
+}
+
+function renderBadges(earnedBadges, allBadges) {
+  const container = document.getElementById('home-badges');
+  const earnedIds = new Set((earnedBadges || []).map(b => b.id));
+  const badges = allBadges || [];
+  if (badges.length === 0) {
+    container.innerHTML = emptyMessage('バッジはまだ登録されていません');
+    return;
+  }
+  container.innerHTML = `<div class="d-flex flex-wrap gap-2 justify-content-center">` +
+    badges.map(b => {
+      const earned = earnedIds.has(b.id);
+      const inner = b.imageUrl && earned ? `<img src="${esc(b.imageUrl)}" referrerpolicy="no-referrer">` : `<i class="bi ${earned ? 'bi-award-fill' : 'bi-lock-fill'}"></i>`;
+      return `<div class="text-center badge-tip" title="${esc(b.name)}: ${esc(b.description)}" style="width:64px;">
+        <div class="badge-icon ${earned ? '' : 'locked'}">${inner}</div>
+        <div class="small text-truncate ${earned ? 'fw-bold' : 'text-muted'}" style="font-size:.65rem;">${esc(b.name)}</div>
+      </div>`;
+    }).join('') + `</div>`;
+}
+
+/* ---------------- きろく（入力 + 履歴） ---------------- */
+
+function renderRecordsView(data) {
+  renderRecordInputMenu(data);
+  renderTypingTab(data.records);
+  renderCalcTab(data.records);
+  renderReadingTab(data.records);
+  renderNotesTab(data.records);
+  renderLessonTab(data.records);
+
+  document.querySelectorAll('#record-pills [data-rtab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#record-pills .nav-link').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.record-tab').forEach(tab => tab.classList.add('d-none'));
+      document.getElementById(btn.dataset.rtab).classList.remove('d-none');
+      if (btn.dataset.rtab === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
+      if (btn.dataset.rtab === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
+    });
+  });
+}
+
+function renderRecordInputMenu(data) {
+  const menu = [
+    { type: 'typing', emoji: '⌨️', label: 'タイピング' },
+    { type: 'calc', emoji: '🧮', label: '100マスけいさん' },
+    { type: 'reading', emoji: '📖', label: 'どくしょ' },
+    { type: 'growth', emoji: '🌱', label: 'せいちょう' },
+    { type: 'study', emoji: '💡', label: 'じしゅ学習' },
+    { type: 'lesson', emoji: '✍️', label: 'じゅぎょうのふり返り' },
+    { type: 'test', emoji: '📝', label: 'テストのふり返り' },
+    { type: 'moral', emoji: '💖', label: 'どうとくノート' }
+  ];
+  document.getElementById('rtab-input').innerHTML = `
+    <div class="card record-form-card shadow-sm">
+      <div class="card-header text-primary"><i class="bi bi-plus-circle"></i> なにをきろくする？</div>
+      <div class="card-body">
+        <div class="row g-2">
+          ${menu.map(m => `<div class="col-6 col-md-3">
+            <button class="record-menu-btn fw-bold" data-record-type="${m.type}">
+              <span class="emoji">${m.emoji}</span>${m.label}
+            </button>
+          </div>`).join('')}
+        </div>
+      </div>
+    </div>
+    <div id="record-form-area" class="mt-3"></div>`;
+
+  document.querySelectorAll('[data-record-type]').forEach(btn => {
+    btn.addEventListener('click', () => openRecordForm(btn.dataset.recordType));
+  });
+}
+
+/** 記録種別ごとのフォーム定義 */
+function recordFormHtml(type) {
+  const subjects = ['国語', '社会', '算数', '理科', '英語', '音楽', '図工', '家庭', '体育', '総合', '学活'];
+  const subjectOptions = subjects.map(s => `<option>${s}</option>`).join('');
+  switch (type) {
+    case 'typing': return `
+      <div class="row g-2">
+        <div class="col-4"><label class="form-label small fw-bold">正しく打てた数</label><input type="number" class="form-control" id="f-correct" min="0"></div>
+        <div class="col-4"><label class="form-label small fw-bold">打った合計数</label><input type="number" class="form-control" id="f-total" min="1"></div>
+        <div class="col-4"><label class="form-label small fw-bold">時間（秒）</label><input type="number" class="form-control" id="f-time" min="1" step="0.1"></div>
+      </div>
+      <div class="mt-3 p-2 bg-light rounded small" id="typing-goal-info"></div>`;
+    case 'calc': return `
+      <div class="row g-2">
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">モード</label>
+          <select class="form-select" id="f-mode"><option>たし算</option><option>ひき算</option><option>かけ算</option><option>わり算</option></select></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">問題数</label>
+          <select class="form-select" id="f-questions"><option>100</option><option>50</option><option>30</option></select></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数</label><input type="number" class="form-control" id="f-score" min="0" max="100"></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">タイム（秒）</label><input type="number" class="form-control" id="f-ctime" min="1" step="0.1"></div>
+      </div>`;
+    case 'reading': return `
+      <div class="row g-2">
+        <div class="col-md-6"><label class="form-label small fw-bold">本のだいめい</label><input type="text" class="form-control" id="f-title"></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">ジャンル</label>
+          <select class="form-select" id="f-genre"><option>ものがたり</option><option>かがく</option><option>でんき</option><option>ずかん</option><option>まんが・その他</option></select></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">ページ数</label><input type="number" class="form-control" id="f-pages" min="0"></div>
+        <div class="col-12"><label class="form-label small fw-bold">おすすめ度</label>
+          <div class="star-rating" id="f-rating" data-value="3">${[1,2,3,4,5].map(i => `<span class="star" data-star="${i}">★</span>`).join('')}</div></div>
+        <div class="col-12"><label class="form-label small fw-bold">かんそう</label><textarea class="form-control" id="f-comment" rows="2"></textarea></div>
+      </div>`;
+    case 'growth': return `
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-bold">どんなことができるようになった？</label><input type="text" class="form-control" id="f-content"></div>
+        <div class="col-12"><label class="form-label small fw-bold">ひとこと（かんそう）</label><textarea class="form-control" id="f-gcomment" rows="2"></textarea></div>
+      </div>`;
+    case 'study': return `
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-bold">テーマ・ぎもん</label><input type="text" class="form-control" id="f-theme"></div>
+        <div class="col-12"><label class="form-label small fw-bold">わかったこと・まとめ</label><textarea class="form-control" id="f-summary" rows="3"></textarea></div>
+        <div class="col-12"><label class="form-label small fw-bold">つぎにやってみたいこと</label><input type="text" class="form-control" id="f-next"></div>
+      </div>`;
+    case 'lesson': return `
+      <div class="row g-2">
+        <div class="col-6 col-md-4"><label class="form-label small fw-bold">教科</label><select class="form-select" id="f-subject">${subjectOptions}</select></div>
+        <div class="col-6 col-md-4"><label class="form-label small fw-bold">めあては達成できた？</label>
+          <select class="form-select" id="f-q1"><option>◎ できた</option><option>◯ だいたいできた</option><option>△ むずかしかった</option></select></div>
+        <div class="col-6 col-md-4"><label class="form-label small fw-bold">すすんで学べた？</label>
+          <select class="form-select" id="f-selfeval"><option>◎</option><option>◯</option><option>△</option></select></div>
+        <div class="col-6 col-md-4"><label class="form-label small fw-bold">挙手・発表した回数</label><input type="number" class="form-control" id="f-hands" min="0" value="0"></div>
+        <div class="col-12"><label class="form-label small fw-bold">わかったこと</label><input type="text" class="form-control" id="f-q2"></div>
+        <div class="col-12"><label class="form-label small fw-bold">ふり返り（くわしく）</label><textarea class="form-control" id="f-reflection" rows="3" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea></div>
+      </div>`;
+    case 'test': {
+      const units = App.data.testUnits || {};
+      const testSubjects = Object.keys(units);
+      return `
+      <div class="row g-2">
+        <div class="col-6"><label class="form-label small fw-bold">教科</label>
+          <select class="form-select" id="f-tsubject">${(testSubjects.length ? testSubjects : subjects).map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
+        <div class="col-6"><label class="form-label small fw-bold">単元（テスト名）</label>
+          <select class="form-select" id="f-unit"></select></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（知識）</label><input type="number" class="form-control" id="f-score1" min="0" max="100"></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（思考）</label><input type="number" class="form-control" id="f-score2" min="0" max="100"></div>
+        <div class="col-12"><label class="form-label small fw-bold">ふり返り</label><textarea class="form-control" id="f-treflection" rows="3" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea></div>
+      </div>`;
+    }
+    case 'moral': {
+      const materials = App.data.moralMaterials || [];
+      return `
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label small fw-bold">教材</label>
+          <select class="form-select" id="f-material">
+            ${materials.length
+              ? materials.map(m => `<option value="${esc(m.number)}">${esc(m.number)}. ${esc(m.name)}</option>`).join('')
+              : '<option value="">（教材リストが未登録です）</option>'}
+          </select></div>
+        <div class="col-12"><label class="form-label small fw-bold">自分の考え</label><textarea class="form-control" id="f-thought" rows="3"></textarea></div>
+        <div class="col-12"><label class="form-label small fw-bold">授業のふり返り</label><textarea class="form-control" id="f-mreflection" rows="2"></textarea></div>
+      </div>`;
+    }
+  }
+  return '';
+}
+
+/** フォームから送信データを組み立てます */
+function collectFormData(type) {
+  const v = id => (document.getElementById(id) ? document.getElementById(id).value : '');
+  switch (type) {
+    case 'typing': return { correct: v('f-correct'), total: v('f-total'), time: v('f-time') };
+    case 'calc': return { mode: v('f-mode'), questions: v('f-questions'), score: v('f-score'), time: v('f-ctime') };
+    case 'reading': return {
+      title: v('f-title'), genre: v('f-genre'), pages: v('f-pages'),
+      rating: document.getElementById('f-rating').dataset.value, comment: v('f-comment')
+    };
+    case 'growth': return { content: v('f-content'), comment: v('f-gcomment') };
+    case 'study': return { theme: v('f-theme'), summary: v('f-summary'), next: v('f-next') };
+    case 'lesson': return {
+      subject: v('f-subject'), q1: v('f-q1'), q2: v('f-q2'),
+      selfEval: v('f-selfeval'), handRaises: v('f-hands'), reflection: v('f-reflection')
+    };
+    case 'test': return {
+      subject: v('f-tsubject'), unit: v('f-unit'),
+      expected1: '', expected2: '', score1: v('f-score1'), score2: v('f-score2'),
+      reflection: v('f-treflection')
+    };
+    case 'moral': return { materialNumber: v('f-material'), myThought: v('f-thought'), reflection: v('f-mreflection') };
+  }
+  return {};
+}
+
+const RECORD_LABELS = {
+  typing: 'タイピング', calc: '100マスけいさん', reading: 'どくしょ', growth: 'せいちょうのきろく',
+  study: 'じしゅ学習', lesson: 'じゅぎょうのふり返り', test: 'テストのふり返り', moral: 'どうとくノート'
+};
+
+function openRecordForm(type) {
+  const area = document.getElementById('record-form-area');
+  area.innerHTML = `
+    <div class="card record-form-card shadow-sm">
+      <div class="card-header text-success"><i class="bi bi-pencil"></i> ${RECORD_LABELS[type]}のきろく</div>
+      <div class="card-body">
+        ${recordFormHtml(type)}
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-success fw-bold flex-fill" id="record-submit-btn"><i class="bi bi-check-circle"></i> きろくする</button>
+          <button class="btn btn-outline-secondary" id="record-cancel-btn">やめる</button>
+        </div>
+      </div>
+    </div>`;
+  area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  // タイピング: 目標表示 + 目標セットボタン
+  if (type === 'typing') {
+    const goalInfo = document.getElementById('typing-goal-info');
+    const goal = App.data.records.goalData.currentGoal;
+    if (goal) {
+      const parts = [];
+      if (goal.speedGoal) parts.push(`速さ ${goal.speedGoal} 打/秒`);
+      if (goal.accuracyGoal) parts.push(`正答率 ${goal.accuracyGoal}%`);
+      goalInfo.innerHTML = `🎯 いまの目標: <b>${parts.join(' ・ ')}</b>`;
+    } else {
+      goalInfo.innerHTML = `🎯 目標がまだありません。 <button class="btn btn-sm btn-outline-primary" id="set-goal-btn">目標をセットする</button>`;
+      const btn = document.getElementById('set-goal-btn');
+      if (btn) btn.addEventListener('click', openGoalDialog);
+    }
+  }
+
+  // 読書: 星評価
+  const rating = document.getElementById('f-rating');
+  if (rating) {
+    const update = value => {
+      rating.dataset.value = value;
+      rating.querySelectorAll('.star').forEach(star => {
+        star.classList.toggle('off', Number(star.dataset.star) > value);
+      });
+    };
+    rating.querySelectorAll('.star').forEach(star => {
+      star.addEventListener('click', () => update(Number(star.dataset.star)));
+    });
+    update(3);
+  }
+
+  // テスト: 教科 → 単元の連動
+  const tsubject = document.getElementById('f-tsubject');
+  if (tsubject) {
+    const updateUnits = () => {
+      const units = (App.data.testUnits || {})[tsubject.value] || [];
+      document.getElementById('f-unit').innerHTML = units.length
+        ? units.map(u => `<option>${esc(u)}</option>`).join('')
+        : '<option>単元テスト</option>';
+    };
+    tsubject.addEventListener('change', updateUnits);
+    updateUnits();
+  }
+
+  document.getElementById('record-cancel-btn').addEventListener('click', () => { area.innerHTML = ''; });
+  document.getElementById('record-submit-btn').addEventListener('click', async () => {
+    const formData = collectFormData(type);
+    const result = await apiWithLoading('ほぞん中...', 'saveRecord', { type, formData });
+    if (!result.success) {
+      Swal.fire('ほぞんできません', esc(result.message), 'warning');
+      return;
+    }
+    area.innerHTML = '';
+    App.data.records = result.records;
+    App.data.missions = result.missions;
+    renderTypingTab(result.records);
+    renderCalcTab(result.records);
+    renderReadingTab(result.records);
+    renderNotesTab(result.records);
+    renderLessonTab(result.records);
+    renderMissions(result.missions);
+    if (result.newExp !== null && result.newExp !== undefined) {
+      App.data.profile.exp = result.newExp;
+      App.data.profile.totalExp = result.newTotalExp;
+      document.getElementById('home-exp').textContent = result.newExp;
+    }
+
+    let html = `きろくしました！`;
+    if (result.gainedExp > 0) html += `<br><b class="text-primary">+${result.gainedExp} EXP</b> ゲット！`;
+    if (result.goalAchieved) html = `🏆 <b>目標たっせい！</b><br>` + html;
+    Swal.fire({ icon: 'success', title: 'やったね！', html }).then(() => {
+      if (result.leveledUp) {
+        Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
+          .then(() => refreshMissions());
+      } else {
+        refreshMissions();
+      }
+    });
+  });
+}
+
+function openGoalDialog() {
+  Swal.fire({
+    title: '🎯 タイピングの目標',
+    html: `
+      <div class="text-start">
+        <label class="form-label small fw-bold">速さの目標（打/秒）</label>
+        <input type="number" id="goal-speed" class="form-control mb-2" min="0" step="0.1" placeholder="例: 2.5">
+        <label class="form-label small fw-bold">正答率の目標（%）</label>
+        <input type="number" id="goal-accuracy" class="form-control" min="0" max="100" placeholder="例: 95">
+      </div>`,
+    showCancelButton: true, confirmButtonText: 'セットする', cancelButtonText: 'やめる',
+    preConfirm: () => ({
+      speedGoal: document.getElementById('goal-speed').value,
+      accuracyGoal: document.getElementById('goal-accuracy').value
+    })
+  }).then(async result => {
+    if (!result.isConfirmed) return;
+    const res = await apiWithLoading('セット中...', 'saveGoal', result.value);
+    if (res.success) {
+      App.data.records.goalData = res.goalData;
+      toast(res.message);
+      renderTypingTab(App.data.records);
+    } else {
+      Swal.fire('セットできません', esc(res.message), 'warning');
+    }
+  });
+}
+
+/* ---- 履歴タブ ---- */
+
+function renderTypingTab(records) {
+  const goal = records.goalData.currentGoal;
+  const best = records.typingBest;
+  const goalHtml = goal
+    ? `<span class="badge bg-primary">🎯 ${[goal.speedGoal ? `速さ ${goal.speedGoal}` : '', goal.accuracyGoal ? `正答率 ${goal.accuracyGoal}%` : ''].filter(Boolean).join(' / ')}</span>`
+    : `<button class="btn btn-sm btn-outline-primary" id="typing-tab-goal-btn">目標をセット</button>`;
+  const achievedHtml = records.goalData.achievedGoals.length > 0
+    ? `<div class="small text-muted mt-1">たっせいした目標: ${records.goalData.achievedGoals.length}こ 🏆</div>` : '';
+
+  document.getElementById('rtab-typing').innerHTML = `
+    <div class="card record-form-card shadow-sm mb-3">
+      <div class="card-body d-flex flex-wrap gap-3 align-items-center">
+        <div>${goalHtml}${achievedHtml}</div>
+        ${best ? `<div class="ms-auto small">ベスト: <b class="text-danger">${best.bestSpeed} 打/秒</b> ／ 正答率 <b class="text-danger">${best.bestAccuracy}%</b></div>` : ''}
+      </div>
+    </div>
+    <div class="card record-form-card shadow-sm mb-3"><div class="card-body"><div id="typing-chart" style="width:100%;height:300px;"></div></div></div>
+    <div class="card record-form-card shadow-sm"><div class="card-body p-0">${recordTable(
+      ['日付', '速さ(打/秒)', '正答率(%)'],
+      records.typing.map(r => [r.date, r.speed, r.accuracy]))}</div></div>`;
+  const goalBtn = document.getElementById('typing-tab-goal-btn');
+  if (goalBtn) goalBtn.addEventListener('click', openGoalDialog);
+  if (!document.getElementById('rtab-typing').classList.contains('d-none')) drawTypingChart(records.typingChart);
+}
+
+function renderCalcTab(records) {
+  document.getElementById('rtab-calc').innerHTML = `
+    <div class="card record-form-card shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="fw-bold mb-0">タイムのグラフ</h6><div id="calc-chart-selector"></div>
+      </div>
+      <div id="calc-chart" style="width:100%;height:300px;"></div>
+    </div></div>
+    <div class="card record-form-card shadow-sm"><div class="card-body p-0">${recordTable(
+      ['日付', 'モード', '問題数', '点数', 'タイム(秒)'],
+      records.calc.map(r => [r.date, r.mode, r.questions, r.score, r.time]))}</div></div>`;
+  if (!document.getElementById('rtab-calc').classList.contains('d-none')) drawCalcChart(records.calcChart);
+}
+
+function renderReadingTab(records) {
+  const s = records.reading.summary;
+  const genres = Object.keys(s.byGenre).map(g =>
+    `<span class="badge bg-light text-dark border me-1">${esc(g)}: ${s.byGenre[g].books}さつ</span>`).join('');
+  document.getElementById('rtab-reading').innerHTML = `
+    <div class="card record-form-card shadow-sm mb-3"><div class="card-body">
+      <div class="d-flex gap-4 flex-wrap">
+        <div>よんだ本: <b class="fs-5 text-primary">${s.totalBooks}</b> さつ</div>
+        <div>よんだページ: <b class="fs-5 text-primary">${s.totalPages}</b> ページ</div>
+      </div>
+      <div class="mt-2">${genres}</div>
+    </div></div>
+    ${records.reading.records.map(r => `
+      <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+        <div class="d-flex justify-content-between flex-wrap">
+          <b class="text-primary">${esc(r.title)}</b>
+          <span class="small text-muted">${r.date} / ${esc(r.genre)} / ${r.pages}ページ / ${'★'.repeat(r.rating)}${'☆'.repeat(Math.max(0, 5 - r.rating))}</span>
+        </div>
+        ${r.comment ? `<div class="small mt-1">${esc(r.comment)}</div>` : ''}
+      </div></div>`).join('') || emptyMessage('まだきろくがありません')}`;
+}
+
+function renderNotesTab(records) {
+  const growthHtml = records.growth.map(r => `
+    <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+      <div class="small text-muted">${r.date}</div>
+      <div>🌱 <b>${esc(r.content)}</b></div>
+      ${r.comment ? `<div class="small text-muted">${esc(r.comment)}</div>` : ''}
+    </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  const studyHtml = records.study.map(r => `
+    <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+      <div class="small text-muted">${r.date}</div>
+      <div>💡 <b>${esc(r.theme)}</b></div>
+      <div class="small">${esc(r.summary)}</div>
+      ${r.next ? `<div class="small text-muted">つぎは: ${esc(r.next)}</div>` : ''}
+    </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  document.getElementById('rtab-notes').innerHTML = `
+    <div class="row g-3">
+      <div class="col-md-6"><h6 class="fw-bold text-success">🌱 せいちょうのきろく</h6>${growthHtml}</div>
+      <div class="col-md-6"><h6 class="fw-bold text-warning-emphasis">💡 じしゅ学習</h6>${studyHtml}</div>
+    </div>`;
+}
+
+function renderLessonTab(records) {
+  const lessonHtml = records.lesson.map(r => `
+    <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+      <div class="d-flex justify-content-between"><b>✍️ ${esc(r.subject)}</b><span class="small text-muted">${r.date}</span></div>
+      <div class="small">${esc(r.reflection)}</div>
+      <div class="small text-muted">めあて: ${esc(r.q1 || '-')} ／ 主体性: ${esc(r.selfEval || '-')} ／ 挙手: ${esc(String(r.handRaises || 0))}回</div>
+    </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  const testHtml = records.test.map(r => `
+    <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+      <div class="d-flex justify-content-between"><b>📝 ${esc(r.subject)} / ${esc(r.unit)}</b><span class="small text-muted">${r.date}</span></div>
+      <div class="small">点数: <b>${esc(String(r.score1 ?? ''))}</b>${r.score2 !== '' && r.score2 !== null ? ` ・ <b>${esc(String(r.score2))}</b>` : ''}</div>
+      ${r.reflection ? `<div class="small">${esc(r.reflection)}</div>` : ''}
+    </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  const moralHtml = records.moral.map(r => `
+    <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
+      <div class="d-flex justify-content-between"><b>💖 ${esc(r.materialName)}</b><span class="small text-muted">${r.date}</span></div>
+      <div class="small">${esc(r.myThought)}</div>
+      ${r.feedback ? `<div class="small bg-light rounded p-2 mt-1">💬 先生AIから: ${esc(r.feedback)}</div>` : ''}
+    </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  document.getElementById('rtab-lesson').innerHTML = `
+    <div class="row g-3">
+      <div class="col-lg-4"><h6 class="fw-bold text-primary">✍️ じゅぎょうのふり返り</h6>${lessonHtml}</div>
+      <div class="col-lg-4"><h6 class="fw-bold text-danger">📝 テストのふり返り</h6>${testHtml}</div>
+      <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">💖 どうとくノート</h6>${moralHtml}</div>
+    </div>`;
+}
+
+function recordTable(headers, rows) {
+  if (rows.length === 0) return emptyMessage('まだきろくがありません');
+  return `<div class="table-responsive custom-scrollbar" style="max-height:380px;">
+    <table class="table table-striped table-sm table-record mb-0">
+      <thead class="table-light sticky-top"><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(String(c))}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table></div>`;
+}
+
+/* ---- グラフ ---- */
+
+function drawTypingChart(chartData) {
+  if (!chartsReady || !chartData || chartData.length < 2) return;
+  const el = document.getElementById('typing-chart');
+  if (!el) return;
+  const data = google.visualization.arrayToDataTable(chartData);
+  new google.visualization.LineChart(el).draw(data, {
+    curveType: 'function', legend: { position: 'bottom' },
+    series: { 0: { targetAxisIndex: 0 }, 1: { targetAxisIndex: 1 } },
+    vAxes: { 0: { title: '速さ (打/秒)' }, 1: { title: '正答率 (%)', maxValue: 100 } },
+    chartArea: { width: '80%', height: '65%' }
+  });
+}
+
+function drawCalcChart(chartDataByQuestions) {
+  if (!chartsReady || !chartDataByQuestions) return;
+  const el = document.getElementById('calc-chart');
+  const selectorArea = document.getElementById('calc-chart-selector');
+  if (!el || !selectorArea) return;
+  const keys = Object.keys(chartDataByQuestions);
+  if (keys.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
+
+  if (!selectorArea.querySelector('select')) {
+    selectorArea.innerHTML = `<select class="form-select form-select-sm" id="calc-q-select">
+      ${keys.map(k => `<option value="${esc(k)}">${esc(k)}問</option>`).join('')}</select>`;
+    document.getElementById('calc-q-select').addEventListener('change', () => drawCalcChart(chartDataByQuestions));
+  }
+  const selected = document.getElementById('calc-q-select').value || keys[0];
+  const data = google.visualization.arrayToDataTable(chartDataByQuestions[selected]);
+  new google.visualization.LineChart(el).draw(data, {
+    curveType: 'function', legend: { position: 'bottom' },
+    vAxis: { title: 'タイム (秒)' },
+    chartArea: { width: '80%', height: '65%' }
+  });
+}
+
+/* ---------------- クエスト（ガチャ・アバター・アイテム） ---------------- */
+
+function renderQuestView(data) {
+  document.getElementById('cost-gacha-1').textContent = data.gachaCost;
+  document.getElementById('cost-gacha-10').textContent = data.gacha10Cost;
+  document.getElementById('quest-exchange').textContent = data.profile.exchangePoints;
+  App.pendingAvatar = { ...data.avatar };
+  renderItemGrid(data);
+  renderAvatarPreview();
+  const p = data.userProfile;
+  document.getElementById('profile-motto').value = p.motto || '';
+  document.getElementById('profile-favorite').value = p.favorite || '';
+  document.getElementById('profile-goal').value = p.goal || '';
+}
+
+function renderItemGrid(data, filterCategory) {
+  const grid = document.getElementById('inventory-grid');
+  const filterArea = document.getElementById('item-category-filter');
+  const owned = new Set(data.inventory);
+  const categories = data.itemCategories || [];
+
+  filterArea.innerHTML = [`<button class="btn btn-sm ${!filterCategory ? 'btn-primary' : 'btn-outline-primary'} me-1 mb-1 cat-btn" data-cat="">すべて</button>`]
+    .concat(categories.map(c =>
+      `<button class="btn btn-sm ${filterCategory === c ? 'btn-primary' : 'btn-outline-primary'} me-1 mb-1 cat-btn" data-cat="${esc(c)}">${esc(c)}</button>`))
+    .join('');
+  filterArea.querySelectorAll('.cat-btn').forEach(btn => {
+    btn.addEventListener('click', () => renderItemGrid(data, btn.dataset.cat || undefined));
+  });
+
+  const items = (data.allItems || []).filter(item => !filterCategory || item['カテゴリ'] === filterCategory);
+  if (items.length === 0) { grid.innerHTML = emptyMessage('アイテムがまだ登録されていません'); return; }
+
+  grid.innerHTML = items.map(item => {
+    const id = item['アイテムID'];
+    const has = owned.has(id);
+    const cost = Number(item['必要交換ポイント'] || 0);
+    const equipped = App.pendingAvatar[item['カテゴリ']] === id;
+    const rarity = item['レアリティー'];
+    return `<div class="item-slot ${equipped ? 'equipped' : ''} ${has ? '' : 'locked'}"
+      data-item="${esc(String(id))}" data-cat="${esc(item['カテゴリ'] || '')}" data-owned="${has}" data-cost="${cost}"
+      title="${esc(item['アイテム名'])}${has ? '' : (cost > 0 ? `（${cost}Ptでこうかん）` : '（ガチャでゲット）')}">
+      ${rarity ? `<span class="rarity-tag rarity-${esc(rarity)}">${esc(rarity)}</span>` : ''}
+      ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : `<i class="bi bi-box text-muted"></i>`}
+      ${!has && cost > 0 ? `<span class="cost-tag">${cost}Pt</span>` : ''}
+    </div>`;
+  }).join('');
+
+  grid.querySelectorAll('.item-slot').forEach(slot => {
+    slot.addEventListener('click', () => onItemClick(slot, data));
+  });
+}
+
+function onItemClick(slot, data) {
+  const itemId = slot.dataset.item;
+  const category = slot.dataset.cat;
+  const owned = slot.dataset.owned === 'true';
+  const cost = Number(slot.dataset.cost);
+  const item = data.allItems.find(i => String(i['アイテムID']) === itemId);
+
+  if (owned) {
+    // 装備の切り替え
+    if (App.pendingAvatar[category] === item['アイテムID']) {
+      delete App.pendingAvatar[category];
+    } else {
+      App.pendingAvatar[category] = item['アイテムID'];
+    }
+    renderAvatarPreview();
+    renderItemGrid(data, undefined);
+    return;
+  }
+  if (cost > 0) {
+    Swal.fire({
+      title: 'アイテムこうかん',
+      html: `「<b>${esc(item['アイテム名'])}</b>」を <b>${cost} 交換Pt</b> でこうかんしますか？<br><span class="small text-muted">いまの交換Pt: ${App.data.profile.exchangePoints}</span>`,
+      icon: 'question', showCancelButton: true, confirmButtonText: 'こうかんする', cancelButtonText: 'やめる'
+    }).then(async result => {
+      if (!result.isConfirmed) return;
+      const res = await apiWithLoading('こうかん中...', 'exchangeItem', item['アイテムID']);
+      if (res.success) {
+        App.data.profile.exchangePoints = res.newExchangePoints;
+        App.data.inventory.push(item['アイテムID']);
+        document.getElementById('home-exchange').textContent = res.newExchangePoints;
+        document.getElementById('quest-exchange').textContent = res.newExchangePoints;
+        toast(res.message);
+        renderItemGrid(App.data, undefined);
+      } else {
+        Swal.fire('こうかんできません', esc(res.message), 'warning');
+      }
+    });
+  } else {
+    toast('このアイテムはガチャでゲットできるよ！', 'info');
+  }
+}
+
+function renderAvatarPreview() {
+  renderAvatar(document.getElementById('avatar-layers'), App.pendingAvatar, App.data.allItems);
+  renderAvatar(document.getElementById('home-avatar'), App.pendingAvatar, App.data.allItems);
+}
+
+async function runGacha(count) {
+  const cost = count === 10 ? App.data.gacha10Cost : App.data.gachaCost;
+  if (App.data.profile.exp < cost) {
+    Swal.fire('けいけんちがたりない！', `ガチャには ${cost} EXP ひつようです。<br>いまのけいけんち: ${App.data.profile.exp}`, 'warning');
+    return;
+  }
+  const confirm = await Swal.fire({
+    title: count === 10 ? '10連ガチャ' : 'ガチャをひく',
+    html: `<b>${cost} EXP</b> をつかってガチャをひきますか？`,
+    icon: 'question', showCancelButton: true, confirmButtonText: 'ひく！', cancelButtonText: 'やめる'
+  });
+  if (!confirm.isConfirmed) return;
+
+  const result = await apiWithLoading('ガチャをまわしています...', 'playGacha', count);
+  if (!result.success) {
+    Swal.fire('ガチャエラー', esc(result.message), 'warning');
+    return;
+  }
+  App.data.profile.exp = result.newPoints;
+  if (result.newExchangePoints !== undefined) App.data.profile.exchangePoints = result.newExchangePoints;
+  document.getElementById('home-exp').textContent = App.data.profile.exp;
+  document.getElementById('home-exchange').textContent = App.data.profile.exchangePoints;
+  document.getElementById('quest-exchange').textContent = App.data.profile.exchangePoints;
+  result.results.forEach(item => {
+    if (!item.isDuplicate) App.data.inventory.push(item['アイテムID']);
+  });
+
+  const itemsHtml = result.results.map(item => `
+    <div class="d-inline-block text-center m-1" style="width:80px;">
+      <div class="item-slot mx-auto ${item.isDuplicate ? 'locked' : ''}" style="cursor:default;">
+        ${item['レアリティー'] ? `<span class="rarity-tag rarity-${esc(item['レアリティー'])}">${esc(item['レアリティー'])}</span>` : ''}
+        ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : '<i class="bi bi-box"></i>'}
+      </div>
+      <div class="small text-truncate">${esc(item['アイテム名'])}</div>
+      ${item.isDuplicate ? `<div class="small text-warning-emphasis">+${item.awardedPoints}Pt</div>` : '<div class="small text-success fw-bold">NEW!</div>'}
+    </div>`).join('');
+  Swal.fire({
+    title: count === 10 ? '10連ガチャのけっか！' : 'ガチャのけっか！',
+    html: `<div>${itemsHtml}</div>${result.summary && result.summary.awardedExchangePoints > 0 ? `<div class="mt-2 small">かさなったぶんは <b>+${result.summary.awardedExchangePoints} 交換Pt</b> になりました</div>` : ''}`,
+    confirmButtonText: 'とじる', width: count === 10 ? 640 : undefined
+  });
+  renderItemGrid(App.data, undefined);
+}
+
+/* ---------------- ひろば ---------------- */
+
+function renderPlazaView(data) {
+  const container = document.getElementById('plaza-container');
+  if (!data.plazaData || data.plazaData.length === 0) {
+    container.innerHTML = emptyMessage('まだだれもいません');
+  } else {
+    container.innerHTML = data.plazaData.map(p => `
+      <div class="col-6 col-md-4 col-xl-3">
+        <div class="card shadow-sm border-0 rounded-4 h-100 text-center hover-lift">
+          <div class="card-body p-3">
+            <div class="plaza-avatar mb-2" data-plaza-avatar></div>
+            <div class="fw-bold">${esc(p.nickname)}</div>
+            <span class="badge bg-warning text-dark">Lv.${p.level}</span>
+            ${p.profile.motto ? `<div class="small text-muted mt-1">「${esc(p.profile.motto)}」</div>` : ''}
+            ${p.profile.favorite ? `<div class="small text-muted">すき: ${esc(p.profile.favorite)}</div>` : ''}
+          </div>
+        </div>
+      </div>`).join('');
+    container.querySelectorAll('[data-plaza-avatar]').forEach((el, i) => {
+      renderAvatar(el, data.plazaData[i].avatar, data.allItems);
+    });
+  }
+  renderRankings('rankings-container', data.rankings);
+}
+
+function renderRankings(containerId, rankings) {
+  const container = document.getElementById(containerId);
+  const medal = rank => rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}位`;
+  const list = (items, valueFormatter) => items.length === 0 ? emptyMessage('まだきろくがありません') :
+    items.map(item => `<div class="ranking-item">
+      <span class="rank-medal">${medal(item.rank || items.indexOf(item) + 1)}</span>
+      <span class="flex-grow-1 fw-bold">${esc(item.nickname || item.name)}</span>
+      <span class="text-primary fw-bold small">${valueFormatter(item)}</span>
+    </div>`).join('');
+
+  let calcHtml = '';
+  Object.keys(rankings.calc || {}).forEach(mode => {
+    calcHtml += `<div class="small fw-bold mt-2">${esc(mode)}</div>` +
+      list(rankings.calc[mode], i => `${i.value}秒`);
+  });
+
+  container.innerHTML = `
+    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+      <h6 class="fw-bold text-warning-emphasis"><i class="bi bi-trophy-fill"></i> けいけんちトップ5</h6>
+      ${list((rankings.top5 || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `Lv.${i.level} (${i.totalExp}EXP)`)}
+    </div></div>
+    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+      <h6 class="fw-bold text-danger"><i class="bi bi-fire"></i> 今日のMVP</h6>
+      ${list((rankings.mvp || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `+${i.gainedExp}EXP`)}
+    </div></div>
+    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+      <h6 class="fw-bold text-primary"><i class="bi bi-keyboard"></i> タイピングはやさ</h6>
+      ${list(rankings.typing || [], i => `${i.value}打/秒`)}
+    </div></div>
+    ${calcHtml ? `<div class="card shadow-sm border-0 rounded-4"><div class="card-body">
+      <h6 class="fw-bold text-success"><i class="bi bi-calculator"></i> 100マスタイム</h6>${calcHtml}
+    </div></div>` : ''}`;
+}
+
+/* ---------------- イベント ---------------- */
+
+function bindStudentEvents() {
+  document.getElementById('btn-gacha-1').addEventListener('click', () => runGacha(1));
+  document.getElementById('btn-gacha-10').addEventListener('click', () => runGacha(10));
+
+  document.getElementById('btn-save-avatar').addEventListener('click', async () => {
+    const result = await apiWithLoading('ほぞん中...', 'saveAvatar', App.pendingAvatar);
+    if (result.success) { App.data.avatar = { ...App.pendingAvatar }; toast(result.message); }
+    else Swal.fire('ほぞんできません', esc(result.message), 'warning');
+  });
+
+  document.getElementById('btn-save-profile').addEventListener('click', async () => {
+    const profileData = {
+      motto: document.getElementById('profile-motto').value,
+      favorite: document.getElementById('profile-favorite').value,
+      goal: document.getElementById('profile-goal').value
+    };
+    const result = await apiWithLoading('ほぞん中...', 'saveProfile', profileData);
+    if (result.success) {
+      App.data.userProfile = profileData;
+      document.getElementById('home-motto').textContent = profileData.motto ? `「${profileData.motto}」` : '';
+      toast(result.message);
+    } else {
+      Swal.fire('ほぞんできません', esc(result.message), 'warning');
+    }
+  });
+}
+</script>

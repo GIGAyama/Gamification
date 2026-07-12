@@ -1,0 +1,155 @@
+<script>
+/* =====================================================================
+ * js_core.html — SPA基盤（状態管理・API・共通UI）
+ * ===================================================================== */
+
+/** アプリ全体の状態 */
+const App = {
+  role: null,      // 'student' | 'teacher'
+  data: null,      // サーバーから受け取った初期データ
+  pendingAvatar: null // 保存前のアバター構成
+};
+
+/** google.script.run を Promise でラップ */
+function api(funcName, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(err => reject(new Error(err && err.message ? err.message : '通信エラーが発生しました')))
+      [funcName](...args);
+  });
+}
+
+/** HTMLエスケープ */
+function esc(text) {
+  if (text === null || text === undefined) return '';
+  return String(text)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
+/** トースト表示 */
+function toast(title, icon = 'success') {
+  Swal.fire({
+    toast: true, position: 'top-end', icon, title,
+    showConfirmButton: false, timer: 2200, timerProgressBar: true
+  });
+}
+
+/** ローディング付きでAPIを呼ぶ */
+async function apiWithLoading(message, funcName, ...args) {
+  Swal.fire({
+    title: message, allowOutsideClick: false, allowEscapeKey: false,
+    didOpen: () => Swal.showLoading()
+  });
+  try {
+    const result = await api(funcName, ...args);
+    Swal.close();
+    return result;
+  } catch (e) {
+    Swal.close();
+    Swal.fire('エラー', esc(e.message), 'error');
+    throw e;
+  }
+}
+
+/** ビュー切り替え */
+function showView(viewId) {
+  document.querySelectorAll('.spa-view').forEach(v => v.classList.add('d-none'));
+  const view = document.getElementById(viewId);
+  if (view) view.classList.remove('d-none');
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    const active = tab.dataset.view === viewId;
+    tab.classList.toggle('active-tab', active);
+    tab.classList.toggle('text-secondary', !active);
+  });
+}
+
+/** 日付の表示整形 (ISO文字列 → M/d) */
+function fmtDate(isoString) {
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+/** 汎用: 空メッセージ */
+function emptyMessage(text) {
+  return `<div class="text-center text-muted small py-3">${esc(text)}</div>`;
+}
+
+/* ---------------------------------------------------------------------
+ * アバター描画（児童・広場・教員で共通利用）
+ * ------------------------------------------------------------------- */
+
+/**
+ * アバター構成をレイヤー描画します。
+ * @param {HTMLElement} container
+ * @param {Object} composition - { カテゴリ: アイテムID }
+ * @param {Object[]} allItems
+ */
+function renderAvatar(container, composition, allItems) {
+  container.innerHTML = '';
+  const itemMap = {};
+  (allItems || []).forEach(item => { itemMap[item['アイテムID']] = item; });
+  const entries = Object.entries(composition || {}).filter(([, id]) => id);
+  if (entries.length === 0) {
+    container.innerHTML = '<div class="avatar-placeholder"><i class="bi bi-person-fill"></i></div>';
+    return;
+  }
+  entries.forEach(([, itemId]) => {
+    const item = itemMap[itemId];
+    if (item && item.imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'avatar-layer';
+      img.src = item.imageUrl;
+      img.alt = item['アイテム名'] || '';
+      img.referrerPolicy = 'no-referrer';
+      container.appendChild(img);
+    }
+  });
+  if (container.children.length === 0) {
+    container.innerHTML = '<div class="avatar-placeholder"><i class="bi bi-person-fill"></i></div>';
+  }
+}
+
+/* ---------------------------------------------------------------------
+ * 初期化
+ * ------------------------------------------------------------------- */
+
+document.addEventListener('DOMContentLoaded', async () => {
+  // タブクリックの共通ハンドラ
+  document.querySelectorAll('.nav-tab').forEach(tab => {
+    tab.addEventListener('click', () => showView(tab.dataset.view));
+  });
+
+  try {
+    const result = await api('getInitialAppData');
+    document.getElementById('initial-loading-view').classList.add('d-none');
+
+    if (!result.success) {
+      document.getElementById('error-message').textContent = result.message || 'データの読み込みに失敗しました。';
+      showView('error-view');
+      return;
+    }
+
+    App.role = result.role;
+    App.data = result.data;
+    document.getElementById('main-nav').style.display = '';
+
+    if (result.role === 'teacher') {
+      document.getElementById('teacher-tabs').classList.remove('d-none');
+      initTeacherApp(result.data);
+      showView('view-t-dashboard');
+    } else {
+      document.getElementById('student-tabs').classList.remove('d-none');
+      document.getElementById('nav-level-badge').classList.remove('d-none');
+      initStudentApp(result.data);
+      showView('view-home');
+    }
+  } catch (e) {
+    document.getElementById('initial-loading-view').classList.add('d-none');
+    document.getElementById('error-message').textContent = esc(e.message);
+    showView('error-view');
+  }
+});
+</script>

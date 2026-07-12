@@ -1,0 +1,137 @@
+<style>
+  :root {
+    --mq-primary: #4a90e2;
+    --mq-radius: 1rem;
+  }
+
+  body {
+    font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif;
+  }
+
+  /* ---- ナビゲーションタブ ---- */
+  .nav-tab {
+    border-bottom: 3px solid transparent !important;
+    white-space: nowrap;
+    transition: color .15s, border-color .15s, background-color .15s;
+  }
+  .nav-tab.active-tab {
+    color: var(--bs-primary) !important;
+    border-bottom-color: var(--bs-primary) !important;
+    background-color: rgba(74, 144, 226, .06);
+  }
+  .nav-tab:hover { background-color: rgba(74, 144, 226, .08); }
+
+  /* ---- カード・ボタン ---- */
+  .hover-lift { transition: transform .15s ease, box-shadow .15s ease; }
+  .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important; }
+
+  /* ---- アバター ---- */
+  .avatar-frame {
+    width: 150px; height: 150px;
+    border: 3px dashed #cfe2ff; border-radius: 50%;
+    position: relative; overflow: hidden; background: #f8fbff;
+  }
+  .avatar-frame .avatar-layer,
+  #avatar-layers .avatar-layer,
+  .plaza-avatar .avatar-layer {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    object-fit: contain;
+  }
+  .plaza-avatar {
+    width: 90px; height: 90px;
+    border-radius: 50%; background: #f8fbff;
+    border: 2px solid #e3edf9;
+    position: relative; overflow: hidden;
+    margin: 0 auto;
+  }
+  .avatar-placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #b6cdea; font-size: 2.5rem;
+  }
+
+  /* ---- アイテム ---- */
+  .item-slot {
+    width: 68px; height: 68px;
+    border: 2px solid #e9ecef; border-radius: .75rem;
+    background: #fff; cursor: pointer; position: relative;
+    display: flex; align-items: center; justify-content: center;
+    transition: border-color .15s, transform .1s;
+    overflow: hidden;
+  }
+  .item-slot:hover { transform: scale(1.05); }
+  .item-slot.equipped { border-color: var(--bs-success); box-shadow: 0 0 0 2px rgba(25,135,84,.25); }
+  .item-slot.locked { opacity: .45; cursor: default; }
+  .item-slot img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .item-slot .rarity-tag {
+    position: absolute; top: 2px; left: 2px;
+    font-size: .55rem; padding: 1px 4px; border-radius: 4px;
+    color: #fff; font-weight: bold;
+  }
+  .rarity-N { background: #8a99a8; }
+  .rarity-R { background: #4a90e2; }
+  .rarity-SR { background: linear-gradient(45deg, #f5a623, #e94e77); }
+  .item-slot .cost-tag {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(255,193,7,.9); color: #212529;
+    font-size: .6rem; font-weight: bold; text-align: center;
+  }
+
+  /* ---- ミッション ---- */
+  .mission-item {
+    border: 1px solid #e9ecef; border-radius: .75rem;
+    padding: .6rem .8rem; margin-bottom: .5rem; background: #fff;
+  }
+  .mission-item.complete { background: #fffcf0; border-color: #ffe69c; }
+  .mission-item.claimed { opacity: .55; }
+  .mission-type-badge { font-size: .65rem; }
+
+  /* ---- バッジ ---- */
+  .badge-icon {
+    width: 56px; height: 56px; border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #ffe9a8, #ffc107);
+    color: #7a5c00; font-size: 1.5rem;
+    box-shadow: 0 2px 5px rgba(0,0,0,.15);
+  }
+  .badge-icon.locked { background: #e9ecef; color: #adb5bd; box-shadow: none; }
+  .badge-icon img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+
+  /* ---- ランキング ---- */
+  .ranking-item {
+    display: flex; align-items: center; gap: .6rem;
+    padding: .4rem .6rem; border-radius: .5rem;
+  }
+  .ranking-item:nth-child(odd) { background: #f8f9fa; }
+  .rank-medal { font-weight: bold; width: 2rem; text-align: center; }
+
+  /* ---- スクロールバー ---- */
+  .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
+
+  /* ---- 記録フォームカード ---- */
+  .record-form-card { border: 0; border-radius: var(--mq-radius); }
+  .record-form-card .card-header {
+    background: transparent; border: 0; font-weight: bold; padding-bottom: 0;
+  }
+  .record-menu-btn {
+    border-radius: var(--mq-radius);
+    padding: 1rem .5rem;
+    text-align: center; width: 100%;
+    border: 2px solid #e9ecef; background: #fff;
+    transition: transform .1s, border-color .15s;
+  }
+  .record-menu-btn:hover { transform: translateY(-2px); border-color: var(--bs-primary); }
+  .record-menu-btn .emoji { font-size: 1.8rem; display: block; }
+
+  .table-record td, .table-record th { font-size: .85rem; }
+
+  /* ---- 星評価 ---- */
+  .star-rating { cursor: pointer; font-size: 1.4rem; color: #ffc107; user-select: none; }
+  .star-rating .star.off { color: #dee2e6; }
+
+  @media (max-width: 576px) {
+    .nav-tab { font-size: .85rem; padding: .7rem .3rem !important; }
+  }
+</style>
