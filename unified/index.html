@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <base target="_top">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <?!= include('css'); ?>
+</head>
+<body class="bg-body-tertiary d-flex flex-column min-vh-100">
+
+  <!-- ナビゲーションヘッダー -->
+  <nav class="navbar navbar-expand navbar-dark bg-primary shadow-sm sticky-top" id="main-nav" style="display:none;">
+    <div class="container-fluid">
+      <span class="navbar-brand mb-0 h1 d-flex align-items-center">
+        <i class="bi bi-stars me-2 text-warning"></i>
+        <span>まなびクエスト</span>
+      </span>
+      <div class="d-flex align-items-center text-white gap-3" id="nav-user-info">
+        <span id="nav-level-badge" class="d-none"><span class="badge bg-warning text-dark border">Lv. <span id="nav-level">--</span></span></span>
+        <span class="fw-bold"><i class="bi bi-person-fill"></i> <span id="nav-nickname">----</span></span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- 児童用タブ -->
+  <div class="container-fluid p-0 d-none" id="student-tabs">
+    <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
+      <button data-view="view-home" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab active-tab"><i class="bi bi-house-door"></i> ホーム</button>
+      <button data-view="view-records" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-pencil-square"></i> きろく</button>
+      <button data-view="view-quest" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-controller"></i> クエスト</button>
+      <button data-view="view-plaza" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-people"></i> ひろば</button>
+    </div>
+  </div>
+
+  <!-- 教員用タブ -->
+  <div class="container-fluid p-0 d-none" id="teacher-tabs">
+    <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
+      <button data-view="view-t-dashboard" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab active-tab"><i class="bi bi-clipboard-data"></i> ダッシュボード</button>
+      <button data-view="view-t-student" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-search"></i> 児童の詳細</button>
+      <button data-view="view-t-manage" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-gear"></i> 管理・出力</button>
+    </div>
+  </div>
+
+  <main class="container py-4 flex-grow-1" id="main-content">
+
+    <!-- 初期ロード -->
+    <div id="initial-loading-view" class="text-center py-5">
+      <div class="spinner-grow text-primary mb-3" style="width:3rem;height:3rem;" role="status"></div>
+      <h4 class="fw-bold text-secondary">データをじゅんびしています...</h4>
+    </div>
+
+    <!-- エラー表示 -->
+    <div id="error-view" class="spa-view d-none text-center py-5">
+      <i class="bi bi-exclamation-triangle-fill text-warning" style="font-size:3rem;"></i>
+      <h4 class="fw-bold mt-3" id="error-message">エラーが発生しました</h4>
+      <button class="btn btn-primary mt-3" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> 再読み込み</button>
+    </div>
+
+    <!-- ============ 児童: ホーム ============ -->
+    <div id="view-home" class="spa-view d-none">
+      <div class="row g-4">
+        <div class="col-lg-4">
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-body text-center">
+              <div class="avatar-frame mx-auto mb-3" id="home-avatar"></div>
+              <h4 class="fw-bold mb-0" id="home-nickname">--</h4>
+              <div class="text-muted small mb-2" id="home-motto"></div>
+              <div class="d-flex justify-content-between bg-light rounded-3 p-2 mt-2">
+                <div class="flex-fill text-center border-end">
+                  <div class="small text-muted fw-bold">レベル</div>
+                  <div class="fs-5 fw-bold text-primary">Lv.<span id="home-level">-</span></div>
+                </div>
+                <div class="flex-fill text-center border-end">
+                  <div class="small text-muted fw-bold">けいけんち</div>
+                  <div class="fs-5 fw-bold text-info"><span id="home-exp">0</span></div>
+                </div>
+                <div class="flex-fill text-center">
+                  <div class="small text-muted fw-bold">こうかんPt</div>
+                  <div class="fs-5 fw-bold text-warning"><span id="home-exchange">0</span></div>
+                </div>
+              </div>
+              <div class="mt-3 px-1">
+                <div class="d-flex justify-content-between small fw-bold mb-1">
+                  <span>つぎのレベルまで</span>
+                  <span id="home-progress-text" class="text-primary">--</span>
+                </div>
+                <div class="progress" style="height:12px;">
+                  <div id="home-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width:0%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="card shadow-sm border-0 rounded-4 mt-4">
+            <div class="card-header bg-transparent border-0 pt-3 pb-0">
+              <h5 class="fw-bold text-warning-emphasis"><i class="bi bi-award"></i> バッジ</h5>
+            </div>
+            <div class="card-body" id="home-badges"></div>
+          </div>
+        </div>
+        <div class="col-lg-8">
+          <div class="row g-4">
+            <div class="col-12">
+              <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                  <h5 class="fw-bold text-primary"><i class="bi bi-list-check"></i> ミッション</h5>
+                </div>
+                <div class="card-body custom-scrollbar" style="max-height:280px;overflow-y:auto;" id="home-missions"></div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card shadow-sm border-0 rounded-4 h-100">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                  <h5 class="fw-bold text-success"><i class="bi bi-megaphone"></i> おしらせ</h5>
+                </div>
+                <div class="card-body custom-scrollbar" style="max-height:220px;overflow-y:auto;" id="home-announcements"></div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card shadow-sm border-0 rounded-4 h-100">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                  <h5 class="fw-bold text-info"><i class="bi bi-clock-history"></i> さいきんのできごと</h5>
+                </div>
+                <div class="card-body custom-scrollbar" style="max-height:220px;overflow-y:auto;" id="home-activity"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 児童: きろく ============ -->
+    <div id="view-records" class="spa-view d-none">
+      <ul class="nav nav-pills mb-3 flex-nowrap overflow-auto" id="record-pills">
+        <li class="nav-item"><button class="nav-link active" data-rtab="rtab-input"><i class="bi bi-pencil"></i> きろくする</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-typing">タイピング</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-calc">100マス</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-reading">読書</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-notes">せいちょう・自学</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-lesson">じゅぎょう</button></li>
+      </ul>
+      <div id="rtab-input" class="record-tab"></div>
+      <div id="rtab-typing" class="record-tab d-none"></div>
+      <div id="rtab-calc" class="record-tab d-none"></div>
+      <div id="rtab-reading" class="record-tab d-none"></div>
+      <div id="rtab-notes" class="record-tab d-none"></div>
+      <div id="rtab-lesson" class="record-tab d-none"></div>
+    </div>
+
+    <!-- ============ 児童: クエスト（ガチャ・アバター） ============ -->
+    <div id="view-quest" class="spa-view d-none">
+      <div class="row g-4">
+        <div class="col-lg-6">
+          <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-body">
+              <h5 class="fw-bold text-primary mb-3"><i class="bi bi-magic"></i> ガチャをひく</h5>
+              <div class="d-flex justify-content-around">
+                <button id="btn-gacha-1" class="btn btn-primary d-flex flex-column align-items-center p-3 rounded-4 shadow hover-lift" style="min-width:120px;">
+                  <span class="fs-4 fw-bold mb-1">1回</span>
+                  <span class="badge bg-light text-dark shadow-sm"><span id="cost-gacha-1">200</span> EXP</span>
+                </button>
+                <button id="btn-gacha-10" class="btn btn-warning text-dark d-flex flex-column align-items-center p-3 rounded-4 shadow hover-lift" style="min-width:120px;">
+                  <span class="fs-4 fw-bold mb-1">10連</span>
+                  <span class="badge bg-light text-dark shadow-sm"><i class="bi bi-star-fill text-danger" style="font-size:.6rem;"></i> <span id="cost-gacha-10">1800</span> EXP</span>
+                </button>
+              </div>
+              <p class="text-center text-muted small mt-3 mb-0">けいけんちをつかってアイテムをゲット！かさなったら交換ポイントになるよ。</p>
+            </div>
+          </div>
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
+              <h5 class="fw-bold text-info mb-0"><i class="bi bi-bag-heart"></i> アイテム</h5>
+              <span class="badge bg-warning text-dark">こうかんPt: <span id="quest-exchange">0</span></span>
+            </div>
+            <div class="card-body">
+              <div id="item-category-filter" class="mb-2"></div>
+              <div id="inventory-grid" class="d-flex flex-wrap gap-2 custom-scrollbar" style="max-height:300px;overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="card shadow-sm border-0 rounded-4 h-100">
+            <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
+              <h5 class="fw-bold text-primary mb-0"><i class="bi bi-person-bounding-box"></i> アバター</h5>
+              <button id="btn-save-avatar" class="btn btn-success btn-sm fw-bold px-3"><i class="bi bi-save"></i> ほぞん</button>
+            </div>
+            <div class="card-body">
+              <div class="avatar-preview-box bg-light rounded-4 mx-auto border position-relative" style="width:220px;height:220px;">
+                <div id="avatar-layers" class="w-100 h-100 position-relative"></div>
+              </div>
+              <p class="text-center text-muted small mt-2">もっているアイテムをタップしてきせかえよう！</p>
+              <hr>
+              <h6 class="fw-bold"><i class="bi bi-card-text"></i> プロフィール</h6>
+              <div class="mb-2">
+                <label class="form-label small text-muted fw-bold mb-1">ひとこと</label>
+                <input type="text" id="profile-motto" class="form-control form-control-sm" maxlength="30">
+              </div>
+              <div class="mb-2">
+                <label class="form-label small text-muted fw-bold mb-1">すきなもの</label>
+                <input type="text" id="profile-favorite" class="form-control form-control-sm" maxlength="30">
+              </div>
+              <div class="mb-3">
+                <label class="form-label small text-muted fw-bold mb-1">がんばりたいこと</label>
+                <input type="text" id="profile-goal" class="form-control form-control-sm" maxlength="30">
+              </div>
+              <button id="btn-save-profile" class="btn btn-outline-primary btn-sm w-100 fw-bold">プロフィールをほぞんする</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 児童: ひろば ============ -->
+    <div id="view-plaza" class="spa-view d-none">
+      <div class="row g-4">
+        <div class="col-lg-8">
+          <h5 class="fw-bold text-primary mb-3"><i class="bi bi-people-fill"></i> みんなのひろば</h5>
+          <div id="plaza-container" class="row g-3"></div>
+        </div>
+        <div class="col-lg-4">
+          <h5 class="fw-bold text-warning-emphasis mb-3"><i class="bi bi-trophy"></i> ランキング</h5>
+          <div id="rankings-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 教員: ダッシュボード ============ -->
+    <div id="view-t-dashboard" class="spa-view d-none">
+      <h4 class="fw-bold text-primary mb-3"><i class="bi bi-clipboard-data"></i> クラスのようす</h4>
+      <div class="row g-3 mb-4" id="t-stats-cards"></div>
+      <div class="row g-4">
+        <div class="col-lg-7">
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-header bg-transparent fw-bold"><i class="bi bi-people"></i> 児童一覧</div>
+            <div class="card-body p-0 custom-scrollbar" style="max-height:420px;overflow-y:auto;">
+              <table class="table table-hover table-sm mb-0 align-middle" id="t-student-table">
+                <thead class="table-light sticky-top"><tr><th>番号</th><th>名前</th><th>レベル</th><th>累計EXP</th><th>最終ログイン</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-header bg-transparent fw-bold"><i class="bi bi-trophy"></i> 今週の記録件数</div>
+            <div class="card-body" id="t-weekly-records"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 教員: 児童の詳細 ============ -->
+    <div id="view-t-student" class="spa-view d-none">
+      <div class="d-flex gap-2 align-items-end mb-3 flex-wrap">
+        <div>
+          <label class="form-label fw-bold mb-1">児童を選択</label>
+          <select id="t-student-select" class="form-select" style="min-width:220px;"></select>
+        </div>
+        <button id="t-view-student-btn" class="btn btn-primary fw-bold"><i class="bi bi-search"></i> 表示</button>
+      </div>
+      <div id="t-student-detail"></div>
+    </div>
+
+    <!-- ============ 教員: 管理・出力 ============ -->
+    <div id="view-t-manage" class="spa-view d-none">
+      <div class="row g-4">
+        <div class="col-lg-4">
+          <div class="card shadow-sm border-warning rounded-4 h-100">
+            <div class="card-header bg-warning text-dark fw-bold"><i class="bi bi-gift"></i> ポイント配布</div>
+            <div class="card-body">
+              <label class="form-label small fw-bold">児童を選択（複数可）</label>
+              <div class="d-flex gap-2 mb-2">
+                <button class="btn btn-sm btn-outline-secondary" id="t-grant-select-all">全員</button>
+                <button class="btn btn-sm btn-outline-secondary" id="t-grant-clear">解除</button>
+              </div>
+              <div id="t-grant-checkboxes" class="border rounded p-2 mb-3 bg-light custom-scrollbar" style="max-height:160px;overflow-y:auto;"></div>
+              <div class="d-flex gap-2 mb-2">
+                <input type="radio" class="btn-check" name="t-point-type" id="t-type-exp" value="exp" checked>
+                <label class="btn btn-outline-warning text-dark flex-fill" for="t-type-exp">経験値</label>
+                <input type="radio" class="btn-check" name="t-point-type" id="t-type-exchange" value="exchange">
+                <label class="btn btn-outline-warning text-dark flex-fill" for="t-type-exchange">交換Pt</label>
+              </div>
+              <input type="number" id="t-point-amount" class="form-control mb-2" placeholder="配布量 (例: 100)" min="1">
+              <input type="text" id="t-grant-reason" class="form-control mb-3" placeholder="理由 (例: 係の仕事をがんばった)">
+              <button id="t-grant-btn" class="btn btn-warning w-100 fw-bold">配布する</button>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="card shadow-sm border-success rounded-4 h-100">
+            <div class="card-header bg-success text-white fw-bold"><i class="bi bi-megaphone"></i> お知らせ管理</div>
+            <div class="card-body d-flex flex-column">
+              <textarea id="t-announcement-message" class="form-control mb-2" rows="3" placeholder="新しいお知らせを入力"></textarea>
+              <label class="form-label small text-muted mb-1">表示期限（任意）</label>
+              <input type="date" id="t-announcement-end" class="form-control mb-2">
+              <button id="t-post-announcement-btn" class="btn btn-success w-100 fw-bold mb-3">投稿する</button>
+              <hr class="my-2">
+              <div id="t-announcements-list" class="flex-grow-1 custom-scrollbar" style="max-height:220px;overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-4">
+          <div class="card shadow-sm border-info rounded-4 mb-4">
+            <div class="card-header bg-info text-white fw-bold"><i class="bi bi-file-earmark-pdf"></i> ポートフォリオPDF</div>
+            <div class="card-body">
+              <p class="small text-muted">学期の学習記録を児童ごとにまとめたPDFを作成し、ドライブに保存します（保護者向け資料）。</p>
+              <select id="t-pdf-term" class="form-select mb-2">
+                <option value="1">1学期</option><option value="2">2学期</option><option value="3">3学期</option>
+              </select>
+              <button id="t-create-pdf-btn" class="btn btn-info text-white w-100 fw-bold">PDFを作成</button>
+            </div>
+          </div>
+          <div class="card shadow-sm border-secondary rounded-4">
+            <div class="card-header bg-secondary text-white fw-bold"><i class="bi bi-lightbulb"></i> 所見材料メモ</div>
+            <div class="card-body">
+              <p class="small text-muted">気づいたエピソードを記録しておくと、AI所見生成の材料になります。</p>
+              <select id="t-shoken-student" class="form-select form-select-sm mb-2"></select>
+              <select id="t-shoken-category" class="form-select form-select-sm mb-2">
+                <option>学習</option><option>生活</option><option>行事</option><option>係・委員会</option><option>友だち関係</option><option>その他</option>
+              </select>
+              <textarea id="t-shoken-episode" class="form-control form-control-sm mb-2" rows="2" placeholder="エピソードを入力"></textarea>
+              <button id="t-shoken-save-btn" class="btn btn-secondary btn-sm w-100 fw-bold">保存する</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="text-center text-muted py-3 mt-auto border-top bg-white w-100">
+    <small>© 2026 まなびクエスト（GIGA GamificationApp 統合版）</small>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <?!= include('js_core'); ?>
+  <?!= include('js_student'); ?>
+  <?!= include('js_teacher'); ?>
+</body>
+</html>

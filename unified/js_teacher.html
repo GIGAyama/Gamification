@@ -1,0 +1,270 @@
+<script>
+/* =====================================================================
+ * js_teacher.html — 教員用ビュー
+ * ===================================================================== */
+
+function initTeacherApp(data) {
+  document.getElementById('nav-nickname').textContent = `${data.teacherName} 先生`;
+  renderTeacherDashboard(data);
+  renderTeacherStudentSelects(data.students);
+  renderAnnouncements('t-announcements-list', data.announcements, true);
+  bindTeacherEvents();
+  bindAnnouncementDeletes();
+}
+
+/* ---------------- ダッシュボード ---------------- */
+
+function renderTeacherDashboard(data) {
+  const stats = data.classStats || {};
+  document.getElementById('t-stats-cards').innerHTML = `
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">児童数</div>
+        <div class="fs-3 fw-bold text-primary">${stats.studentCount ?? '-'}</div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">今週記録した児童</div>
+        <div class="fs-3 fw-bold text-success">${stats.weeklyActiveCount ?? '-'}<span class="fs-6 text-muted">人</span></div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">今週の記録件数</div>
+        <div class="fs-3 fw-bold text-info">${Object.values(stats.weeklyRecords || {}).reduce((a, b) => a + b, 0)}<span class="fs-6 text-muted">件</span></div>
+      </div></div>
+    </div>
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">AI所見機能</div>
+        <div class="fs-5 fw-bold ${data.aiEnabled ? 'text-success' : 'text-secondary'}">${data.aiEnabled ? '利用可能' : '未設定'}</div>
+      </div></div>
+    </div>`;
+
+  // 児童一覧テーブル
+  const tbody = document.querySelector('#t-student-table tbody');
+  tbody.innerHTML = data.students.map(s => `
+    <tr>
+      <td>${esc(String(s.number))}</td>
+      <td class="fw-bold">${esc(s.name)}</td>
+      <td><span class="badge bg-warning text-dark">Lv.${s.level}</span></td>
+      <td>${s.totalExp}</td>
+      <td class="small text-muted">${esc(s.lastLogin || '-')}</td>
+      <td><button class="btn btn-sm btn-outline-primary t-detail-link" data-email="${esc(s.email)}"><i class="bi bi-search"></i></button></td>
+    </tr>`).join('');
+  tbody.querySelectorAll('.t-detail-link').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.getElementById('t-student-select').value = btn.dataset.email;
+      showView('view-t-student');
+      loadStudentDetail(btn.dataset.email);
+    });
+  });
+
+  // 今週の記録件数
+  const weekly = stats.weeklyRecords || {};
+  document.getElementById('t-weekly-records').innerHTML = Object.keys(weekly).map(label => `
+    <div class="d-flex justify-content-between border-bottom py-1">
+      <span>${esc(label)}</span><b>${weekly[label]}件</b>
+    </div>`).join('') || emptyMessage('データがありません');
+}
+
+function renderTeacherStudentSelects(students) {
+  const options = students.map(s => `<option value="${esc(s.email)}">${esc(String(s.number))} ${esc(s.name)}</option>`).join('');
+  document.getElementById('t-student-select').innerHTML = `<option value="">選択してください</option>` + options;
+  document.getElementById('t-shoken-student').innerHTML = `<option value="">児童を選択</option>` +
+    students.map(s => `<option value="${esc(String(s.number))}">${esc(String(s.number))} ${esc(s.name)}</option>`).join('');
+  document.getElementById('t-grant-checkboxes').innerHTML = students.map(s => `
+    <div class="form-check">
+      <input class="form-check-input t-grant-check" type="checkbox" value="${esc(s.email)}" id="grant-${esc(String(s.number))}">
+      <label class="form-check-label small" for="grant-${esc(String(s.number))}">${esc(String(s.number))} ${esc(s.name)}</label>
+    </div>`).join('');
+}
+
+/* ---------------- 児童の詳細 ---------------- */
+
+async function loadStudentDetail(email) {
+  if (!email) return;
+  const container = document.getElementById('t-student-detail');
+  container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getStudentDetails', email);
+    if (!result.success) {
+      container.innerHTML = `<div class="alert alert-warning">${esc(result.message)}</div>`;
+      return;
+    }
+    const d = result.data;
+    const r = d.records;
+    const summaryCards = [
+      { label: 'レベル', value: `Lv.${d.profile.level}`, cls: 'text-primary' },
+      { label: '累計EXP', value: d.profile.totalExp, cls: 'text-info' },
+      { label: 'タイピング', value: `${r.typing.length}回`, cls: 'text-success' },
+      { label: '読書', value: `${r.reading.summary.totalBooks}冊`, cls: 'text-success' },
+      { label: '自主学習', value: `${r.study.length}回`, cls: 'text-success' },
+      { label: 'ふり返り', value: `${r.lesson.length}回`, cls: 'text-success' }
+    ];
+    container.innerHTML = `
+      <h5 class="fw-bold mb-3">${esc(String(d.profile.number))} ${esc(d.profile.name)} さんの記録</h5>
+      <div class="row g-2 mb-3">
+        ${summaryCards.map(c => `<div class="col-4 col-md-2">
+          <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body p-2">
+            <div class="small text-muted fw-bold">${c.label}</div>
+            <div class="fs-5 fw-bold ${c.cls}">${esc(String(c.value))}</div>
+          </div></div>
+        </div>`).join('')}
+      </div>
+      <div class="row g-3">
+        <div class="col-lg-6">
+          <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+            <h6 class="fw-bold text-primary">✍️ 最近の授業のふり返り</h6>
+            ${r.lesson.slice(0, 8).map(l => `
+              <div class="border-bottom py-1 small">
+                <span class="badge bg-light text-dark border">${esc(l.subject)}</span>
+                <span class="text-muted">${l.date}</span> ${esc(l.reflection)}
+              </div>`).join('') || emptyMessage('記録なし')}
+          </div></div>
+          <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+            <h6 class="fw-bold text-danger">📝 テストのふり返り</h6>
+            ${r.test.slice(0, 8).map(t => `
+              <div class="border-bottom py-1 small">
+                <b>${esc(t.subject)} / ${esc(t.unit)}</b>
+                （${esc(String(t.score1 ?? ''))}${t.score2 !== '' && t.score2 !== null ? ` / ${esc(String(t.score2))}` : ''}点）
+                ${esc(t.reflection || '')}
+              </div>`).join('') || emptyMessage('記録なし')}
+          </div></div>
+          <div class="card shadow-sm border-0 rounded-4"><div class="card-body">
+            <h6 class="fw-bold" style="color:#d63384;">💖 道徳ノート</h6>
+            ${r.moral.slice(0, 5).map(m => `
+              <div class="border-bottom py-1 small">
+                <b>${esc(m.materialName)}</b>（${m.date}）<br>${esc(m.myThought)}
+              </div>`).join('') || emptyMessage('記録なし')}
+          </div></div>
+        </div>
+        <div class="col-lg-6">
+          <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+            <h6 class="fw-bold text-success">🌱 成長のきろく・💡 自主学習</h6>
+            ${d.records.growth.slice(0, 5).map(g => `<div class="border-bottom py-1 small">🌱 ${g.date} ${esc(g.content)}</div>`).join('')}
+            ${d.records.study.slice(0, 5).map(s => `<div class="border-bottom py-1 small">💡 ${s.date} <b>${esc(s.theme)}</b> ${esc(s.summary)}</div>`).join('')}
+            ${d.records.growth.length + d.records.study.length === 0 ? emptyMessage('記録なし') : ''}
+          </div></div>
+          <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+            <h6 class="fw-bold text-warning-emphasis">📖 読書のきろく</h6>
+            ${r.reading.records.slice(0, 6).map(b => `<div class="border-bottom py-1 small">${b.date} <b>${esc(b.title)}</b>（${b.pages}p）</div>`).join('') || emptyMessage('記録なし')}
+          </div></div>
+          <div class="card shadow-sm border-0 rounded-4"><div class="card-body">
+            <h6 class="fw-bold text-info">🕐 最近のアプリ内活動</h6>
+            <div class="custom-scrollbar" style="max-height:220px;overflow-y:auto;">
+            ${d.recentActivity.slice(0, 15).map(a => `
+              <div class="d-flex gap-2 border-bottom py-1 small">
+                <span class="text-muted" style="min-width:2.6rem;">${fmtDate(a.timestamp)}</span><span>${esc(a.message)}</span>
+              </div>`).join('') || emptyMessage('記録なし')}
+            </div>
+          </div></div>
+        </div>
+      </div>`;
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+  }
+}
+
+/* ---------------- イベント ---------------- */
+
+function bindAnnouncementDeletes() {
+  document.getElementById('t-announcements-list').addEventListener('click', async e => {
+    const btn = e.target.closest('.del-announce-btn');
+    if (!btn) return;
+    const confirm = await Swal.fire({ title: 'お知らせを削除しますか？', icon: 'warning', showCancelButton: true, confirmButtonText: '削除', cancelButtonText: 'やめる' });
+    if (!confirm.isConfirmed) return;
+    const result = await apiWithLoading('削除中...', 'deleteAnnouncement', Number(btn.dataset.row));
+    if (result.success) {
+      renderAnnouncements('t-announcements-list', result.announcements, true);
+      toast('削除しました');
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+}
+
+function bindTeacherEvents() {
+  // 児童詳細
+  document.getElementById('t-view-student-btn').addEventListener('click', () => {
+    loadStudentDetail(document.getElementById('t-student-select').value);
+  });
+
+  // ポイント配布
+  document.getElementById('t-grant-select-all').addEventListener('click', () => {
+    document.querySelectorAll('.t-grant-check').forEach(c => c.checked = true);
+  });
+  document.getElementById('t-grant-clear').addEventListener('click', () => {
+    document.querySelectorAll('.t-grant-check').forEach(c => c.checked = false);
+  });
+  document.getElementById('t-grant-btn').addEventListener('click', async () => {
+    const emails = [...document.querySelectorAll('.t-grant-check:checked')].map(c => c.value);
+    const amount = Number(document.getElementById('t-point-amount').value);
+    const type = document.querySelector('input[name="t-point-type"]:checked').value;
+    const reason = document.getElementById('t-grant-reason').value;
+    if (emails.length === 0) { Swal.fire('確認', '児童を選択してください。', 'info'); return; }
+    if (!amount || amount <= 0) { Swal.fire('確認', '配布量を入力してください。', 'info'); return; }
+    const result = await apiWithLoading('配布中...', 'grantPoints', { emails, type, amount, reason });
+    if (result.success) {
+      toast(result.message);
+      document.getElementById('t-point-amount').value = '';
+      document.getElementById('t-grant-reason').value = '';
+      document.querySelectorAll('.t-grant-check').forEach(c => c.checked = false);
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+
+  // お知らせ投稿
+  document.getElementById('t-post-announcement-btn').addEventListener('click', async () => {
+    const message = document.getElementById('t-announcement-message').value.trim();
+    const endDate = document.getElementById('t-announcement-end').value || null;
+    if (!message) { Swal.fire('確認', 'お知らせの内容を入力してください。', 'info'); return; }
+    const result = await apiWithLoading('投稿中...', 'postAnnouncement', { message, endDate });
+    if (result.success) {
+      renderAnnouncements('t-announcements-list', result.announcements, true);
+      document.getElementById('t-announcement-message').value = '';
+      document.getElementById('t-announcement-end').value = '';
+      toast('お知らせを投稿しました');
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+
+  // PDF作成
+  document.getElementById('t-create-pdf-btn').addEventListener('click', async () => {
+    const term = Number(document.getElementById('t-pdf-term').value);
+    const confirm = await Swal.fire({
+      title: `${term}学期のポートフォリオPDF`,
+      text: '全児童分のPDFを作成します。数分かかることがあります。',
+      icon: 'question', showCancelButton: true, confirmButtonText: '作成する', cancelButtonText: 'やめる'
+    });
+    if (!confirm.isConfirmed) return;
+    const result = await apiWithLoading('PDFを作成しています...（数分かかることがあります）', 'createPortfolioPdf', term);
+    if (result.success) {
+      Swal.fire({
+        icon: 'success', title: 'PDFを作成しました',
+        html: `${esc(result.message)}<br><a href="${esc(result.fileUrl)}" target="_blank" class="btn btn-primary btn-sm mt-2"><i class="bi bi-box-arrow-up-right"></i> PDFを開く</a>`
+      });
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+
+  // 所見材料保存
+  document.getElementById('t-shoken-save-btn').addEventListener('click', async () => {
+    const studentNumber = document.getElementById('t-shoken-student').value;
+    const category = document.getElementById('t-shoken-category').value;
+    const episode = document.getElementById('t-shoken-episode').value.trim();
+    if (!studentNumber || !episode) { Swal.fire('確認', '児童とエピソードを入力してください。', 'info'); return; }
+    const result = await apiWithLoading('保存中...', 'saveShokenMaterial', { studentNumber, category, episode });
+    if (result.success) {
+      toast(result.message);
+      document.getElementById('t-shoken-episode').value = '';
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+}
+</script>
