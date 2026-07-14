@@ -143,13 +143,19 @@ function processReflectionRow_(ss, type, rowNum, context) {
   const studentNumber = ctx.userMap[source.email];
 
   let stocked = false;
+  let ai = null;
   if (studentNumber && source.reflection.length > 5) {
     const tp = findTeachingPoint_(ctx.teachingPoints, source.subject, source.date, source.unit);
-    const ai = callGeminiJson_(buildExtractionPrompt_(source, tp));
+    ai = callGeminiJson_(buildExtractionPrompt_(source, tp));
     if (ai && ai.adopt === true && ai.episode) {
       stockShokenMaterial_(ss, source, studentNumber, tp, ai);
       stocked = true;
     }
+  }
+  // 授業のふり返りは「学びに向かう力スコア」も同時に蓄積
+  // （AI採点は所見抽出と同じ1回の呼び出しに相乗りするため追加コストなし）
+  if (type === 'lesson' && studentNumber) {
+    recordAttitudeScore_(ss, source, ai ? ai.depth : 0);
   }
   sheet.getRange(rowNum, flagCol).setValue('済');
   return stocked;
@@ -182,9 +188,10 @@ function buildExtractionPrompt_(source, tp) {
   const lines = [];
   lines.push('あなたは経験豊富な小学校の教師です。児童が書いた学習のふり返りを分析し、通知表の所見に使える材料かどうかを判定してください。');
   lines.push('回答は次のJSON形式のみで出力してください（前置き・説明・コードブロックは不要）:');
-  lines.push('{"adopt": trueまたはfalse, "episode": "所見に使えるエピソード(1〜2文)", "viewpoint": "' + SHOKEN_VIEWPOINTS.join(' / ') + ' のいずれか1つ", "quality": 1〜3の整数}');
+  lines.push('{"adopt": trueまたはfalse, "episode": "所見に使えるエピソード(1〜2文)", "viewpoint": "' + SHOKEN_VIEWPOINTS.join(' / ') + ' のいずれか1つ", "quality": 1〜3の整数, "depth": 0〜3の整数}');
   lines.push('');
   lines.push('# 判定・要約のルール');
+  lines.push('- depth は、記述から読み取れる学びの深さです（3=深い考察・具体的な自己分析・次への明確な意欲 / 2=気づきや課題を自分の言葉で表現 / 1=学習に触れているが表面的 / 0=内容が乏しい・学習と無関係）。adopt が false の場合も必ず採点してください。');
   lines.push('- 記述が学習内容と無関係、または学びの様子が具体的に読み取れない場合（例:「楽しかった」だけ等）は adopt を false にし、episode は空文字にしてください。');
   lines.push('- adopt が true の場合のみ、客観的な事実に基づいた具体的なエピソード（1〜2文）に要約してください。児童名は書かないでください。');
   if (tp && (tp.points || tp.evalPoints)) {
@@ -233,6 +240,34 @@ function stockShokenMaterial_(ss, source, studentNumber, tp, ai) {
     String(ai.episode).trim(),
     source.subject, unitLabel, viewpoint, quality, sourceLabel
   ]);
+}
+
+/**
+ * 授業ふり返り1件の「学びに向かう力スコア」を蓄積します。
+ * 定量スコア（主体性の自己評価＋挙手回数）と、AIが所見抽出時に採点した
+ * 記述の深さ（depth）を合計して記録します。
+ */
+function recordAttitudeScore_(ss, source, aiDepth) {
+  const sheet = ss.getSheetByName(SHEETS.ATTITUDE_SCORES);
+  if (!sheet) return; // 旧バージョンのDB（再セットアップ前）ではスキップ
+  const config = getConfig_();
+  const points = {
+    excellent: getConfigNumber_(config, '人間性評価_自己評価点_◎', 3),
+    good: getConfigNumber_(config, '人間性評価_自己評価点_◯', 2),
+    fair: getConfigNumber_(config, '人間性評価_自己評価点_△', 1),
+    handsMax: getConfigNumber_(config, '人間性評価_挙手最大加点', 3),
+    aiMax: getConfigNumber_(config, '人間性評価_AI評価最大点', 3)
+  };
+
+  let mechanical = 0;
+  const selfEval = String(source.extra.selfEval || '').trim().charAt(0);
+  if (selfEval === '◎') mechanical += points.excellent;
+  else if (selfEval === '◯' || selfEval === '○') mechanical += points.good;
+  else if (selfEval === '△') mechanical += points.fair;
+  mechanical += Math.min(parseInt(source.extra.handRaises, 10) || 0, points.handsMax);
+
+  const depth = Math.min(points.aiMax, Math.max(0, Number(aiDepth) || 0));
+  sheet.appendRow([source.date, source.email, source.subject, mechanical, depth, mechanical + depth]);
 }
 
 /**
@@ -476,6 +511,131 @@ function generateShokenDraft(studentNumber) {
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * 所見を要録用の「だ・である」調に変換します（旧アプリの機能を移植）。
+ * @param {string} text - 変換元の所見文
+ */
+function convertShokenToYouroku(text) {
+  try {
+    assertTeacher_();
+    if (!isAiEnabled_()) {
+      return { success: false, message: 'Gemini APIキー（GEMINI_API_KEY）が設定されていません。' };
+    }
+    if (!text || !String(text).trim()) {
+      return { success: false, message: '変換する所見がありません。' };
+    }
+    const converted = callGeminiApi_(`あなたはプロの編集者です。以下の文章は、小学校の通知表に記載された所見です。
+これを、指導要録に適した、客観的で簡潔な「だ・である」調の断定表現に変換してください。
+
+# 指示
+- 文脈や内容は維持し、表現のみを適切に変更してください。
+- 教師の主観的な評価や願い（例:「〜と思います」「〜を期待します」）は、客観的な事実の記述に修正してください。
+- 変換後の文章全体のみを提示してください。指示や元の文章は含めないでください。
+
+# 元の文章
+${text}
+
+# 変換後の文章
+`);
+    return { success: true, text: converted, length: converted.length };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 「学びに向かう力スコア」を学期で集計し、児童×教科の平均とA/B/C評価案を返します。
+ * @param {number} term - 1 | 2 | 3
+ */
+function getAttitudeSummary(term) {
+  try {
+    assertTeacher_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const config = getConfig_();
+    const t = Number(term);
+    const { start, end } = getTermDates_(t);
+    const thresholdA = getConfigNumber_(config, '人間性評価_A基準', 7);
+    const thresholdB = getConfigNumber_(config, '人間性評価_B基準', 4);
+
+    const byEmail = {};
+    const subjects = new Set();
+    const sheet = ss.getSheetByName(SHEETS.ATTITUDE_SCORES);
+    if (sheet && sheet.getLastRow() >= 2) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues().forEach(row => {
+        const d = parseTimestamp_(row[0]);
+        if (!d || d < start || d > end) return;
+        const email = String(row[1]).toLowerCase().trim();
+        const subject = String(row[2]).trim();
+        const total = Number(row[5]);
+        if (!email || !subject || isNaN(total)) return;
+        subjects.add(subject);
+        byEmail[email] = byEmail[email] || {};
+        byEmail[email][subject] = byEmail[email][subject] || { total: 0, count: 0 };
+        byEmail[email][subject].total += total;
+        byEmail[email][subject].count++;
+      });
+    }
+
+    const subjectList = [...subjects].sort();
+    const rows = getStudentRoster_(ss).map(s => {
+      const scores = {};
+      subjectList.forEach(subject => {
+        const agg = (byEmail[s.email] || {})[subject];
+        if (agg && agg.count > 0) {
+          const avg = agg.total / agg.count;
+          scores[subject] = {
+            avg: Math.round(avg * 10) / 10,
+            count: agg.count,
+            grade: avg >= thresholdA ? 'A' : avg >= thresholdB ? 'B' : 'C'
+          };
+        }
+      });
+      return { number: s.number, name: s.name, scores };
+    });
+
+    return { success: true, term: t, subjects: subjectList, rows, thresholdA, thresholdB };
+  } catch (e) {
+    console.error(`getAttitudeSummary Error: ${e.message}`);
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 学びに向かう力の学期集計を「人間性評価集計」シートへ出力します（成績処理用）。
+ * @param {number} term - 1 | 2 | 3
+ */
+function exportAttitudeSummary(term) {
+  return withLock_(() => {
+    try {
+      const summary = getAttitudeSummary(term);
+      if (!summary.success) return summary;
+      if (summary.subjects.length === 0) {
+        return { success: false, message: 'この学期のスコアデータがまだありません。' };
+      }
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sheet = ss.getSheetByName(SHEETS.ATTITUDE_SUMMARY) || ss.insertSheet(SHEETS.ATTITUDE_SUMMARY);
+      sheet.clear();
+
+      const header = ['出席番号', '名前'];
+      summary.subjects.forEach(s => header.push(`${s} 平均`, `${s} 評価案`));
+      const rows = summary.rows.map(r => {
+        const row = [r.number, r.name];
+        summary.subjects.forEach(s => {
+          const sc = r.scores[s];
+          row.push(sc ? sc.avg : '', sc ? sc.grade : '');
+        });
+        return row;
+      });
+      sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
+      if (rows.length > 0) sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+      sheet.setFrozenRows(1);
+      return { success: true, message: `「${SHEETS.ATTITUDE_SUMMARY}」シートに${summary.term}学期の評価案を出力しました（A≧${summary.thresholdA}, B≧${summary.thresholdB}）。` };
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  });
 }
 
 /** 「全体所見」シートの該当児童の行を更新（なければ追加）します */

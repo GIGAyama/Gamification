@@ -188,6 +188,7 @@ function renderRecordsView(data) {
       document.getElementById(btn.dataset.rtab).classList.remove('d-none');
       if (btn.dataset.rtab === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
       if (btn.dataset.rtab === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
+      if (btn.dataset.rtab === 'rtab-lesson') drawTestChart(App.data.records.test);
     });
   });
 }
@@ -285,6 +286,8 @@ function recordFormHtml(type) {
           <select class="form-select" id="f-tsubject">${(testSubjects.length ? testSubjects : subjects).map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
         <div class="col-6"><label class="form-label small fw-bold">単元（テスト名）</label>
           <select class="form-select" id="f-unit"></select></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">目標点（知識）</label><input type="number" class="form-control" id="f-expected1" min="0" max="100" placeholder="テスト前の目標"></div>
+        <div class="col-6 col-md-3"><label class="form-label small fw-bold">目標点（思考）</label><input type="number" class="form-control" id="f-expected2" min="0" max="100" placeholder="テスト前の目標"></div>
         <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（知識）</label><input type="number" class="form-control" id="f-score1" min="0" max="100"></div>
         <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（思考）</label><input type="number" class="form-control" id="f-score2" min="0" max="100"></div>
         <div class="col-12"><label class="form-label small fw-bold">ふり返り</label><textarea class="form-control" id="f-treflection" rows="3" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea></div>
@@ -326,7 +329,7 @@ function collectFormData(type) {
     };
     case 'test': return {
       subject: v('f-tsubject'), unit: v('f-unit'),
-      expected1: '', expected2: '', score1: v('f-score1'), score2: v('f-score2'),
+      expected1: v('f-expected1'), expected2: v('f-expected2'), score1: v('f-score1'), score2: v('f-score2'),
       reflection: v('f-treflection')
     };
     case 'moral': return { materialNumber: v('f-material'), myThought: v('f-thought'), reflection: v('f-mreflection') };
@@ -554,10 +557,17 @@ function renderLessonTab(records) {
       <div class="small">${esc(r.reflection)}</div>
       <div class="small text-muted">めあて: ${esc(r.q1 || '-')} ／ 主体性: ${esc(r.selfEval || '-')} ／ 挙手: ${esc(String(r.handRaises || 0))}回</div>
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
+  const goalDiffBadge = (score, expected) => {
+    if (score === '' || score === null || expected === '' || expected === null) return '';
+    const d = Number(score) - Number(expected);
+    if (isNaN(d)) return '';
+    const cls = d >= 0 ? 'bg-success' : 'bg-danger';
+    return ` <span class="badge ${cls}" title="目標 ${esc(String(expected))}点">目標${d > 0 ? '+' : ''}${d}</span>`;
+  };
   const testHtml = records.test.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
       <div class="d-flex justify-content-between"><b>📝 ${esc(r.subject)} / ${esc(r.unit)}</b><span class="small text-muted">${r.date}</span></div>
-      <div class="small">点数: <b>${esc(String(r.score1 ?? ''))}</b>${r.score2 !== '' && r.score2 !== null ? ` ・ <b>${esc(String(r.score2))}</b>` : ''}</div>
+      <div class="small">点数: <b>${esc(String(r.score1 ?? ''))}</b>${goalDiffBadge(r.score1, r.expected1)}${r.score2 !== '' && r.score2 !== null ? ` ・ <b>${esc(String(r.score2))}</b>${goalDiffBadge(r.score2, r.expected2)}` : ''}</div>
       ${r.reflection ? `<div class="small">${esc(r.reflection)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const moralHtml = records.moral.map(r => `
@@ -569,9 +579,17 @@ function renderLessonTab(records) {
   document.getElementById('rtab-lesson').innerHTML = `
     <div class="row g-3">
       <div class="col-lg-4"><h6 class="fw-bold text-primary">✍️ じゅぎょうのふり返り</h6>${lessonHtml}</div>
-      <div class="col-lg-4"><h6 class="fw-bold text-danger">📝 テストのふり返り</h6>${testHtml}</div>
+      <div class="col-lg-4"><h6 class="fw-bold text-danger">📝 テストのふり返り</h6>
+        <div class="card record-form-card shadow-sm mb-2"><div class="card-body">
+          <div class="d-flex justify-content-between align-items-center mb-1">
+            <h6 class="fw-bold mb-0 small">点数と目標のグラフ</h6><div id="test-chart-selector"></div>
+          </div>
+          <div id="test-chart" style="width:100%;height:260px;"></div>
+        </div></div>
+        ${testHtml}</div>
       <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">💖 どうとくノート</h6>${moralHtml}</div>
     </div>`;
+  if (!document.getElementById('rtab-lesson').classList.contains('d-none')) drawTestChart(records.test);
 }
 
 function recordTable(headers, rows) {
@@ -617,6 +635,42 @@ function drawCalcChart(chartDataByQuestions) {
     curveType: 'function', legend: { position: 'bottom' },
     vAxis: { title: 'タイム (秒)' },
     chartArea: { width: '80%', height: '65%' }
+  });
+}
+
+/** テストの点数と目標点の推移グラフ（教科ごと） */
+function drawTestChart(testRecords) {
+  if (!chartsReady) return;
+  const el = document.getElementById('test-chart');
+  const selectorArea = document.getElementById('test-chart-selector');
+  if (!el || !selectorArea) return;
+
+  const subjects = [...new Set((testRecords || []).map(r => r.subject))];
+  if (subjects.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
+
+  if (!selectorArea.querySelector('select')) {
+    selectorArea.innerHTML = `<select class="form-select form-select-sm" id="test-subject-select">
+      ${subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>`;
+    document.getElementById('test-subject-select').addEventListener('change', () => drawTestChart(testRecords));
+  }
+  const selected = document.getElementById('test-subject-select').value || subjects[0];
+
+  const toNum = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
+  // records は新しい順なので、時系列（古い順）に並べ替えてプロット
+  const rows = testRecords.filter(r => r.subject === selected).slice().reverse()
+    .map(r => [r.unit, toNum(r.score1), toNum(r.expected1), toNum(r.score2), toNum(r.expected2)]);
+  if (rows.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
+
+  const data = google.visualization.arrayToDataTable(
+    [['単元', '点数(知識)', '目標(知識)', '点数(思考)', '目標(思考)']].concat(rows));
+  new google.visualization.LineChart(el).draw(data, {
+    curveType: 'function', legend: { position: 'bottom' }, pointSize: 5,
+    vAxis: { title: '点数', minValue: 0, maxValue: 100 },
+    series: {
+      0: { color: '#dc3545' }, 1: { color: '#dc3545', lineDashStyle: [4, 4] },
+      2: { color: '#0d6efd' }, 3: { color: '#0d6efd', lineDashStyle: [4, 4] }
+    },
+    chartArea: { width: '80%', height: '60%' }
   });
 }
 

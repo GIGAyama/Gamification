@@ -11,6 +11,7 @@ function initTeacherApp(data) {
   bindTeacherEvents();
   bindAnnouncementDeletes();
   bindShokenStudioEvents();
+  bindGradesEvents();
 }
 
 /* ---------------- ダッシュボード ---------------- */
@@ -118,12 +119,14 @@ async function loadStudentDetail(email) {
       <div class="row g-3">
         <div class="col-lg-6">
           <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
-            <h6 class="fw-bold text-primary">✍️ 最近の授業のふり返り</h6>
-            ${r.lesson.slice(0, 8).map(l => `
-              <div class="border-bottom py-1 small">
-                <span class="badge bg-light text-dark border">${esc(l.subject)}</span>
-                <span class="text-muted">${l.date}</span> ${esc(l.reflection)}
-              </div>`).join('') || emptyMessage('記録なし')}
+            <div class="d-flex justify-content-between align-items-center mb-1">
+              <h6 class="fw-bold text-primary mb-0">✍️ 最近の授業のふり返り</h6>
+              <select id="t-lesson-filter" class="form-select form-select-sm" style="max-width:130px;">
+                <option value="">すべて</option>
+                ${[...new Set(r.lesson.map(l => l.subject))].map(s => `<option>${esc(s)}</option>`).join('')}
+              </select>
+            </div>
+            <div id="t-lesson-list"></div>
           </div></div>
           <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
             <h6 class="fw-bold text-danger">📝 テストのふり返り</h6>
@@ -164,6 +167,18 @@ async function loadStudentDetail(email) {
           </div></div>
         </div>
       </div>`;
+
+    // 授業のふり返り: 教科フィルター
+    const renderLessonList = subject => {
+      const filtered = subject ? r.lesson.filter(l => l.subject === subject) : r.lesson;
+      document.getElementById('t-lesson-list').innerHTML = filtered.slice(0, 12).map(l => `
+        <div class="border-bottom py-1 small">
+          <span class="badge bg-light text-dark border">${esc(l.subject)}</span>
+          <span class="text-muted">${l.date}</span> ${esc(l.reflection)}
+        </div>`).join('') || emptyMessage('記録なし');
+    };
+    renderLessonList('');
+    document.getElementById('t-lesson-filter').addEventListener('change', e2 => renderLessonList(e2.target.value));
   } catch (e) {
     container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
   }
@@ -468,16 +483,148 @@ function bindShokenStudioEvents() {
   });
 
   // ドラフトコピー
-  document.getElementById('ts-copy-draft-btn').addEventListener('click', async () => {
-    const text = document.getElementById('ts-draft-output').value;
-    try {
-      await navigator.clipboard.writeText(text);
-      toast('コピーしました');
-    } catch (e) {
-      document.getElementById('ts-draft-output').select();
-      document.execCommand('copy');
-      toast('コピーしました');
+  document.getElementById('ts-copy-draft-btn').addEventListener('click', () => copyTextarea('ts-draft-output'));
+
+  // 要録用（だ・である調）に変換
+  document.getElementById('ts-youroku-btn').addEventListener('click', async () => {
+    const text = document.getElementById('ts-draft-output').value.trim();
+    if (!text) { Swal.fire('確認', '変換する所見がありません。', 'info'); return; }
+    const result = await apiWithLoading('AIが要録用に変換しています...', 'convertShokenToYouroku', text);
+    if (result.success) {
+      document.getElementById('ts-youroku-output').value = result.text;
+      document.getElementById('ts-youroku-area').classList.remove('d-none');
+      toast(`要録用に変換しました（${result.length}字）`);
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
     }
+  });
+  document.getElementById('ts-copy-youroku-btn').addEventListener('click', () => copyTextarea('ts-youroku-output'));
+}
+
+async function copyTextarea(id) {
+  const el = document.getElementById(id);
+  try {
+    await navigator.clipboard.writeText(el.value);
+  } catch (e) {
+    el.select();
+    document.execCommand('copy');
+  }
+  toast('コピーしました');
+}
+
+/* ---------------- 成績・評価タブ ---------------- */
+
+let tgLoaded = false;
+
+async function loadTestMatrix(subject) {
+  const container = document.getElementById('tg-matrix');
+  container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getTestScoreMatrix', subject || '');
+    if (!result.success) { container.innerHTML = `<div class="alert alert-warning">${esc(result.message)}</div>`; return; }
+    tgLoaded = true;
+    renderTestMatrix(result);
+  } catch (e) {
+    container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+  }
+}
+
+function renderTestMatrix(d) {
+  // 教科セレクト（選択状態を保持）
+  const select = document.getElementById('tg-subject');
+  select.innerHTML = d.subjects.map(s => `<option ${s === d.subject ? 'selected' : ''}>${esc(s)}</option>`).join('');
+
+  const container = document.getElementById('tg-matrix');
+  if (d.units.length === 0) {
+    container.innerHTML = emptyMessage('テストのふり返りがまだ記録されていません');
+    return;
+  }
+  const cellHtml = c => {
+    if (!c) return '<td class="text-center text-muted">-</td>';
+    const score = v => v === null ? '-' : v;
+    const goal = (c.e1 !== null || c.e2 !== null) ? `<div class="text-muted" style="font-size:.7rem;">(目標 ${score(c.e1)}・${score(c.e2)})</div>` : '';
+    const below = (c.s1 !== null && c.e1 !== null && c.s1 < c.e1) || (c.s2 !== null && c.e2 !== null && c.s2 < c.e2);
+    return `<td class="text-center ${below ? 'table-warning' : ''}"><b>${score(c.s1)}</b>・<b>${score(c.s2)}</b>${goal}</td>`;
+  };
+  container.innerHTML = `
+    <table class="table table-bordered table-sm align-middle mb-0" style="min-width:${200 + d.units.length * 110}px;">
+      <thead class="table-light sticky-top"><tr>
+        <th style="min-width:110px;">児童</th>
+        ${d.units.map(u => `<th class="text-center small">${esc(u)}<div class="text-muted fw-normal" style="font-size:.7rem;">知識・思考</div></th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${d.rows.map(r => `<tr><td class="small fw-bold">${esc(String(r.number))} ${esc(r.name)}</td>${r.cells.map(cellHtml).join('')}</tr>`).join('')}
+      </tbody>
+      <tfoot class="table-light">
+        <tr><td class="small fw-bold">クラス平均</td>
+        ${d.averages.map(a => `<td class="text-center small fw-bold">${a.s1 ?? '-'}・${a.s2 ?? '-'}</td>`).join('')}</tr>
+      </tfoot>
+    </table>
+    <div class="small text-muted mt-1">黄色のセルは目標点に届かなかったテストです（面談・声かけの目安に）。</div>`;
+}
+
+function renderAttitudeSummary(d) {
+  const container = document.getElementById('tg-attitude');
+  if (d.subjects.length === 0) {
+    container.innerHTML = emptyMessage('この学期のスコアデータがまだありません（授業のふり返りが保存されると自動で蓄積されます）');
+    return;
+  }
+  const gradeBadge = g => {
+    const cls = { A: 'bg-success', B: 'bg-primary', C: 'bg-secondary' }[g] || 'bg-light text-dark';
+    return `<span class="badge ${cls}">${g}</span>`;
+  };
+  container.innerHTML = `
+    <table class="table table-bordered table-sm align-middle mb-0" style="min-width:${200 + d.subjects.length * 100}px;">
+      <thead class="table-light sticky-top"><tr>
+        <th style="min-width:110px;">児童</th>
+        ${d.subjects.map(s => `<th class="text-center small">${esc(s)}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${d.rows.map(r => `<tr>
+          <td class="small fw-bold">${esc(String(r.number))} ${esc(r.name)}</td>
+          ${d.subjects.map(s => {
+            const sc = r.scores[s];
+            return sc
+              ? `<td class="text-center">${gradeBadge(sc.grade)}<div class="text-muted" style="font-size:.7rem;">平均${sc.avg}（${sc.count}回）</div></td>`
+              : '<td class="text-center text-muted">-</td>';
+          }).join('')}
+        </tr>`).join('')}
+      </tbody>
+    </table>
+    <div class="small text-muted mt-1">A: 平均${d.thresholdA}点以上 ／ B: 平均${d.thresholdB}点以上 ／ C: それ未満（あくまで評価の参考案です）</div>`;
+}
+
+function bindGradesEvents() {
+  document.querySelectorAll('[data-view="view-t-grades"]').forEach(tab => {
+    tab.addEventListener('click', () => { if (!tgLoaded) loadTestMatrix(''); });
+  });
+  document.getElementById('tg-reload-btn').addEventListener('click', () => loadTestMatrix(document.getElementById('tg-subject').value));
+  document.getElementById('tg-subject').addEventListener('change', () => loadTestMatrix(document.getElementById('tg-subject').value));
+
+  document.getElementById('tg-attitude-btn').addEventListener('click', async () => {
+    const term = Number(document.getElementById('tg-term').value);
+    const container = document.getElementById('tg-attitude');
+    container.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-success"></div></div>`;
+    try {
+      const result = await api('getAttitudeSummary', term);
+      if (!result.success) { container.innerHTML = `<div class="alert alert-warning">${esc(result.message)}</div>`; return; }
+      renderAttitudeSummary(result);
+    } catch (e) {
+      container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+    }
+  });
+
+  document.getElementById('tg-attitude-export').addEventListener('click', async () => {
+    const term = Number(document.getElementById('tg-term').value);
+    const confirm = await Swal.fire({
+      title: `${term}学期の評価案をシートへ出力`,
+      text: `「人間性評価集計」シートに出力します（既存の内容は上書きされます）。`,
+      icon: 'question', showCancelButton: true, confirmButtonText: '出力する', cancelButtonText: 'やめる'
+    });
+    if (!confirm.isConfirmed) return;
+    const result = await apiWithLoading('出力中...', 'exportAttitudeSummary', term);
+    if (result.success) Swal.fire('出力完了', esc(result.message), 'success');
+    else Swal.fire('エラー', esc(result.message), 'error');
   });
 }
 </script>
