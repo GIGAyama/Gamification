@@ -219,7 +219,7 @@ function saveShokenMaterial(data) {
       const { studentNumber, category, episode } = data;
       if (!studentNumber || !episode) return { success: false, message: '児童とエピソードを入力してください。' };
       SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SHOKEN_MATERIALS)
-        .appendRow([new Date(), studentNumber, category || 'その他', episode]);
+        .appendRow([new Date(), studentNumber, category || 'その他', episode, '', '', '', '', '先生の気づき']);
       return { success: true, message: '所見材料を保存しました。' };
     } catch (e) {
       return { success: false, message: e.message };

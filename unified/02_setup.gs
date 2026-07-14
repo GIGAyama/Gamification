@@ -24,8 +24,8 @@ function getSheetDefinitions_() {
   [SHEETS.STUDY]: ['日時', 'メールアドレス', 'テーマ', 'わかったこと', '次にやりたいこと'],
   [SHEETS.GOAL]: ['メールアドレス', '速さ目標', '正答率目標', '状態', '設定日', '達成日'],
 
-  [SHEETS.LESSON]: ['日時', 'メールアドレス', '教科', 'めあての達成', 'わかったこと', '主体性の自己評価', '挙手回数', 'ふり返り'],
-  [SHEETS.TEST]: ['日時', 'メールアドレス', '教科', '単元', '目標点(知識)', '目標点(思考)', '点数(知識)', '点数(思考)', 'ふり返り'],
+  [SHEETS.LESSON]: ['日時', 'メールアドレス', '教科', 'めあての達成', 'わかったこと', '主体性の自己評価', '挙手回数', 'ふり返り', '所見抽出'],
+  [SHEETS.TEST]: ['日時', 'メールアドレス', '教科', '単元', '目標点(知識)', '目標点(思考)', '点数(知識)', '点数(思考)', 'ふり返り', '所見抽出'],
   [SHEETS.MORAL]: ['日時', 'メールアドレス', '教材番号', '自分の考え', 'ふり返り', 'AIフィードバック'],
   [SHEETS.MORAL_MATERIALS]: ['教材番号', '教材名', '問い', '主題', '学習内容'],
   [SHEETS.TEST_UNITS]: ['教科', '単元名'],
@@ -39,7 +39,8 @@ function getSheetDefinitions_() {
   [SHEETS.ANNOUNCEMENTS]: ['日時', '内容', '投稿者', '表示期限'],
   [SHEETS.PROFILE]: ['メールアドレス', 'ひとこと', 'すきなもの', 'がんばりたいこと'],
 
-  [SHEETS.SHOKEN_MATERIALS]: ['日時', '出席番号', 'カテゴリ', 'エピソード'],
+  [SHEETS.TEACHING_POINTS]: ['日付', '教科', '単元名', '指導事項・ねらい', '評価のポイント'],
+  [SHEETS.SHOKEN_MATERIALS]: ['日時', '出席番号', 'カテゴリ', 'エピソード', '教科', '単元・指導事項', '観点', 'おすすめ度', '出典'],
   [SHEETS.GENERAL_SHOKEN]: ['出席番号', '所見', '文字数', '生成'],
   [SHEETS.MORAL_SHOKEN]: ['出席番号', '教材名', '所見', '文字数', '生成']
   };
@@ -72,6 +73,7 @@ const DEFAULT_CONFIG = [
   ['Geminiモデル', 'gemini-1.5-flash', 'AI所見・フィードバック生成に使うモデル名'],
   ['Google Classroom コースID', '', '道徳AIフィードバックの投稿先（空欄なら投稿しない）'],
   ['道徳AIフィードバック', 'OFF', 'ONにすると道徳ノート保存時にAIフィードバックを生成'],
+  ['AI所見材料の自動抽出', 'ON', 'ONにすると授業・テストのふり返り保存時にAIが指導事項と照合して所見材料を自動ストック（GEMINI_API_KEY設定時のみ動作）'],
   ['1学期開始', '04/01', '学期の区切り（月/日）'],
   ['1学期終了', '07/20', ''],
   ['2学期終了', '12/25', ''],
@@ -124,15 +126,17 @@ function setupDatabase() {
       sheet = ss.insertSheet(name);
       created.push(name);
     }
+    // 不足しているヘッダーだけを補完（既存の列名・データには触れない）
     const headers = definitions[name];
     const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
-    if (firstRow.every(cell => cell === '' || cell === null)) {
-      sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
+    const merged = headers.map((h, i) => (firstRow[i] === '' || firstRow[i] === null) ? h : firstRow[i]);
+    if (merged.some((v, i) => v !== firstRow[i])) {
+      sheet.getRange(1, 1, 1, headers.length).setValues([merged]).setFontWeight('bold');
       sheet.setFrozenRows(1);
     }
   });
 
-  seedIfEmpty_(ss, SHEETS.CONFIG, DEFAULT_CONFIG);
+  ensureConfigRows_(ss);
   seedIfEmpty_(ss, SHEETS.MISSIONS, DEFAULT_MISSIONS);
   seedIfEmpty_(ss, SHEETS.BADGES, DEFAULT_BADGES);
 
@@ -147,6 +151,23 @@ function setupDatabase() {
     ? `セットアップ完了: ${created.length}枚のシートを作成しました。\n次に「児童マスタ」に名簿を入力してください。`
     : 'セットアップ完了: すべてのシートは作成済みでした。';
   SpreadsheetApp.getUi().alert('初期セットアップ', msg, SpreadsheetApp.getUi().ButtonSet.OK);
+}
+
+/**
+ * 「初期設定」シートに存在しない設定キーだけを既定値つきで追記します。
+ * 統合版のアップデートで設定項目が増えた場合にも再セットアップで反映されます。
+ */
+function ensureConfigRows_(ss) {
+  const sheet = ss.getSheetByName(SHEETS.CONFIG);
+  if (!sheet) return;
+  const existing = new Set(
+    sheet.getLastRow() < 2 ? [] :
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getValues().map(row => String(row[0]))
+  );
+  const missing = DEFAULT_CONFIG.filter(row => !existing.has(String(row[0])));
+  if (missing.length > 0) {
+    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 3).setValues(missing);
+  }
 }
 
 /** データ行が空のシートにだけ初期データを投入します */
@@ -166,7 +187,7 @@ function onOpen() {
     .addItem('① 初期セットアップ（シート作成）', 'setupDatabase')
     .addItem('② アイテム画像のIDを自動登録', 'updateItemImageIds')
     .addSeparator()
-    .addItem('💡 振り返りから所見材料をAI抽出', 'extractShokenMaterials')
+    .addItem('💡 未処理のふり返りから所見材料をAI抽出', 'extractShokenMaterials')
     .addItem('✉️ 全体所見をAI生成（チェック行）', 'generateCheckedGeneralShoken')
     .addItem('💖 道徳所見をAI生成（チェック行）', 'generateCheckedMoralShoken')
     .addSeparator()
