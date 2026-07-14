@@ -208,6 +208,75 @@ function deleteAnnouncement(rowNum) {
   });
 }
 
+/** 児童マスタから児童のみの名簿（出席番号・名前・メール）を出席番号順で返します */
+function getStudentRoster_(ss) {
+  const sheet = ss.getSheetByName(SHEETS.USERS);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues()
+    .filter(row => row[0] != TEACHER_ROLE_ID && row[3])
+    .map(row => ({ number: row[0], name: row[1], email: String(row[3]).toLowerCase().trim() }))
+    .sort((a, b) => Number(a.number) - Number(b.number));
+}
+
+/**
+ * 「テストのふり返り」から教科ごとの成績マトリクス（児童×単元）を作成します。
+ * 旧アプリの成績シート転記を、転記作業なしの一覧ビューとして提供します。
+ * @param {string} subject - 教科名（空なら記録のある最初の教科）
+ */
+function getTestScoreMatrix(subject) {
+  try {
+    assertTeacher_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(SHEETS.TEST);
+    const data = (!sheet || sheet.getLastRow() < 2) ? [] :
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, 9).getValues();
+
+    const subjects = [...new Set(data.map(r => String(r[2]).trim()).filter(Boolean))];
+    const target = (subject && subjects.includes(subject)) ? subject : (subjects[0] || '');
+    if (!target) return { success: true, subject: '', subjects: [], units: [], rows: [], averages: [] };
+
+    // 単元の並びはテスト単元リストの順を優先し、リスト外の単元は出現順で追加
+    const unitOrder = (getTestUnits_(ss)[target] || []).slice();
+    const cells = {}; // email -> unit -> 最新のスコア
+    data.forEach(row => {
+      if (String(row[2]).trim() !== target) return;
+      const email = String(row[1]).toLowerCase().trim();
+      const unit = String(row[3]).trim();
+      if (!email || !unit) return;
+      if (!unitOrder.includes(unit)) unitOrder.push(unit);
+      const toNum = v => (v === '' || v === null || isNaN(Number(v))) ? null : Number(v);
+      (cells[email] = cells[email] || {})[unit] = {
+        s1: toNum(row[6]), s2: toNum(row[7]), e1: toNum(row[4]), e2: toNum(row[5])
+      };
+    });
+
+    const units = unitOrder.filter(u => Object.keys(cells).some(email => cells[email][u]));
+    const rows = getStudentRoster_(ss).map(s => ({
+      number: s.number,
+      name: s.name,
+      cells: units.map(u => (cells[s.email] || {})[u] || null)
+    }));
+    const averages = units.map((u, idx) => {
+      let sum1 = 0, c1 = 0, sum2 = 0, c2 = 0;
+      rows.forEach(r => {
+        const c = r.cells[idx];
+        if (!c) return;
+        if (c.s1 !== null) { sum1 += c.s1; c1++; }
+        if (c.s2 !== null) { sum2 += c.s2; c2++; }
+      });
+      return {
+        s1: c1 > 0 ? Math.round(sum1 / c1 * 10) / 10 : null,
+        s2: c2 > 0 ? Math.round(sum2 / c2 * 10) / 10 : null
+      };
+    });
+
+    return { success: true, subject: target, subjects, units, rows, averages };
+  } catch (e) {
+    console.error(`getTestScoreMatrix Error: ${e.message}`);
+    return { success: false, message: e.message };
+  }
+}
+
 /**
  * 所見材料（担任が気づいたエピソード）を保存します。
  * @param {Object} data - { studentNumber, category, episode }
@@ -219,7 +288,7 @@ function saveShokenMaterial(data) {
       const { studentNumber, category, episode } = data;
       if (!studentNumber || !episode) return { success: false, message: '児童とエピソードを入力してください。' };
       SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SHOKEN_MATERIALS)
-        .appendRow([new Date(), studentNumber, category || 'その他', episode]);
+        .appendRow([new Date(), studentNumber, category || 'その他', episode, '', '', '', '', '先生の気づき']);
       return { success: true, message: '所見材料を保存しました。' };
     } catch (e) {
       return { success: false, message: e.message };

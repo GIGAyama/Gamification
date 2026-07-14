@@ -137,11 +137,13 @@ function saveStudyRecord_(ss, email, data, config) {
 
 function saveLessonRecord_(ss, email, data, config) {
   if (!data.subject || !data.reflection) throw new Error('「教科」と「ふり返り」を入力してください。');
-  ss.getSheetByName(SHEETS.LESSON).appendRow([
+  const sheet = ss.getSheetByName(SHEETS.LESSON);
+  sheet.appendRow([
     new Date(), email, data.subject,
     data.q1 || '', data.q2 || '', data.selfEval || '',
-    parseInt(data.handRaises, 10) || 0, data.reflection
+    parseInt(data.handRaises, 10) || 0, data.reflection, ''
   ]);
+  autoExtractShokenMaterial_(ss, config, 'lesson', sheet.getLastRow());
   return getConfigNumber_(config, '授業ふり返り経験値', 20);
 }
 
@@ -149,11 +151,13 @@ function saveTestRecord_(ss, email, data, config) {
   if (!data.subject || !data.unit) throw new Error('「教科」と「単元」を入力してください。');
   const score1 = data.score1 === '' ? '' : Number(data.score1);
   const score2 = data.score2 === '' ? '' : Number(data.score2);
-  ss.getSheetByName(SHEETS.TEST).appendRow([
+  const sheet = ss.getSheetByName(SHEETS.TEST);
+  sheet.appendRow([
     new Date(), email, data.subject, data.unit,
     data.expected1 || '', data.expected2 || '',
-    score1, score2, data.reflection || ''
+    score1, score2, data.reflection || '', ''
   ]);
+  autoExtractShokenMaterial_(ss, config, 'test', sheet.getLastRow());
   const coefficient = getConfigNumber_(config, 'テストふり返り経験値係数', 0.1);
   let gained = 0;
   if (Number(score1) > 0) gained += Math.floor(coefficient * score1 * score1);

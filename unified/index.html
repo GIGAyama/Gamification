@@ -43,6 +43,8 @@
     <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
       <button data-view="view-t-dashboard" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab active-tab"><i class="bi bi-clipboard-data"></i> ダッシュボード</button>
       <button data-view="view-t-student" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-search"></i> 児童の詳細</button>
+      <button data-view="view-t-shoken" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-lightbulb"></i> AI所見</button>
+      <button data-view="view-t-grades" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-graph-up"></i> 成績・評価</button>
       <button data-view="view-t-manage" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-gear"></i> 管理・出力</button>
     </div>
   </div>
@@ -264,6 +266,102 @@
         <button id="t-view-student-btn" class="btn btn-primary fw-bold"><i class="bi bi-search"></i> 表示</button>
       </div>
       <div id="t-student-detail"></div>
+    </div>
+
+    <!-- ============ 教員: AI所見スタジオ ============ -->
+    <div id="view-t-shoken" class="spa-view d-none">
+      <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <h4 class="fw-bold text-primary mb-0"><i class="bi bi-lightbulb"></i> AI所見スタジオ</h4>
+        <button id="ts-reload-btn" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+      </div>
+      <div class="row g-3 mb-4" id="ts-status-cards"></div>
+      <div class="row g-4">
+        <div class="col-lg-5">
+          <div class="card shadow-sm border-primary rounded-4">
+            <div class="card-header bg-primary text-white fw-bold"><i class="bi bi-journal-bookmark"></i> 指導事項の登録</div>
+            <div class="card-body">
+              <p class="small text-muted mb-2">授業の単元名・ねらいを登録しておくと、AIが児童のふり返りを指導事項と照らし合わせて所見材料を作成します。</p>
+              <div class="row g-2 mb-2">
+                <div class="col-5"><label class="form-label small fw-bold mb-1">授業日</label><input type="date" id="ts-tp-date" class="form-control form-control-sm"></div>
+                <div class="col-7"><label class="form-label small fw-bold mb-1">教科</label><select id="ts-tp-subject" class="form-select form-select-sm"></select></div>
+                <div class="col-12"><input type="text" id="ts-tp-unit" class="form-control form-control-sm" placeholder="単元名（例: ごんぎつね）"></div>
+                <div class="col-12"><textarea id="ts-tp-points" class="form-control form-control-sm" rows="2" placeholder="指導事項・ねらい（例: 登場人物の気持ちの変化を場面の移り変わりと結び付けて読む）"></textarea></div>
+                <div class="col-12"><input type="text" id="ts-tp-eval" class="form-control form-control-sm" placeholder="評価のポイント（任意）"></div>
+              </div>
+              <button id="ts-tp-save-btn" class="btn btn-primary btn-sm w-100 fw-bold">登録する</button>
+              <hr class="my-3">
+              <div id="ts-tp-list" class="custom-scrollbar" style="max-height:280px;overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+        <div class="col-lg-7">
+          <div class="card shadow-sm border-success rounded-4 mb-4">
+            <div class="card-header bg-success text-white fw-bold"><i class="bi bi-magic"></i> 所見材料の自動ストック</div>
+            <div class="card-body">
+              <p class="small text-muted mb-2">児童がふり返りを保存すると、AIが記述を分析して所見材料を自動でストックします（初期設定「AI所見材料の自動抽出」で切替）。処理できなかった分は下のボタンでまとめて抽出できます。</p>
+              <div class="d-flex align-items-center gap-3 flex-wrap mb-2">
+                <div>未処理のふり返り: <b id="ts-pending-count" class="fs-5">-</b> 件</div>
+                <button id="ts-extract-btn" class="btn btn-success fw-bold"><i class="bi bi-stars"></i> 今すぐAI抽出</button>
+              </div>
+              <div id="ts-count-summary" class="d-flex flex-wrap gap-1"></div>
+            </div>
+          </div>
+          <div class="card shadow-sm border-secondary rounded-4">
+            <div class="card-header bg-secondary text-white fw-bold"><i class="bi bi-collection"></i> 児童別の所見材料ストック</div>
+            <div class="card-body">
+              <div class="d-flex gap-2 mb-3 flex-wrap">
+                <select id="ts-student-select" class="form-select form-select-sm" style="max-width:240px;"></select>
+                <button id="ts-load-materials-btn" class="btn btn-outline-primary btn-sm fw-bold"><i class="bi bi-search"></i> 表示</button>
+                <button id="ts-draft-btn" class="btn btn-warning btn-sm fw-bold"><i class="bi bi-pencil-square"></i> 所見ドラフトをAI生成</button>
+              </div>
+              <div id="ts-material-list" class="custom-scrollbar mb-3" style="max-height:320px;overflow-y:auto;"></div>
+              <div id="ts-draft-area" class="d-none">
+                <label class="form-label small fw-bold">AIが生成した所見ドラフト（「全体所見」シートにも保存済み・自由に手直しできます）</label>
+                <textarea id="ts-draft-output" class="form-control form-control-sm mb-2" rows="5"></textarea>
+                <div class="d-flex gap-2">
+                  <button id="ts-copy-draft-btn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clipboard"></i> コピー</button>
+                  <button id="ts-youroku-btn" class="btn btn-outline-primary btn-sm"><i class="bi bi-mortarboard"></i> 要録用（だ・である調）に変換</button>
+                </div>
+                <div id="ts-youroku-area" class="d-none mt-2">
+                  <label class="form-label small fw-bold">要録用の変換結果</label>
+                  <textarea id="ts-youroku-output" class="form-control form-control-sm mb-2" rows="5"></textarea>
+                  <button id="ts-copy-youroku-btn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clipboard"></i> コピー</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 教員: 成績・評価 ============ -->
+    <div id="view-t-grades" class="spa-view d-none">
+      <h4 class="fw-bold text-primary mb-3"><i class="bi bi-graph-up"></i> 成績・評価</h4>
+      <div class="card shadow-sm border-danger rounded-4 mb-4">
+        <div class="card-header bg-danger text-white fw-bold"><i class="bi bi-table"></i> テスト成績一覧（児童×単元）</div>
+        <div class="card-body">
+          <p class="small text-muted mb-2">児童が入力した「テストのふり返り」から自動集計します（転記作業は不要です）。セルは「知識・思考」の点数、（ ）内は児童が立てた目標点です。</p>
+          <div class="d-flex gap-2 mb-3 flex-wrap">
+            <select id="tg-subject" class="form-select form-select-sm" style="max-width:180px;"></select>
+            <button id="tg-reload-btn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+          </div>
+          <div id="tg-matrix" class="table-responsive custom-scrollbar" style="max-height:420px;"></div>
+        </div>
+      </div>
+      <div class="card shadow-sm border-success rounded-4">
+        <div class="card-header bg-success text-white fw-bold"><i class="bi bi-emoji-smile"></i> 学びに向かう力（主体的に学習に取り組む態度）の評価案</div>
+        <div class="card-body">
+          <p class="small text-muted mb-2">授業のふり返りから「主体性の自己評価＋挙手回数（定量）」と「AIが採点した記述の深さ」を毎回スコア化して蓄積し、学期平均からA/B/C案を自動作成します。基準点は「初期設定」シートで調整できます。</p>
+          <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+            <select id="tg-term" class="form-select form-select-sm" style="max-width:120px;">
+              <option value="1">1学期</option><option value="2">2学期</option><option value="3">3学期</option>
+            </select>
+            <button id="tg-attitude-btn" class="btn btn-success btn-sm fw-bold"><i class="bi bi-calculator"></i> 集計する</button>
+            <button id="tg-attitude-export" class="btn btn-outline-success btn-sm fw-bold"><i class="bi bi-box-arrow-down"></i> シートへ出力</button>
+          </div>
+          <div id="tg-attitude" class="table-responsive custom-scrollbar" style="max-height:420px;"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ============ 教員: 管理・出力 ============ -->

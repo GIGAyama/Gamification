@@ -43,11 +43,20 @@ const SHEETS = {
   ANNOUNCEMENTS: 'お知らせ',
   PROFILE: 'プロフィール',
 
-  // --- 教員用（所見） ---
+  // --- 教員用（所見・評価） ---
+  TEACHING_POINTS: '指導事項',   // 授業の単元・ねらい（AI所見材料抽出の照合に使用）
   SHOKEN_MATERIALS: '所見材料',
   GENERAL_SHOKEN: '全体所見',
-  MORAL_SHOKEN: '道徳所見'
+  MORAL_SHOKEN: '道徳所見',
+  ATTITUDE_SCORES: '学びに向かう力スコア',   // 授業ふり返りごとの主体性スコア蓄積
+  ATTITUDE_SUMMARY: '人間性評価集計'          // 学期集計の出力先
 };
+
+/** ふり返りシートの「所見抽出」フラグ列（1始まり） */
+const SHOKEN_FLAG_COLS = { lesson: 9, test: 10 };
+
+/** 学習指導要領の3観点（AI所見材料の分類に使用） */
+const SHOKEN_VIEWPOINTS = ['知識・技能', '思考・判断・表現', '主体的に学習に取り組む態度'];
 
 /** ログの行動種別 */
 const LOG_ACTIONS = {
