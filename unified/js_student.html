@@ -224,6 +224,28 @@ function renderRecordInputMenu(data) {
   });
 }
 
+/** ふり返り入力の「書き出しヒント」チップ群を生成します */
+function starterChips(targetId, phrases) {
+  return `<div class="starter-chips mt-1" data-starter-for="${targetId}">
+    <span class="small text-muted me-1"><i class="bi bi-lightbulb"></i> かきだしのヒント:</span>
+    ${phrases.map(p => `<button type="button" class="btn btn-sm btn-outline-secondary starter-chip py-0 px-2 mb-1 me-1" data-phrase="${esc(p)}">${esc(p)}…</button>`).join('')}
+  </div>`;
+}
+
+/** 書き出しヒントのクリックで、対象のふり返り欄に文言を挿入します */
+function bindStarterChips(area) {
+  area.querySelectorAll('.starter-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const wrap = chip.closest('.starter-chips');
+      const ta = wrap && document.getElementById(wrap.dataset.starterFor);
+      if (!ta) return;
+      const sep = ta.value.trim().length ? '\n' : '';
+      ta.value = ta.value.replace(/\s+$/, '') + sep + chip.dataset.phrase;
+      ta.focus();
+    });
+  });
+}
+
 /** 記録種別ごとのフォーム定義 */
 function recordFormHtml(type) {
   const subjects = ['国語', '社会', '算数', '理科', '英語', '音楽', '図工', '家庭', '体育', '総合', '学活'];
@@ -275,7 +297,8 @@ function recordFormHtml(type) {
           <select class="form-select" id="f-selfeval"><option>◎</option><option>◯</option><option>△</option></select></div>
         <div class="col-6 col-md-4"><label class="form-label small fw-bold">挙手・発表した回数</label><input type="number" class="form-control" id="f-hands" min="0" value="0"></div>
         <div class="col-12"><label class="form-label small fw-bold">わかったこと</label><input type="text" class="form-control" id="f-q2"></div>
-        <div class="col-12"><label class="form-label small fw-bold">ふり返り（くわしく）</label><textarea class="form-control" id="f-reflection" rows="3" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea></div>
+        <div class="col-12"><label class="form-label small fw-bold">ふり返り（くわしく）</label><textarea class="form-control" id="f-reflection" rows="3" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
+          ${starterChips('f-reflection', ['今日わかったのは', 'まえとくらべて', 'むずかしかったのは', 'つぎにがんばりたいのは'])}</div>
       </div>`;
     case 'test': {
       const units = App.data.testUnits || {};
@@ -290,7 +313,8 @@ function recordFormHtml(type) {
         <div class="col-6 col-md-3"><label class="form-label small fw-bold">目標点（思考）</label><input type="number" class="form-control" id="f-expected2" min="0" max="100" placeholder="テスト前の目標"></div>
         <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（知識）</label><input type="number" class="form-control" id="f-score1" min="0" max="100"></div>
         <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（思考）</label><input type="number" class="form-control" id="f-score2" min="0" max="100"></div>
-        <div class="col-12"><label class="form-label small fw-bold">ふり返り</label><textarea class="form-control" id="f-treflection" rows="3" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea></div>
+        <div class="col-12"><label class="form-label small fw-bold">ふり返り</label><textarea class="form-control" id="f-treflection" rows="3" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
+          ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}</div>
       </div>`;
     }
     case 'moral': {
@@ -303,8 +327,10 @@ function recordFormHtml(type) {
               ? materials.map(m => `<option value="${esc(m.number)}">${esc(m.number)}. ${esc(m.name)}</option>`).join('')
               : '<option value="">（教材リストが未登録です）</option>'}
           </select></div>
-        <div class="col-12"><label class="form-label small fw-bold">自分の考え</label><textarea class="form-control" id="f-thought" rows="3"></textarea></div>
-        <div class="col-12"><label class="form-label small fw-bold">授業のふり返り</label><textarea class="form-control" id="f-mreflection" rows="2"></textarea></div>
+        <div class="col-12"><label class="form-label small fw-bold">自分の考え</label><textarea class="form-control" id="f-thought" rows="3"></textarea>
+          ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}</div>
+        <div class="col-12"><label class="form-label small fw-bold">授業のふり返り</label><textarea class="form-control" id="f-mreflection" rows="2"></textarea>
+          ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}</div>
       </div>`;
     }
   }
@@ -356,6 +382,7 @@ function openRecordForm(type) {
       </div>
     </div>`;
   area.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  bindStarterChips(area);
 
   // タイピング: 目標表示 + 目標セットボタン
   if (type === 'typing') {
@@ -426,6 +453,7 @@ function openRecordForm(type) {
 
     let html = `きろくしました！`;
     if (result.gainedExp > 0) html += `<br><b class="text-primary">+${result.gainedExp} EXP</b> ゲット！`;
+    if (result.reflectionBonus > 0) html += `<br>✨ <b class="text-success">ふり返りがすばらしい！</b><br>（深く考えて書けたので +${result.reflectionBonus} EXP のボーナス）`;
     if (result.goalAchieved) html = `🏆 <b>目標たっせい！</b><br>` + html;
     Swal.fire({ icon: 'success', title: 'やったね！', html }).then(() => {
       if (result.leveledUp) {

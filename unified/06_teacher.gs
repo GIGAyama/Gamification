@@ -37,6 +37,7 @@ function getTeacherData() {
       announcements: getAnnouncements_(true),
       rankings: getRankings_(ss, config),
       classStats: getClassStats_(ss, students),
+      alerts: getStudentAlerts_(ss, students, config),
       aiEnabled: !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')
     };
   } catch (e) {
@@ -73,6 +74,93 @@ function getClassStats_(ss, students) {
     weeklyActiveCount: [...activeStudents].filter(e => students.some(s => s.email === e)).length,
     weeklyRecords
   };
+}
+
+/**
+ * ルールベースで「気になる児童（声かけリスト）」を検出します（AI不要）。
+ * ①一定日数どの記録もない ②授業のめあて達成「△」が連続 ③テストが目標点に連続未達
+ * @returns {Array<{number, name, email, reasons: Array<{icon, text}>}>}
+ */
+function getStudentAlerts_(ss, students, config) {
+  const noRecordDays = getConfigNumber_(config, '声かけアラート_無記録日数', 7);
+  const streakThreshold = getConfigNumber_(config, '声かけアラート_連続未達回数', 3);
+  const now = new Date();
+  const recordActions = new Set(Object.values(RECORD_TYPES).map(t => t.log));
+
+  // 各児童の最終記録日
+  const lastRecord = {};
+  const logSheet = ss.getSheetByName(SHEETS.LOG);
+  if (logSheet && logSheet.getLastRow() >= 2) {
+    logSheet.getRange(2, 1, logSheet.getLastRow() - 1, 3).getValues().forEach(row => {
+      if (!recordActions.has(row[2])) return;
+      const email = String(row[1]).toLowerCase().trim();
+      const d = parseTimestamp_(row[0]);
+      if (d && (!lastRecord[email] || d > lastRecord[email])) lastRecord[email] = d;
+    });
+  }
+
+  // 授業のめあて達成「△」の直近連続回数
+  const lessonRows = {};
+  const lessonSheet = ss.getSheetByName(SHEETS.LESSON);
+  if (lessonSheet && lessonSheet.getLastRow() >= 2) {
+    lessonSheet.getRange(2, 1, lessonSheet.getLastRow() - 1, 4).getValues().forEach(row => {
+      const email = String(row[1]).toLowerCase().trim();
+      const d = parseTimestamp_(row[0]);
+      if (!email || !d) return;
+      (lessonRows[email] = lessonRows[email] || []).push({ d, poor: String(row[3]).trim().startsWith('△') });
+    });
+  }
+
+  // テスト目標未達（点数<目標点）の直近連続回数
+  const testRows = {};
+  const testSheet = ss.getSheetByName(SHEETS.TEST);
+  if (testSheet && testSheet.getLastRow() >= 2) {
+    testSheet.getRange(2, 1, testSheet.getLastRow() - 1, 8).getValues().forEach(row => {
+      const email = String(row[1]).toLowerCase().trim();
+      const d = parseTimestamp_(row[0]);
+      if (!email || !d) return;
+      const below = isBelowTarget_(row[6], row[4]) || isBelowTarget_(row[7], row[5]);
+      const hasTarget = (row[4] !== '' && row[4] !== null) || (row[5] !== '' && row[5] !== null);
+      (testRows[email] = testRows[email] || []).push({ d, poor: hasTarget && below });
+    });
+  }
+
+  const alerts = [];
+  students.forEach(s => {
+    const reasons = [];
+    const last = lastRecord[s.email];
+    if (!last) {
+      reasons.push({ icon: '📭', text: 'まだ記録がありません' });
+    } else {
+      const daysSince = Math.floor((now - last) / 86400000);
+      if (daysSince >= noRecordDays) reasons.push({ icon: '📭', text: `${daysSince}日間 記録がありません` });
+    }
+    const lessonStreak = trailingStreak_(lessonRows[s.email]);
+    if (lessonStreak >= streakThreshold) reasons.push({ icon: '😥', text: `授業で「むずかしかった」が${lessonStreak}回つづいています` });
+    const testStreak = trailingStreak_(testRows[s.email]);
+    if (testStreak >= streakThreshold) reasons.push({ icon: '📉', text: `テストが目標点に${testStreak}回とどいていません` });
+    if (reasons.length > 0) alerts.push({ number: s.number, name: s.name, email: s.email, reasons });
+  });
+  return alerts;
+}
+
+/** 点数が目標点を下回るか（どちらか空なら false） */
+function isBelowTarget_(score, target) {
+  const s = Number(score), t = Number(target);
+  if (score === '' || score === null || target === '' || target === null || isNaN(s) || isNaN(t)) return false;
+  return s < t;
+}
+
+/** 日付昇順に並べ、末尾（最新）から連続で poor=true が何回続くかを数えます */
+function trailingStreak_(rows) {
+  if (!rows || rows.length === 0) return 0;
+  const sorted = rows.slice().sort((a, b) => a.d - b.d);
+  let streak = 0;
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (sorted[i].poor) streak++;
+    else break;
+  }
+  return streak;
 }
 
 /**

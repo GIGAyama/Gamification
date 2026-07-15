@@ -24,6 +24,7 @@ function saveRecord(payload) {
 
       let gainedExp = 0;
       let goalAchieved = false;
+      let reflectionBonus = 0;
 
       switch (type) {
         case 'typing': {
@@ -41,18 +42,36 @@ function saveRecord(payload) {
         case 'reading': gainedExp = saveReadingRecord_(ss, email, formData, config); break;
         case 'growth': gainedExp = saveGrowthRecord_(ss, email, formData, config); break;
         case 'study': gainedExp = saveStudyRecord_(ss, email, formData, config); break;
-        case 'lesson': gainedExp = saveLessonRecord_(ss, email, formData, config); break;
-        case 'test': gainedExp = saveTestRecord_(ss, email, formData, config); break;
+        case 'lesson': {
+          const r = saveLessonRecord_(ss, email, formData, config);
+          gainedExp = r.gainedExp;
+          reflectionBonus = r.reflectionBonus;
+          break;
+        }
+        case 'test': {
+          const r = saveTestRecord_(ss, email, formData, config);
+          gainedExp = r.gainedExp;
+          reflectionBonus = r.reflectionBonus;
+          break;
+        }
         case 'moral': gainedExp = saveMoralRecord_(ss, email, formData, config); break;
       }
 
       writeLog_(ss, email, typeDef.log, `${typeDef.label}を記録`);
-      const expResult = addExp_(ss, email, gainedExp, typeDef.label);
+      let expResult = addExp_(ss, email, gainedExp, typeDef.label);
+      if (reflectionBonus > 0) {
+        const bonusResult = addExp_(ss, email, reflectionBonus, 'ふり返り質ボーナス');
+        if (bonusResult) {
+          const leveledUp = (expResult && expResult.leveledUp) || bonusResult.leveledUp;
+          expResult = Object.assign({}, bonusResult, { leveledUp });
+        }
+      }
 
       return {
         success: true,
         message: `${typeDef.label}をきろくしました！`,
         gainedExp: gainedExp,
+        reflectionBonus: reflectionBonus,
         goalAchieved: goalAchieved,
         leveledUp: expResult ? expResult.leveledUp : false,
         newLevel: expResult ? expResult.level : null,
@@ -143,8 +162,9 @@ function saveLessonRecord_(ss, email, data, config) {
     data.q1 || '', data.q2 || '', data.selfEval || '',
     parseInt(data.handRaises, 10) || 0, data.reflection, ''
   ]);
-  autoExtractShokenMaterial_(ss, config, 'lesson', sheet.getLastRow());
-  return getConfigNumber_(config, '授業ふり返り経験値', 20);
+  const base = getConfigNumber_(config, '授業ふり返り経験値', 20);
+  const ai = autoExtractShokenMaterial_(ss, config, 'lesson', sheet.getLastRow());
+  return applyReflectionBonus_(ss, email, config, base, ai.depth);
 }
 
 function saveTestRecord_(ss, email, data, config) {
@@ -157,12 +177,21 @@ function saveTestRecord_(ss, email, data, config) {
     data.expected1 || '', data.expected2 || '',
     score1, score2, data.reflection || '', ''
   ]);
-  autoExtractShokenMaterial_(ss, config, 'test', sheet.getLastRow());
+  const ai = autoExtractShokenMaterial_(ss, config, 'test', sheet.getLastRow());
   const coefficient = getConfigNumber_(config, 'テストふり返り経験値係数', 0.1);
-  let gained = 0;
-  if (Number(score1) > 0) gained += Math.floor(coefficient * score1 * score1);
-  if (Number(score2) > 0) gained += Math.floor(coefficient * score2 * score2);
-  return gained;
+  let base = 0;
+  if (Number(score1) > 0) base += Math.floor(coefficient * score1 * score1);
+  if (Number(score2) > 0) base += Math.floor(coefficient * score2 * score2);
+  return applyReflectionBonus_(ss, email, config, base, ai.depth);
+}
+
+/**
+ * 基本経験値とふり返り質ボーナスを分けて返します（付与は saveRecord 側で別々に行い、
+ * 経験値ログ・MVP集計・最近のできごとで基本分とボーナス分がそれぞれ明確に表示されます）。
+ * @returns {{gainedExp:number, reflectionBonus:number}}
+ */
+function applyReflectionBonus_(ss, email, config, baseExp, depth) {
+  return { gainedExp: baseExp, reflectionBonus: calcReflectionBonus_(config, depth) };
 }
 
 function saveMoralRecord_(ss, email, data, config) {

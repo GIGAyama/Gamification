@@ -24,31 +24,48 @@ function isAiEnabled_() {
 
 /**
  * Gemini API を呼び出してテキストを生成します。
+ * 一時的なエラー（429=レート制限 / 500 / 503=過負荷）は指数バックオフで
+ * 最大3回まで自動再試行します。これにより一括処理の取りこぼしを減らします。
  */
 function callGeminiApi_(prompt) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Gemini APIキーがスクリプトプロパティ（GEMINI_API_KEY）に設定されていません。');
 
   const config = getConfig_();
-  const model = config['Geminiモデル'] || 'gemini-1.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
-  const response = UrlFetchApp.fetch(url, {
+  const model = config['Geminiモデル'] || 'gemini-2.0-flash';
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const options = {
     method: 'post',
     contentType: 'application/json',
     payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     muteHttpExceptions: true
-  });
+  };
 
-  if (response.getResponseCode() !== 200) {
-    console.error(`Gemini APIエラー: ${response.getResponseCode()} ${response.getContentText()}`);
-    throw new Error('AIとの通信に失敗しました。しばらくして再実行してください。');
+  const RETRIABLE = [429, 500, 503];
+  const maxAttempts = 3;
+  let lastCode = 0, lastBody = '';
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (attempt > 0) Utilities.sleep(1000 * Math.pow(2, attempt - 1)); // 1s, 2s
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    lastCode = code;
+    lastBody = response.getContentText();
+
+    if (code === 200) {
+      const json = JSON.parse(lastBody);
+      const text = json.candidates && json.candidates[0] && json.candidates[0].content &&
+        json.candidates[0].content.parts && json.candidates[0].content.parts[0] &&
+        json.candidates[0].content.parts[0].text;
+      if (!text) throw new Error('AIからの応答がありませんでした。');
+      return text.trim();
+    }
+    if (!RETRIABLE.includes(code)) break; // 400/403 などは再試行しても無駄
+    console.warn(`Gemini API 一時エラー(${code})。再試行します（${attempt + 1}/${maxAttempts}）`);
   }
-  const json = JSON.parse(response.getContentText());
-  const text = json.candidates && json.candidates[0] && json.candidates[0].content &&
-    json.candidates[0].content.parts && json.candidates[0].content.parts[0] &&
-    json.candidates[0].content.parts[0].text;
-  if (!text) throw new Error('AIからの応答がありませんでした。');
-  return text.trim();
+
+  console.error(`Gemini APIエラー: ${lastCode} ${lastBody}`);
+  if (lastCode === 429) throw new Error('AIが混み合っています。少し時間をおいて再実行してください。');
+  throw new Error('AIとの通信に失敗しました。しばらくして再実行してください。');
 }
 
 /** Gemini にJSONで回答させ、コードフェンス等を取り除いてパースします */
@@ -115,28 +132,30 @@ function findTeachingPoint_(teachingPoints, subject, date, unit) {
  * ふり返り保存直後に呼ばれる自動抽出フック。
  * 設定OFF・APIキー未設定なら何もせず、失敗しても保存処理には影響しません
  * （フラグが空のまま残るので、後の一括抽出が再処理します）。
+ * @returns {{stocked:boolean, depth:number}} 抽出結果（保存側のボーナス計算に使用）
  */
 function autoExtractShokenMaterial_(ss, config, type, rowNum) {
   try {
-    if (String(config['AI所見材料の自動抽出']).toUpperCase() !== 'ON') return;
-    if (!isAiEnabled_()) return;
-    processReflectionRow_(ss, type, rowNum, null);
+    if (String(config['AI所見材料の自動抽出']).toUpperCase() !== 'ON') return { stocked: false, depth: 0 };
+    if (!isAiEnabled_()) return { stocked: false, depth: 0 };
+    return processReflectionRow_(ss, type, rowNum, null);
   } catch (e) {
     console.error(`所見材料の自動抽出エラー(${type} 行${rowNum}): ${e.message}`);
+    return { stocked: false, depth: 0 };
   }
 }
 
 /**
  * ふり返り1行をAIで分析し、採用なら「所見材料」へストックして
  * 「所見抽出」フラグを「済」にします。
- * @returns {boolean} 材料をストックしたか
+ * @returns {{stocked:boolean, depth:number}} 材料をストックしたか・記述の深さ(0〜3)
  */
 function processReflectionRow_(ss, type, rowNum, context) {
   const sheetName = type === 'test' ? SHEETS.TEST : SHEETS.LESSON;
   const flagCol = SHOKEN_FLAG_COLS[type];
   const sheet = ss.getSheetByName(sheetName);
   const row = sheet.getRange(rowNum, 1, 1, flagCol).getValues()[0];
-  if (row[flagCol - 1] === '済') return false;
+  if (row[flagCol - 1] === '済') return { stocked: false, depth: 0 };
 
   const source = buildReflectionSource_(type, row);
   const ctx = context || { userMap: getUserNumberMap_(ss), teachingPoints: getTeachingPoints_(ss) };
@@ -154,11 +173,21 @@ function processReflectionRow_(ss, type, rowNum, context) {
   }
   // 授業のふり返りは「学びに向かう力スコア」も同時に蓄積
   // （AI採点は所見抽出と同じ1回の呼び出しに相乗りするため追加コストなし）
+  const depth = ai ? Math.min(3, Math.max(0, Number(ai.depth) || 0)) : 0;
   if (type === 'lesson' && studentNumber) {
-    recordAttitudeScore_(ss, source, ai ? ai.depth : 0);
+    recordAttitudeScore_(ss, source, depth);
   }
   sheet.getRange(rowNum, flagCol).setValue('済');
-  return stocked;
+  return { stocked, depth };
+}
+
+/** ふり返りの深さ(0〜3)からボーナス経験値を計算します（設定でON/OFF・係数調整） */
+function calcReflectionBonus_(config, depth) {
+  if (String(config['ふり返り質ボーナス']).toUpperCase() !== 'ON') return 0;
+  const d = Math.min(3, Math.max(0, Number(depth) || 0));
+  if (d <= 0) return 0;
+  const coefficient = getConfigNumber_(config, 'ふり返り質ボーナス係数', 15);
+  return Math.max(0, Math.floor(d * coefficient));
 }
 
 /** ふり返りシートの1行を抽出用オブジェクトに変換します */
@@ -292,7 +321,7 @@ function runExtractionBatch_(maxItems) {
   for (const t of targets) {
     if (processed >= limit) break;
     try {
-      if (processReflectionRow_(ss, t.type, t.rowNum, context)) stocked++;
+      if (processReflectionRow_(ss, t.type, t.rowNum, context).stocked) stocked++;
       processed++;
       Utilities.sleep(1000); // APIレート制限対策
     } catch (e) {
@@ -407,6 +436,49 @@ function saveTeachingPoint(data) {
   });
 }
 
+/**
+ * 指導事項を一括登録します。1行 = 1件で、
+ * 「教科[タブ]単元名[タブ]指導事項・ねらい[タブ]評価のポイント」の形式。
+ * タブが無ければ全角/半角カンマ区切りでも受け付けます。
+ * 表計算ソフトや教科書の単元一覧からの貼り付けを想定しています。
+ * @param {string} text - 複数行テキスト
+ */
+function saveTeachingPointsBulk(text) {
+  return withLock_(() => {
+    try {
+      assertTeacher_();
+      const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(l => l !== '');
+      if (lines.length === 0) return { success: false, message: '登録するテキストが空です。' };
+
+      const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.TEACHING_POINTS);
+      const now = new Date();
+      const rows = [];
+      const skipped = [];
+      lines.forEach((line, i) => {
+        const cols = (line.indexOf('\t') >= 0 ? line.split('\t') : line.split(/[,、]/)).map(c => c.trim());
+        const subject = cols[0] || '';
+        const unit = cols[1] || '';
+        const points = cols[2] || '';
+        const evalPoints = cols[3] || '';
+        if (!subject || (!unit && !points)) {
+          skipped.push(i + 1);
+          return;
+        }
+        rows.push([now, subject, unit, points, evalPoints]);
+      });
+
+      if (rows.length > 0) {
+        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+      }
+      let message = `${rows.length}件の指導事項を登録しました。`;
+      if (skipped.length > 0) message += `（教科と単元/ねらいが不足した ${skipped.length}行はスキップしました）`;
+      return { success: rows.length > 0, message };
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  });
+}
+
 /** 指導事項を削除します */
 function deleteTeachingPoint(rowNum) {
   return withLock_(() => {
@@ -511,6 +583,135 @@ function generateShokenDraft(studentNumber) {
   } catch (e) {
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * 全体所見のドラフトを、まだ生成されていない児童分だけまとめて生成します。
+ * 実行時間制限を避けるため1回で最大 maxItems 人まで処理し、残りは再実行で続けられます。
+ */
+function runBulkGeneralShokenDraft(maxItems) {
+  try {
+    assertTeacher_();
+    if (!isAiEnabled_()) {
+      return { success: false, message: 'Gemini APIキー（GEMINI_API_KEY）が設定されていません。' };
+    }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    // 所見材料を持つ児童
+    const counts = {};
+    const mSheet = ss.getSheetByName(SHEETS.SHOKEN_MATERIALS);
+    if (mSheet && mSheet.getLastRow() >= 2) {
+      mSheet.getRange(2, 2, mSheet.getLastRow() - 1, 1).getValues().forEach(r => {
+        const n = String(r[0]).trim();
+        if (n) counts[n] = (counts[n] || 0) + 1;
+      });
+    }
+    // すでに全体所見が入っている児童
+    const hasDraft = {};
+    const gSheet = ss.getSheetByName(SHEETS.GENERAL_SHOKEN);
+    if (gSheet && gSheet.getLastRow() >= 2) {
+      gSheet.getRange(2, 1, gSheet.getLastRow() - 1, 2).getValues().forEach(r => {
+        if (String(r[1]).trim()) hasDraft[String(r[0]).trim()] = true;
+      });
+    }
+
+    const targets = Object.keys(counts).filter(n => !hasDraft[n]);
+    const limit = maxItems || 15;
+    let generated = 0, errors = 0;
+    for (const n of targets) {
+      if (generated >= limit) break;
+      try {
+        const text = generateGeneralShokenFor_(ss, n);
+        upsertGeneralShoken_(ss, n, text);
+        generated++;
+        Utilities.sleep(1200);
+      } catch (e) {
+        errors++;
+        console.error(`一括全体所見生成エラー(出席番号${n}): ${e.message}`);
+        if (String(e.message).includes('APIキー')) throw e;
+      }
+    }
+    const remaining = targets.length - generated;
+    let message = `${generated}人分の全体所見ドラフトを生成しました（「全体所見」シートに保存）。`;
+    if (remaining > 0) message += ` 未生成が${remaining}人います（もう一度実行してください）。`;
+    if (errors > 0) message += ` ${errors}件のエラーがありました。`;
+    return { success: true, message, generated, remaining };
+  } catch (e) {
+    console.error(`runBulkGeneralShokenDraft Error: ${e.message}`);
+    return { success: false, message: e.message };
+  }
+}
+
+/** 指定児童が記録した道徳教材の一覧（重複除去・新しい順）を返します */
+function getStudentMoralList(studentNumber) {
+  try {
+    assertTeacher_();
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const email = getEmailByNumber_(ss, studentNumber);
+    if (!email) return { success: false, message: '児童マスタに該当の出席番号がありません。' };
+
+    const materials = getMoralMaterials_(ss);
+    const sheet = ss.getSheetByName(SHEETS.MORAL);
+    const seen = {};
+    const list = [];
+    if (sheet && sheet.getLastRow() >= 2) {
+      sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues().forEach(r => {
+        if (String(r[1]).toLowerCase().trim() !== email) return;
+        const m = materials.find(x => String(x.number) === String(r[2]));
+        const name = m ? m.name : `教材${r[2]}`;
+        const d = parseTimestamp_(r[0]);
+        if (seen[name]) return;
+        seen[name] = true;
+        list.push({ materialName: name, date: d ? formatDate_(r[0]) : '' });
+      });
+    }
+    return { success: true, materials: list };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/**
+ * 指定児童・教材の道徳所見ドラフトを生成し、「道徳所見」シートに保存して本文を返します。
+ * @param {Object} data - { studentNumber, materialName }
+ */
+function generateMoralShokenDraft(data) {
+  try {
+    assertTeacher_();
+    if (!isAiEnabled_()) {
+      return { success: false, message: 'Gemini APIキー（GEMINI_API_KEY）が設定されていません。' };
+    }
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const text = generateMoralShokenFor_(ss, data.studentNumber, data.materialName);
+    upsertMoralShoken_(ss, data.studentNumber, data.materialName, text);
+    return { success: true, text, length: text.length };
+  } catch (e) {
+    return { success: false, message: e.message };
+  }
+}
+
+/** 「道徳所見」シートの該当（出席番号×教材名）の行を更新（なければ追加）します */
+function upsertMoralShoken_(ss, studentNumber, materialName, text) {
+  const sheet = ss.getSheetByName(SHEETS.MORAL_SHOKEN);
+  if (!sheet) return;
+  const num = String(studentNumber).trim();
+  let targetRow = null;
+  if (sheet.getLastRow() >= 2) {
+    const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
+    for (let i = 0; i < rows.length; i++) {
+      if (String(rows[i][0]).trim() === num && String(rows[i][1]).trim() === String(materialName).trim()) {
+        targetRow = i + 2;
+        break;
+      }
+    }
+  }
+  if (targetRow) {
+    sheet.getRange(targetRow, 3).setValue(text);
+  } else {
+    sheet.appendRow([studentNumber, materialName, text, '', false]);
+    targetRow = sheet.getLastRow();
+  }
+  sheet.getRange(targetRow, 4).setFormula(`=LEN(C${targetRow})`);
 }
 
 /**
