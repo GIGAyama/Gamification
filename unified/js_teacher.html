@@ -44,6 +44,8 @@ function renderTeacherDashboard(data) {
       </div></div>
     </div>`;
 
+  renderStudentAlerts(data.alerts || []);
+
   // 児童一覧テーブル
   const tbody = document.querySelector('#t-student-table tbody');
   tbody.innerHTML = data.students.map(s => `
@@ -69,6 +71,42 @@ function renderTeacherDashboard(data) {
     <div class="d-flex justify-content-between border-bottom py-1">
       <span>${esc(label)}</span><b>${weekly[label]}件</b>
     </div>`).join('') || emptyMessage('データがありません');
+}
+
+function renderStudentAlerts(alerts) {
+  const area = document.getElementById('t-alerts-area');
+  if (!alerts || alerts.length === 0) {
+    area.innerHTML = `
+      <div class="card shadow-sm border-0 rounded-4 bg-success-subtle">
+        <div class="card-body py-2 small"><i class="bi bi-check-circle-fill text-success"></i> いま特に気になる児童はいません。みんな順調です。</div>
+      </div>`;
+    return;
+  }
+  area.innerHTML = `
+    <div class="card shadow-sm border-warning rounded-4">
+      <div class="card-header bg-warning text-dark fw-bold">
+        <i class="bi bi-eye"></i> 声かけリスト（${alerts.length}人）
+        <span class="fw-normal small">— 気になる様子の児童です。詳細やふり返りを確認してみましょう。</span>
+      </div>
+      <div class="card-body p-2">
+        <div class="row g-2">
+          ${alerts.map(a => `
+            <div class="col-md-6 col-lg-4">
+              <div class="border rounded-3 p-2 h-100 t-alert-card" role="button" data-email="${esc(a.email)}">
+                <div class="fw-bold">${esc(String(a.number))} ${esc(a.name)} <i class="bi bi-chevron-right small text-muted"></i></div>
+                ${a.reasons.map(r => `<div class="small text-muted">${r.icon} ${esc(r.text)}</div>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>
+      </div>
+    </div>`;
+  area.querySelectorAll('.t-alert-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.getElementById('t-student-select').value = card.dataset.email;
+      showView('view-t-student');
+      loadStudentDetail(card.dataset.email);
+    });
+  });
 }
 
 function renderTeacherStudentSelects(students) {
@@ -107,7 +145,10 @@ async function loadStudentDetail(email) {
       { label: 'ふり返り', value: `${r.lesson.length}回`, cls: 'text-success' }
     ];
     container.innerHTML = `
-      <h5 class="fw-bold mb-3">${esc(String(d.profile.number))} ${esc(d.profile.name)} さんの記録</h5>
+      <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+        <h5 class="fw-bold mb-0">${esc(String(d.profile.number))} ${esc(d.profile.name)} さんの記録</h5>
+        <button id="t-interview-btn" class="btn btn-outline-primary btn-sm fw-bold" data-email="${esc(email)}"><i class="bi bi-file-earmark-person"></i> 面談メモPDF</button>
+      </div>
       <div class="row g-2 mb-3">
         ${summaryCards.map(c => `<div class="col-4 col-md-2">
           <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body p-2">
@@ -179,6 +220,19 @@ async function loadStudentDetail(email) {
     };
     renderLessonList('');
     document.getElementById('t-lesson-filter').addEventListener('change', e2 => renderLessonList(e2.target.value));
+
+    // 面談メモPDF
+    document.getElementById('t-interview-btn').addEventListener('click', async ev => {
+      const result = await apiWithLoading('面談メモを作成しています...', 'createInterviewSheet', ev.currentTarget.dataset.email);
+      if (result.success) {
+        Swal.fire({
+          icon: 'success', title: '面談メモを作成しました',
+          html: `${esc(result.message)}<br><a href="${esc(result.fileUrl)}" target="_blank" class="btn btn-primary btn-sm mt-2"><i class="bi bi-box-arrow-up-right"></i> PDFを開く</a>`
+        });
+      } else {
+        Swal.fire('エラー', esc(result.message), 'error');
+      }
+    });
   } catch (e) {
     container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
   }
@@ -262,6 +316,26 @@ function bindTeacherEvents() {
     if (result.success) {
       Swal.fire({
         icon: 'success', title: 'PDFを作成しました',
+        html: `${esc(result.message)}<br><a href="${esc(result.fileUrl)}" target="_blank" class="btn btn-primary btn-sm mt-2"><i class="bi bi-box-arrow-up-right"></i> PDFを開く</a>`
+      });
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+
+  // がんばり賞状PDF
+  document.getElementById('t-create-cert-btn').addEventListener('click', async () => {
+    const term = Number(document.getElementById('t-pdf-term').value);
+    const confirm = await Swal.fire({
+      title: `${term}学期のがんばり賞状PDF`,
+      text: '全児童分の賞状を作成します。数分かかることがあります。',
+      icon: 'question', showCancelButton: true, confirmButtonText: '作成する', cancelButtonText: 'やめる'
+    });
+    if (!confirm.isConfirmed) return;
+    const result = await apiWithLoading('賞状を作成しています...（数分かかることがあります）', 'createCertificatePdf', term);
+    if (result.success) {
+      Swal.fire({
+        icon: 'success', title: '賞状を作成しました',
         html: `${esc(result.message)}<br><a href="${esc(result.fileUrl)}" target="_blank" class="btn btn-primary btn-sm mt-2"><i class="bi bi-box-arrow-up-right"></i> PDFを開く</a>`
       });
     } else {
@@ -376,12 +450,29 @@ async function loadShokenMaterials() {
   if (!studentNumber) { Swal.fire('確認', '児童を選択してください。', 'info'); return; }
   const container = document.getElementById('ts-material-list');
   container.innerHTML = `<div class="text-center py-3"><div class="spinner-border text-primary spinner-border-sm"></div></div>`;
+  loadMoralMaterialsForStudent(studentNumber);
   try {
     const result = await api('getShokenMaterials', studentNumber);
     if (!result.success) { container.innerHTML = `<div class="alert alert-warning">${esc(result.message)}</div>`; return; }
     renderShokenMaterials(result.materials);
   } catch (e) {
     container.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+  }
+}
+
+async function loadMoralMaterialsForStudent(studentNumber) {
+  const select = document.getElementById('ts-moral-material');
+  select.innerHTML = `<option value="">読み込み中...</option>`;
+  document.getElementById('ts-moral-draft-area').classList.add('d-none');
+  try {
+    const result = await api('getStudentMoralList', studentNumber);
+    if (!result.success || result.materials.length === 0) {
+      select.innerHTML = `<option value="">道徳ノートの記録がありません</option>`;
+      return;
+    }
+    select.innerHTML = result.materials.map(m => `<option value="${esc(m.materialName)}">${esc(m.materialName)}${m.date ? `（${m.date}）` : ''}</option>`).join('');
+  } catch (e) {
+    select.innerHTML = `<option value="">読み込みに失敗しました</option>`;
   }
 }
 
@@ -421,6 +512,24 @@ function bindShokenStudioEvents() {
     }
   });
 
+  // 指導事項の一括登録
+  document.getElementById('ts-tp-bulk-toggle').addEventListener('click', () => {
+    document.getElementById('ts-tp-bulk-area').classList.toggle('d-none');
+  });
+  document.getElementById('ts-tp-bulk-save-btn').addEventListener('click', async () => {
+    const text = document.getElementById('ts-tp-bulk-text').value.trim();
+    if (!text) { Swal.fire('確認', '貼り付けるテキストを入力してください。', 'info'); return; }
+    const result = await apiWithLoading('登録中...', 'saveTeachingPointsBulk', text);
+    if (result.success) {
+      toast(result.message);
+      document.getElementById('ts-tp-bulk-text').value = '';
+      document.getElementById('ts-tp-bulk-area').classList.add('d-none');
+      loadShokenStudio(true);
+    } else {
+      Swal.fire(result.message.includes('登録しました') ? '一部登録' : 'エラー', esc(result.message), result.message.includes('登録しました') ? 'info' : 'error');
+    }
+  });
+
   // 指導事項削除
   document.getElementById('ts-tp-list').addEventListener('click', async e => {
     const btn = e.target.closest('.ts-tp-del');
@@ -453,8 +562,39 @@ function bindShokenStudioEvents() {
   document.getElementById('ts-load-materials-btn').addEventListener('click', loadShokenMaterials);
   document.getElementById('ts-student-select').addEventListener('change', () => {
     document.getElementById('ts-draft-area').classList.add('d-none');
+    document.getElementById('ts-moral-draft-area').classList.add('d-none');
     if (document.getElementById('ts-student-select').value) loadShokenMaterials();
   });
+
+  // 全児童分の全体所見ドラフトを一括生成
+  document.getElementById('ts-bulk-draft-btn').addEventListener('click', async () => {
+    const confirm = await Swal.fire({
+      title: '全児童の全体所見ドラフトを生成',
+      text: '所見材料があり、まだドラフトのない児童分をまとめて生成します（数分かかることがあります）。',
+      icon: 'question', showCancelButton: true, confirmButtonText: '生成する', cancelButtonText: 'やめる'
+    });
+    if (!confirm.isConfirmed) return;
+    const result = await apiWithLoading('AIが全体所見をまとめて作成しています...', 'runBulkGeneralShokenDraft');
+    if (result.success) { Swal.fire('生成完了', esc(result.message), 'success'); loadShokenStudio(true); }
+    else Swal.fire('エラー', esc(result.message), 'error');
+  });
+
+  // 道徳所見の生成
+  document.getElementById('ts-moral-gen-btn').addEventListener('click', async () => {
+    const studentNumber = document.getElementById('ts-student-select').value;
+    const materialName = document.getElementById('ts-moral-material').value;
+    if (!studentNumber) { Swal.fire('確認', '上の欄で児童を選択してください。', 'info'); return; }
+    if (!materialName) { Swal.fire('確認', '教材を選択してください。', 'info'); return; }
+    const result = await apiWithLoading('AIが道徳所見を作成しています...', 'generateMoralShokenDraft', { studentNumber, materialName });
+    if (result.success) {
+      document.getElementById('ts-moral-output').value = result.text;
+      document.getElementById('ts-moral-draft-area').classList.remove('d-none');
+      toast(`道徳所見を生成しました（${result.length}字）`);
+    } else {
+      Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+  document.getElementById('ts-copy-moral-btn').addEventListener('click', () => copyTextarea('ts-moral-output'));
 
   // 所見材料削除
   document.getElementById('ts-material-list').addEventListener('click', async e => {

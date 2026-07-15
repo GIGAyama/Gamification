@@ -235,6 +235,7 @@
     <div id="view-t-dashboard" class="spa-view d-none">
       <h4 class="fw-bold text-primary mb-3"><i class="bi bi-clipboard-data"></i> クラスのようす</h4>
       <div class="row g-3 mb-4" id="t-stats-cards"></div>
+      <div id="t-alerts-area" class="mb-4"></div>
       <div class="row g-4">
         <div class="col-lg-7">
           <div class="card shadow-sm border-0 rounded-4">
@@ -289,6 +290,14 @@
                 <div class="col-12"><input type="text" id="ts-tp-eval" class="form-control form-control-sm" placeholder="評価のポイント（任意）"></div>
               </div>
               <button id="ts-tp-save-btn" class="btn btn-primary btn-sm w-100 fw-bold">登録する</button>
+              <div class="text-center mt-2">
+                <button id="ts-tp-bulk-toggle" class="btn btn-link btn-sm text-decoration-none p-0"><i class="bi bi-clipboard-plus"></i> まとめて貼り付けて登録</button>
+              </div>
+              <div id="ts-tp-bulk-area" class="d-none mt-2 p-2 bg-light rounded">
+                <p class="small text-muted mb-1">1行に1件、<b>教科 [Tab] 単元名 [Tab] 指導事項・ねらい [Tab] 評価のポイント</b> の順で貼り付けます（表計算ソフトからのコピーに対応。カンマ区切りも可）。</p>
+                <textarea id="ts-tp-bulk-text" class="form-control form-control-sm mb-2" rows="4" placeholder="国語	ごんぎつね	気持ちの変化を場面と結び付けて読む	叙述をもとに読めているか&#10;算数	分数のたし算	通分の意味を理解する	"></textarea>
+                <button id="ts-tp-bulk-save-btn" class="btn btn-primary btn-sm w-100 fw-bold">まとめて登録する</button>
+              </div>
               <hr class="my-3">
               <div id="ts-tp-list" class="custom-scrollbar" style="max-height:280px;overflow-y:auto;"></div>
             </div>
@@ -302,6 +311,7 @@
               <div class="d-flex align-items-center gap-3 flex-wrap mb-2">
                 <div>未処理のふり返り: <b id="ts-pending-count" class="fs-5">-</b> 件</div>
                 <button id="ts-extract-btn" class="btn btn-success fw-bold"><i class="bi bi-stars"></i> 今すぐAI抽出</button>
+                <button id="ts-bulk-draft-btn" class="btn btn-outline-warning text-dark fw-bold"><i class="bi bi-people"></i> 全児童の全体所見ドラフトを生成</button>
               </div>
               <div id="ts-count-summary" class="d-flex flex-wrap gap-1"></div>
             </div>
@@ -326,6 +336,18 @@
                   <label class="form-label small fw-bold">要録用の変換結果</label>
                   <textarea id="ts-youroku-output" class="form-control form-control-sm mb-2" rows="5"></textarea>
                   <button id="ts-copy-youroku-btn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clipboard"></i> コピー</button>
+                </div>
+              </div>
+              <hr class="my-3">
+              <div id="ts-moral-area">
+                <label class="form-label small fw-bold" style="color:#d63384;"><i class="bi bi-heart"></i> 道徳所見（教材ごと）</label>
+                <div class="d-flex gap-2 mb-2 flex-wrap">
+                  <select id="ts-moral-material" class="form-select form-select-sm" style="max-width:260px;"><option value="">上で児童を選ぶと教材が表示されます</option></select>
+                  <button id="ts-moral-gen-btn" class="btn btn-outline-danger btn-sm fw-bold"><i class="bi bi-pencil-square"></i> 道徳所見を生成</button>
+                </div>
+                <div id="ts-moral-draft-area" class="d-none">
+                  <textarea id="ts-moral-output" class="form-control form-control-sm mb-2" rows="4"></textarea>
+                  <button id="ts-copy-moral-btn" class="btn btn-outline-secondary btn-sm"><i class="bi bi-clipboard"></i> コピー</button>
                 </div>
               </div>
             </div>
@@ -410,7 +432,9 @@
               <select id="t-pdf-term" class="form-select mb-2">
                 <option value="1">1学期</option><option value="2">2学期</option><option value="3">3学期</option>
               </select>
-              <button id="t-create-pdf-btn" class="btn btn-info text-white w-100 fw-bold">PDFを作成</button>
+              <button id="t-create-pdf-btn" class="btn btn-info text-white w-100 fw-bold mb-2">ポートフォリオPDFを作成</button>
+              <button id="t-create-cert-btn" class="btn btn-outline-warning text-dark w-100 fw-bold"><i class="bi bi-award"></i> がんばり賞状PDFを作成</button>
+              <p class="small text-muted mt-2 mb-0">賞状は児童ごとに1枚。ベスト記録・獲得バッジ・AIが作った成長エピソードを賞状風にまとめます。</p>
             </div>
           </div>
           <div class="card shadow-sm border-secondary rounded-4">
