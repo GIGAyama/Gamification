@@ -116,6 +116,132 @@ function renderAvatar(container, composition, allItems) {
  * 初期化
  * ------------------------------------------------------------------- */
 
+/* ---------------------------------------------------------------------
+ * ふりがな（ルビ）自動付与エンジン（児童画面のみ）
+ * kuroshiro + kuromoji で、画面に出る漢字の上へひらがなのルビを付けます。
+ * 児童が入力したふり返り・本のタイトル・AIコメントなど動的なテキストにも対応。
+ * ライブラリが読み込めない環境ではルビなしで通常どおり動作します（安全側）。
+ * ------------------------------------------------------------------- */
+const Furigana = {
+  ready: false,
+  writing: false,       // 自分のDOM書き換え中はObserverを無視する
+  kuroshiro: null,
+  cache: new Map(),     // エスケープ済み原文 → ルビHTML
+  pending: new Set(),
+  scheduled: false,
+  // ルビを付けない要素（入力欄・選択肢・グラフ・既存ルビ・スクリプト等）
+  SKIP_TAGS: new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'RUBY', 'RT', 'RP', 'CODE', 'svg', 'SVG'])
+};
+
+/** 児童画面向けにふりがなエンジンを起動します（教員画面では呼びません） */
+async function initFurigana() {
+  try {
+    if (Furigana.ready || typeof Kuroshiro === 'undefined' || typeof KuromojiAnalyzer === 'undefined') return;
+    const KuroshiroCtor = Kuroshiro.default || Kuroshiro;
+    const AnalyzerCtor = KuromojiAnalyzer.default || KuromojiAnalyzer;
+    const kuroshiro = new KuroshiroCtor();
+    await kuroshiro.init(new AnalyzerCtor({ dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }));
+    Furigana.kuroshiro = kuroshiro;
+    Furigana.ready = true;
+    document.body.classList.add('furigana-on');
+
+    await furiganizeTree(document.body);
+    startFuriganaObserver();
+  } catch (e) {
+    console.warn('ふりがな機能を初期化できませんでした（ルビなしで動作します）:', e && e.message);
+  }
+}
+
+/** 漢字を含むか */
+function hasKanji_(s) { return /[\u3400-\u9fff\uf900-\ufaff]/.test(s); }
+
+/** テキストノードの祖先にルビ非対象の要素があるか */
+function isFuriganaSkipped_(node) {
+  let el = node.parentNode;
+  while (el && el !== document) {
+    if (el.nodeType === 1) {
+      if (Furigana.SKIP_TAGS.has(el.tagName)) return true;
+      if (el.classList && el.classList.contains('no-furigana')) return true;
+      if (el.id && /-chart$/.test(el.id)) return true; // Google Charts の描画先
+    }
+    el = el.parentNode;
+  }
+  return false;
+}
+
+/** 指定要素以下の、漢字を含むテキストノードを集めます */
+function collectKanjiTextNodes_(root) {
+  const nodes = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !hasKanji_(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+      if (isFuriganaSkipped_(node)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    }
+  });
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  return nodes;
+}
+
+/** 原文をふりがな付きHTMLに変換します（HTMLエスケープしてから変換し安全に注入） */
+async function toFuriganaHtml_(rawText) {
+  const escaped = esc(rawText);
+  if (Furigana.cache.has(escaped)) return Furigana.cache.get(escaped);
+  const html = await Furigana.kuroshiro.convert(escaped, { to: 'hiragana', mode: 'furigana' });
+  Furigana.cache.set(escaped, html);
+  return html;
+}
+
+/** 指定要素以下の漢字にルビを付けます */
+async function furiganizeTree(root) {
+  if (!Furigana.ready || !root) return;
+  const nodes = collectKanjiTextNodes_(root);
+  for (const node of nodes) {
+    if (!node.parentNode) continue; // すでに置換・削除済み
+    let html;
+    try {
+      html = await toFuriganaHtml_(node.nodeValue);
+    } catch (e) {
+      continue;
+    }
+    if (!node.parentNode) continue;
+    const tpl = document.createElement('template');
+    tpl.innerHTML = html;
+    Furigana.writing = true;
+    node.parentNode.replaceChild(tpl.content, node);
+    Furigana.writing = false;
+  }
+}
+
+/** DOMの変化を監視し、あとから追加された漢字にも自動でルビを付けます */
+function startFuriganaObserver() {
+  const observer = new MutationObserver(mutations => {
+    if (!Furigana.ready || Furigana.writing) return;
+    for (const m of mutations) {
+      m.addedNodes.forEach(node => {
+        if (node.nodeType === 1) Furigana.pending.add(node);
+        else if (node.nodeType === 3 && node.parentNode) Furigana.pending.add(node.parentNode);
+      });
+    }
+    if (Furigana.pending.size > 0 && !Furigana.scheduled) {
+      Furigana.scheduled = true;
+      requestAnimationFrame(flushFuriganaQueue_);
+    }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+}
+
+/** 監視でたまった要素をまとめて処理します */
+async function flushFuriganaQueue_() {
+  Furigana.scheduled = false;
+  const roots = [...Furigana.pending];
+  Furigana.pending.clear();
+  for (const root of roots) {
+    if (root && root.isConnected) await furiganizeTree(root);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
   // タブクリックの共通ハンドラ
   document.querySelectorAll('.nav-tab').forEach(tab => {
@@ -145,6 +271,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('nav-level-badge').classList.remove('d-none');
       initStudentApp(result.data);
       showView('view-home');
+      initFurigana(); // 児童画面だけ漢字にふりがなを付ける（教員画面では呼ばない）
     }
   } catch (e) {
     document.getElementById('initial-loading-view').classList.add('d-none');
