@@ -100,6 +100,8 @@
                   <div id="home-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width:0%"></div>
                 </div>
               </div>
+              <!-- 連続きろく日数（毎日の積み重ねが一番見えるところ） -->
+              <div id="home-streak" class="mt-3"></div>
             </div>
           </div>
           <div class="card shadow-sm border-0 rounded-4 mt-4">
@@ -108,11 +110,41 @@
             </div>
             <div class="card-body" id="home-badges"></div>
           </div>
+          <!-- 学びの総量メーター -->
+          <div class="card shadow-sm border-0 rounded-4 mt-4">
+            <div class="card-header bg-transparent border-0 pt-3 pb-0">
+              <h5 class="fw-bold text-secondary"><i class="bi bi-bar-chart-steps"></i> これまでのつみあげ</h5>
+            </div>
+            <div class="card-body" id="home-totals"></div>
+          </div>
         </div>
         <div class="col-lg-8">
           <div class="row g-4">
             <!-- 学習アプリのきろく送信パネル（ポータル埋め込み時はここから直接送信できる） -->
             <div class="col-12" id="home-send-card"></div>
+            <!-- 今週のふり返り（書いていない週の後半に出ます） -->
+            <div class="col-12" id="home-weekly-card"></div>
+            <!-- 今週のマイめあて -->
+            <div class="col-12">
+              <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex align-items-center">
+                  <h5 class="fw-bold text-danger mb-0"><i class="bi bi-flag-fill"></i> わたしのめあて</h5>
+                  <button class="btn btn-sm btn-outline-danger ms-auto" id="home-add-goal-btn">
+                    <i class="bi bi-plus-lg"></i> めあてを立てる
+                  </button>
+                </div>
+                <div class="card-body" id="home-goals"></div>
+              </div>
+            </div>
+            <!-- がんばりカレンダー（学習ヒートマップ） -->
+            <div class="col-12">
+              <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                  <h5 class="fw-bold text-success"><i class="bi bi-calendar-heart"></i> がんばりカレンダー</h5>
+                </div>
+                <div class="card-body" id="home-calendar"></div>
+              </div>
+            </div>
             <div class="col-12">
               <div class="card shadow-sm border-0 rounded-4">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
@@ -121,6 +153,17 @@
                 <div class="card-body custom-scrollbar" style="max-height:280px;overflow-y:auto;" id="home-missions"></div>
               </div>
             </div>
+            <!-- わたしの成長カード（今月 vs 先月） -->
+            <div class="col-12">
+              <div class="card shadow-sm border-0 rounded-4">
+                <div class="card-header bg-transparent border-0 pt-3 pb-0">
+                  <h5 class="fw-bold text-info"><i class="bi bi-graph-up-arrow"></i> わたしの成長カード</h5>
+                </div>
+                <div class="card-body" id="home-growth-card"></div>
+              </div>
+            </div>
+            <!-- むかしの自分のふり返り -->
+            <div class="col-12" id="home-flashback"></div>
             <div class="col-md-6">
               <div class="card shadow-sm border-0 rounded-4 h-100">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
@@ -152,6 +195,7 @@
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-notes">せいちょう・自学</button></li>
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-lesson">じゅぎょう</button></li>
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-apps">学習アプリ</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-album">ことばアルバム</button></li>
       </ul>
       <div id="rtab-input" class="record-tab"></div>
       <div id="rtab-typing" class="record-tab d-none"></div>
@@ -160,6 +204,7 @@
       <div id="rtab-notes" class="record-tab d-none"></div>
       <div id="rtab-lesson" class="record-tab d-none"></div>
       <div id="rtab-apps" class="record-tab d-none"></div>
+      <div id="rtab-album" class="record-tab d-none"></div>
     </div>
 
     <!-- ============ 児童: クエスト（ガチャ・アバター） ============ -->
@@ -229,8 +274,14 @@
     <div id="view-plaza" class="spa-view d-none">
       <div class="row g-4">
         <div class="col-lg-8">
+          <!-- クラスみんなの共同目標 -->
+          <div id="class-goals-container" class="mb-4"></div>
+          <!-- 今週がんばっている友だちに応援スタンプを送る -->
+          <div id="cheer-board-container" class="mb-4"></div>
           <h5 class="fw-bold text-primary mb-3"><i class="bi bi-people-fill"></i> みんなのひろば</h5>
           <div id="plaza-container" class="row g-3"></div>
+          <!-- みんなの本だな -->
+          <div id="bookshelf-container" class="mt-4"></div>
         </div>
         <div class="col-lg-4">
           <h5 class="fw-bold text-warning-emphasis mb-3"><i class="bi bi-trophy"></i> ランキング</h5>

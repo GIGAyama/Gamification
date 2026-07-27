@@ -809,10 +809,14 @@
     total.rejected += (result.rejected || []).length;
     total.gainedExp += result.gainedExp || 0;
     const r = result.reward || {};
-    ['appExp', 'calcExp', 'sendExp', 'streakExp', 'exchangePoints', 'calcRecords'].forEach(k => {
-      total.reward[k] += r[k] || 0;
+    ['appExp', 'calcExp', 'sendExp', 'streakExp', 'exchangePoints', 'calcRecords',
+     'personalBestExp', 'recordStreakExp'].forEach(k => {
+      total.reward[k] = (total.reward[k] || 0) + (r[k] || 0);
     });
     total.reward.streak = Math.max(total.reward.streak, r.streak || 0);
+    total.reward.recordStreak = Math.max(total.reward.recordStreak || 0, r.recordStreak || 0);
+    // じこベスト更新は最後に届いたものを採用します（1回の送信で複数出ることはまれです）
+    if (result.personalBest) total.personalBest = result.personalBest;
     if (result.level) total.level = result.level;
     if (result.leveledUp) total.leveledUp = true;
     return total;
@@ -856,7 +860,11 @@
 
     const total = {
       ok: true, saved: 0, duplicate: 0, rejected: 0, gainedExp: 0, level: null, leveledUp: false,
-      reward: { appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, calcRecords: 0, streak: 0 }
+      personalBest: null,
+      reward: {
+        appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, calcRecords: 0, streak: 0,
+        personalBestExp: 0, recordStreakExp: 0, recordStreak: 0
+      }
     };
 
     try {

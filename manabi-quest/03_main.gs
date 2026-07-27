@@ -88,7 +88,7 @@ function getStudentAppData() {
     itemCategories: allItems.categories,
     gachaCost: getConfigNumber_(config, 'ガチャコスト', 200),
     gacha10Cost: getConfigNumber_(config, '10連ガチャコスト', 1800),
-    announcements: getAnnouncements_(false),
+    announcements: getAnnouncements_(false, email),
     rankings: getRankings_(ss, config),
     missions: getMissionStatus_(ss, email),
     badges: updatedEarnedBadges,
@@ -100,9 +100,24 @@ function getStudentAppData() {
     moralMaterials: getMoralMaterials_(ss),
     testUnits: getTestUnits_(ss),
     studyApp: getStudyAppPanelData_(ss, email, config),
+    // 成長の可視化（がんばりカレンダー・成長カード・総量メーター・週次ふり返り・むかしの自分）
+    insights: getStudentInsights_(ss, email, config),
+    // 仲間とのつながり（クラス共同目標・応援スタンプ・みんなの本だな）
+    social: getStudentSocialData_(ss, email, config),
+    goalKinds: getGoalKindOptions_(),
     bonusApplied,
     bonusPoints
   };
+}
+
+/** 児童画面の「めあて」フォームで使う選択肢（GOAL_KINDS をクライアントへ渡します） */
+function getGoalKindOptions_() {
+  return Object.keys(GOAL_KINDS).map(key => ({
+    key,
+    label: GOAL_KINDS[key].label,
+    unit: GOAL_KINDS[key].unit,
+    manual: !GOAL_KINDS[key].metric
+  }));
 }
 
 // =====================================================================
@@ -298,6 +313,9 @@ function writeLog_(ss, email, actionType, details) {
   try {
     const logSheet = ss.getSheetByName(SHEETS.LOG);
     if (logSheet) logSheet.appendRow([new Date(), email, actionType, details]);
+    // 実行中に使い回している「ログ」の読み込みキャッシュを捨て、次の集計で最新を読み直します
+    clearLogRowsCache_();
+    clearClassLogStatsCache_();
   } catch (e) {
     console.error(`ログ書き込みエラー: ${e.message}`);
   }

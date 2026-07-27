@@ -68,6 +68,20 @@ function sendWeeklyClassSummary() {
   // 声かけリスト
   const alerts = getStudentAlerts_(ss, students, config);
 
+  // ふり返りの循環・仲間とのつながりの様子（ログの種別を数えるだけ）
+  const countAction = action => logs.filter(row => row[2] === action).length;
+  const weeklyReflections = countAction(LOG_ACTIONS.WEEKLY_REFLECTION);
+  const newRecords = countAction(LOG_ACTIONS.NEW_RECORD);
+  const goalsSet = countAction(LOG_ACTIONS.SET_GOAL);
+  const goalsAchieved = countAction(LOG_ACTIONS.ACHIEVE_GOAL);
+  const cheers = countAction(LOG_ACTIONS.SEND_CHEER);
+  // 今週まだ週次ふり返りを書いていない児童
+  const reflectedEmails = new Set(
+    logs.filter(row => row[2] === LOG_ACTIONS.WEEKLY_REFLECTION)
+      .map(row => String(row[1]).toLowerCase().trim())
+  );
+  const noReflection = students.filter(s => !reflectedEmails.has(s.email));
+
   const fmt = d => Utilities.formatDate(d, 'JST', 'M/d');
   const subject = `【まなびクエスト】先週のクラスのようす（${fmt(start)}〜${fmt(new Date(end.getTime() - 1))}）`;
 
@@ -94,6 +108,13 @@ ${recordLines}
 
 ■ 気になる児童（声かけリスト）:
 ${alertLines}
+
+■ ふり返りの循環
+  ・週のふり返りを書いた: ${weeklyReflections}人 / ${students.length}人
+  ・まだ書いていない児童: ${noReflection.length > 0 ? noReflection.map(s => `${s.number} ${s.name}`).join('、') : 'なし（全員書きました！）'}
+  ・立てためあて: ${goalsSet}件 ／ たっせいしためあて: ${goalsAchieved}件
+  ・じこベスト更新: ${newRecords}回
+  ・友だちへの応援スタンプ: ${cheers}回
 
 ■ 所見づくりの状況
   ・AI未処理のふり返り: ${pendingTotal} 件（授業 ${pending.lesson} / テスト ${pending.test}）
@@ -166,6 +187,7 @@ function getArchivableSheets_() {
     SHEETS.TYPING, SHEETS.CALC, SHEETS.READING, SHEETS.GROWTH, SHEETS.STUDY, SHEETS.GOAL,
     SHEETS.STUDY_LOG,
     SHEETS.LESSON, SHEETS.TEST, SHEETS.MORAL,
+    SHEETS.WEEKLY_REFLECTION, SHEETS.CHEERS,
     SHEETS.LOG, SHEETS.INVENTORY, SHEETS.EARNED_BADGES,
     SHEETS.SHOKEN_MATERIALS, SHEETS.GENERAL_SHOKEN, SHEETS.MORAL_SHOKEN,
     SHEETS.ATTITUDE_SCORES
