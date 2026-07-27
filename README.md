@@ -1,18 +1,22 @@
 # Gamification — 小学校学習記録×ゲーミフィケーション
 
-小学校のさまざまな学習活動を児童が主体的に楽しんで行えるようにするための、Google Apps Script プロジェクト群です。
+小学校のさまざまな学習活動を児童が主体的に楽しんで行えるようにするための、
+Web アプリ「まなびクエスト」のリポジトリです。
 
 ## 📁 構成
 
-| フォルダ | 内容 | 状態 |
-|---|---|---|
-| **[`unified/`](./unified/)** | **統合版「まなびクエスト」**。3プロジェクトを1つのスプレッドシートDB・1つのWebアプリに統合。GIGA山学習アプリ群の**共通学習ログ（study.v1）の収集サーバー**も内蔵 | ✅ 推奨（最新） |
-| **[`manabi-portal/`](./manabi-portal/)** | **学習ポータル**。gigayama.github.io に配置し、まなびクエストを iframe で表示しながら**同じ画面から学習アプリのデータを送信**できる入口ページ。児童にはこのURLを配付します | ✅ 推奨（最新） |
-| [`study-log-sender/`](./study-log-sender/) | 学習ログ送信ページ（送信だけの単機能版）。ポータルと設定を共有します | 継続利用可 |
-| `Manabi_Quest/` | 旧: ゲーミフィケーションアプリ（経験値・ガチャ・アバター・ミッション・バッジ） | 参考（旧版） |
-| `assignment portfolio/` | 旧: 課題記録ポートフォリオ「学習の足あと」 | 参考（旧版） |
-| `performance portfolio/` | 旧: 授業の記録・AI所見生成 | 参考（旧版） |
+このリポジトリは、次の 2 つをセットで運用します。
 
-新規に導入する場合は **`unified/`（GAS）＋ `manabi-portal/`（GitHub Pages）** の 2 つを使用してください。
-セットアップ手順・データ移行ガイドは [unified/README.md](./unified/README.md)、
-ポータルの配置手順は [manabi-portal/README.md](./manabi-portal/README.md) にあります。
+| フォルダ | 内容 | 配置先 |
+|---|---|---|
+| **[`manabi-quest/`](./manabi-quest/)** | **まなびクエスト本体**。学習記録・ふり返り・ゲーミフィケーション・AI所見・PDF出力に加え、GIGA山学習アプリ群の**共通学習ログ（study.v1）の収集サーバー**も内蔵 | Google Apps Script（スプレッドシートにバインド） |
+| **[`manabi-portal/`](./manabi-portal/)** | **学習ポータル**。まなびクエストを iframe で表示しながら、**同じ画面から学習アプリのデータを送信**できる入口ページ。児童にはこのURLを配付します | GitHub Pages（`gigayama.github.io`） |
+
+学習アプリの学習ログは `localStorage` にあり、同一オリジンのページからしか読めません。
+そのため**ポータル（github.io）を親ページ、まなびクエストを iframe** にする構成にしています
+（詳しくは [manabi-portal/README.md](./manabi-portal/README.md)）。
+
+## セットアップ
+
+1. [`manabi-quest/README.md`](./manabi-quest/README.md) … スプレッドシートDBの作成、GASの配置、デプロイ、各種設定
+2. [`manabi-portal/README.md`](./manabi-portal/README.md) … ポータルの配置と配付URLの作り方

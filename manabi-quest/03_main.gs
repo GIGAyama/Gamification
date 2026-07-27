@@ -115,11 +115,19 @@ function getCurrentEmail_() {
 }
 
 /**
+ * 児童マスタからメールアドレスで行を検索します。
+ * @returns {{row:number|null, data:Object|null}}
+ */
+function findUserRow_(ss, email) {
+  return findRowData_(ss, SHEETS.USERS, USER_COLS.EMAIL, email);
+}
+
+/**
  * 児童マスタからメールアドレスでユーザーを検索します。
  * @returns {Object|null} 行データ（ヘッダーをキーとするオブジェクト、_row に行番号）
  */
 function findUserByEmail_(email) {
-  const result = findRowData_(SpreadsheetApp.getActiveSpreadsheet(), SHEETS.USERS, 4, email);
+  const result = findUserRow_(SpreadsheetApp.getActiveSpreadsheet(), email);
   if (!result.data) return null;
   result.data._row = result.row;
   return result.data;
@@ -139,7 +147,7 @@ function assertTeacher_() {
  */
 function processLoginBonus_(ss, email, config) {
   const userSheet = ss.getSheetByName(SHEETS.USERS);
-  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  const found = findUserRow_(ss, email);
   if (!found.data) throw new Error('児童マスタに登録されていません。');
 
   const user = {
@@ -164,7 +172,7 @@ function processLoginBonus_(ss, email, config) {
     bonusPoints = getConfigNumber_(config, 'ログインボーナス経験値', 20);
     user.exp += bonusPoints;
     user.totalExp += bonusPoints;
-    userSheet.getRange(user.row, 5, 1, 4).setValues([[user.totalExp, user.exp, user.exchangePoints, today]]);
+    userSheet.getRange(user.row, USER_COLS.TOTAL_EXP, 1, 4).setValues([[user.totalExp, user.exp, user.exchangePoints, today]]);
     writeLog_(ss, email, LOG_ACTIONS.LOGIN_BONUS, `ログインボーナス: +${bonusPoints}EXP`);
     checkLevelUp_(ss, email, user.totalExp - bonusPoints, user.totalExp, config);
   }
@@ -215,13 +223,13 @@ function addExp_(ss, email, amount, sourceLabel) {
   if (!amount || amount <= 0) return null;
   const config = getConfig_();
   const userSheet = ss.getSheetByName(SHEETS.USERS);
-  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  const found = findUserRow_(ss, email);
   if (!found.data) return null;
 
   const oldTotal = Number(found.data['累計経験値'] || 0);
   const newTotal = oldTotal + amount;
   const newExp = Number(found.data['経験値'] || 0) + amount;
-  userSheet.getRange(found.row, 5, 1, 2).setValues([[newTotal, newExp]]);
+  userSheet.getRange(found.row, USER_COLS.TOTAL_EXP, 1, 2).setValues([[newTotal, newExp]]);
   writeLog_(ss, email, LOG_ACTIONS.EXP_GAIN, `${sourceLabel}: +${amount}EXP`);
   const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
   const level = calculateLevel(newTotal, config).level;
@@ -234,17 +242,17 @@ function addExp_(ss, email, amount, sourceLabel) {
  */
 function addExchangePoints_(ss, email, amount, sourceLabel) {
   if (!amount || amount <= 0) return false;
-  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  const found = findUserRow_(ss, email);
   if (!found.data) return false;
   const newPoints = Number(found.data['交換ポイント'] || 0) + amount;
-  ss.getSheetByName(SHEETS.USERS).getRange(found.row, 7).setValue(newPoints);
+  ss.getSheetByName(SHEETS.USERS).getRange(found.row, USER_COLS.POINTS).setValue(newPoints);
   writeLog_(ss, email, LOG_ACTIONS.BONUS_POINT, `${sourceLabel}で交換ポイント +${amount}`);
   return true;
 }
 
 /** 児童マスタの累計経験値を取得します */
 function getUserTotalExp_(ss, email) {
-  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  const found = findUserRow_(ss, email);
   return found.data ? Number(found.data['累計経験値'] || 0) : 0;
 }
 

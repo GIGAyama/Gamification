@@ -1052,6 +1052,6 @@ function getUserNumberMap_(ss) {
 
 /** 出席番号 → メールアドレス */
 function getEmailByNumber_(ss, studentNumber) {
-  const found = findRowData_(ss, SHEETS.USERS, 1, studentNumber);
+  const found = findRowData_(ss, SHEETS.USERS, USER_COLS.NUMBER, studentNumber);
   return found.data ? String(found.data['メールアドレス']).toLowerCase().trim() : null;
 }

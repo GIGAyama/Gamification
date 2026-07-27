@@ -178,8 +178,8 @@
   'use strict';
 
   const LOG_KEY = 'study.records.v1';          // 仕様 §1: 全アプリ共通の学習ログキー
-  const CONF_KEY = 'studySender.config.v1';    // 送信ページ（study-log-sender）と設定を共有する
-  const NUMBER_KEY = 'studySender.number.v1';
+  const CONF_KEY = 'studySender.config.v1';    // 送信先URL・送信キー（端末ごとに保存）
+  const NUMBER_KEY = 'studySender.number.v1';  // 出席番号（端末ごとに保存）
   const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
 
