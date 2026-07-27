@@ -100,15 +100,22 @@ function studySendPanelHtml(compact) {
       </div></div>`;
     }
     if (Portal.pending > 0) {
+      // 出席番号が未入力だと送れないので、その場で入力をたのめるようにする
+      const needsNumber = !Portal.studentNumber;
+      const action = needsNumber
+        ? `<button class="btn btn-warning text-dark fw-bold send-btn" data-study-number><i class="bi bi-123"></i> しゅっせきばんごうを 入れる</button>`
+        : `<button class="btn btn-danger fw-bold send-btn" data-study-send><i class="bi bi-send-fill"></i> きろくを おくる</button>`;
       return `<div class="card send-card has-pending"><div class="card-body">
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <span class="send-pending-badge">${Portal.pending}</span>
           <div class="flex-grow-1">
             <div class="fw-bold fs-5">おくれる がくしゅうきろくが ${Portal.pending}件 あるよ！${streakHtml}</div>
-            <div class="small text-muted">おくると まなびクエストの けいけんちに なるよ。</div>
+            <div class="small text-muted">${needsNumber
+              ? 'おくるまえに、しゅっせきばんごうを 入れてね。'
+              : 'おくると まなびクエストの けいけんちに なるよ。'}</div>
             ${rewardHtml}
           </div>
-          <button class="btn btn-danger fw-bold send-btn" data-study-send><i class="bi bi-send-fill"></i> きろくを おくる</button>
+          ${action}
         </div>
       </div></div>`;
     }
@@ -151,6 +158,9 @@ function renderStudySendPanels() {
     });
     el.querySelectorAll('[data-study-refresh]').forEach(btn => {
       btn.addEventListener('click', () => postToPortal({ type: 'REQUEST_PENDING' }));
+    });
+    el.querySelectorAll('[data-study-number]').forEach(btn => {
+      btn.addEventListener('click', () => postToPortal({ type: 'REQUEST_NUMBER' }));
     });
   });
 }
@@ -326,17 +336,35 @@ function renderRecordsView(data) {
   renderLessonTab(data.records);
 
   document.querySelectorAll('#record-pills [data-rtab]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#record-pills .nav-link').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      document.querySelectorAll('.record-tab').forEach(tab => tab.classList.add('d-none'));
-      document.getElementById(btn.dataset.rtab).classList.remove('d-none');
-      if (btn.dataset.rtab === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
-      if (btn.dataset.rtab === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
-      if (btn.dataset.rtab === 'rtab-lesson') drawTestChart(App.data.records.test);
-      if (btn.dataset.rtab === 'rtab-apps') loadStudyAppTab();
-    });
+    btn.addEventListener('click', () => showRecordTab(btn.dataset.rtab, { push: true }));
   });
+}
+
+/** いま開いている「きろく」の中のタブID */
+let currentRecordTab = 'rtab-input';
+
+/**
+ * 「きろく」タブの中のサブタブを切り替えます。
+ * @param {string} tabId
+ * @param {Object} [options] - { push: true } でタップ前のタブを「戻る」履歴に積みます
+ */
+function showRecordTab(tabId, options) {
+  if (options && options.push && currentRecordTab && currentRecordTab !== tabId) {
+    const previous = currentRecordTab;
+    navPush('rtab:' + previous, () => showRecordTab(previous));
+  }
+  document.querySelectorAll('#record-pills .nav-link').forEach(b => {
+    b.classList.toggle('active', b.dataset.rtab === tabId);
+  });
+  document.querySelectorAll('.record-tab').forEach(tab => tab.classList.add('d-none'));
+  const panel = document.getElementById(tabId);
+  if (panel) panel.classList.remove('d-none');
+  currentRecordTab = tabId;
+
+  if (tabId === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
+  if (tabId === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
+  if (tabId === 'rtab-lesson') drawTestChart(App.data.records.test);
+  if (tabId === 'rtab-apps') loadStudyAppTab();
 }
 
 /* ---------------- 学習アプリ（study.v1 共通学習ログ）のきろく ---------------- */
@@ -582,8 +610,17 @@ const RECORD_LABELS = {
   study: 'じしゅ学習', lesson: 'じゅぎょうのふり返り', test: 'テストのふり返り', moral: 'どうとくノート'
 };
 
+/** 入力フォームを閉じます（「やめる」・保存完了・「戻る」操作から呼びます） */
+function closeRecordForm(fromBack) {
+  const area = document.getElementById('record-form-area');
+  if (area) area.innerHTML = '';
+  if (!fromBack) navDrop('record-form');
+}
+
 function openRecordForm(type) {
   const area = document.getElementById('record-form-area');
+  // 「戻る」でフォームを閉じられるようにする
+  navPush('record-form', () => closeRecordForm(true));
   area.innerHTML = `
     <div class="card record-form-card shadow-sm">
       <div class="card-header text-success"><i class="bi bi-pencil"></i> ${RECORD_LABELS[type]}のきろく</div>
@@ -642,7 +679,7 @@ function openRecordForm(type) {
     updateUnits();
   }
 
-  document.getElementById('record-cancel-btn').addEventListener('click', () => { area.innerHTML = ''; });
+  document.getElementById('record-cancel-btn').addEventListener('click', () => closeRecordForm(false));
   document.getElementById('record-submit-btn').addEventListener('click', async () => {
     const formData = collectFormData(type);
     const result = await apiWithLoading('ほぞん中...', 'saveRecord', { type, formData });
@@ -650,7 +687,7 @@ function openRecordForm(type) {
       Swal.fire('ほぞんできません', esc(result.message), 'warning');
       return;
     }
-    area.innerHTML = '';
+    closeRecordForm(false);
     App.data.records = result.records;
     App.data.missions = result.missions;
     renderTypingTab(result.records);

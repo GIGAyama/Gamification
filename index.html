@@ -2,8 +2,18 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>まなびクエスト</title>
+  <meta name="description" content="小学校の学習記録×ゲーミフィケーション「まなびクエスト」の入口ページ">
+
+  <!-- ---- PWA（このページからインストールしても学習ポータルが起動します） ---- -->
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#2b7de9">
+  <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="まなびクエスト">
   <!--
     GitHub Pages の入口ページ（https://gigayama.github.io/Gamification/）
     =====================================================================
@@ -17,10 +27,11 @@
     body {
       margin: 0;
       min-height: 100vh;
+      min-height: 100dvh;
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: 24px;
+      padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
       font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
       background: linear-gradient(160deg, #eaf4ff, #fdf1e7);
       color: #33404d;
@@ -34,19 +45,20 @@
       box-shadow: 0 12px 32px rgba(60, 90, 130, .14);
       text-align: center;
     }
-    h1 { margin: 0 0 4px; font-size: 1.5rem; }
+    .card > img { width: 72px; height: 72px; border-radius: 18px; }
+    h1 { margin: 12px 0 4px; font-size: 1.5rem; }
     .lead { margin: 0 0 24px; color: #6a7a8a; font-size: .95rem; }
     .go {
       display: block;
       padding: 16px;
       border-radius: 16px;
-      background: #4a90e2;
+      background: #2b7de9;
       color: #fff;
       font-size: 1.15rem;
       font-weight: bold;
       text-decoration: none;
     }
-    .go:hover { background: #3d7cc9; }
+    .go:hover { background: #1c5fb8; }
     .note {
       margin: 24px 0 0;
       padding-top: 20px;
@@ -58,17 +70,28 @@
     }
     .note a { color: #6a7a8a; }
     code { background: #f4f7fa; border-radius: 4px; padding: 1px 5px; font-size: .95em; }
+
+    @media (prefers-color-scheme: dark) {
+      body { background: linear-gradient(160deg, #121a24, #1c1a22); color: #e8eef5; }
+      .card { background: #1a2431; box-shadow: 0 12px 32px rgba(0, 0, 0, .4); }
+      .lead, .note { color: #93a2b3; }
+      .note { border-top-color: #2a3745; }
+      code { background: #22303f; }
+    }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>🎒 まなびクエスト</h1>
+    <img src="./icons/icon-192.png" alt="">
+    <h1>まなびクエスト</h1>
     <p class="lead">学習ポータルへ すすんでください</p>
     <a class="go" id="go" href="./manabi-portal/">ポータルを ひらく</a>
     <p class="note">
       児童に配付するURLは <code>./manabi-portal/</code> です。
       設定パラメータ（<code>?app=…&amp;endpoint=…&amp;key=…</code>）を付けてこのページを開いた場合は、
       自動でポータルへ引き継ぎます。
+      スマートフォンやタブレットでは、ポータルを開いてから
+      <b>「ホーム画面に追加」／「アプリをインストール」</b>すると、アプリとして使えます。
       セットアップ手順は <a href="https://github.com/GIGAyama/Gamification">リポジトリの README</a> を参照してください。
     </p>
   </div>

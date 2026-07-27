@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>オフラインです｜まなびクエスト</title>
+  <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: flex; align-items: center; justify-content: center;
+      padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+      font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
+      background: linear-gradient(160deg, #eaf4ff, #fdf1e7);
+      color: #33404d;
+    }
+    .card {
+      width: 100%; max-width: 420px; background: #fff;
+      border-radius: 24px; padding: 32px 28px; text-align: center;
+      box-shadow: 0 12px 32px rgba(60, 90, 130, .14);
+    }
+    h1 { margin: 0 0 8px; font-size: 1.35rem; }
+    p { margin: 0 0 20px; color: #6a7a8a; font-size: .95rem; line-height: 1.8; }
+    button {
+      width: 100%; padding: 16px; border: none; border-radius: 16px;
+      background: #2b7de9; color: #fff; font-size: 1.05rem; font-weight: bold;
+      font-family: inherit; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div style="font-size:3rem;line-height:1;">📡</div>
+    <h1>インターネットに つながっていません</h1>
+    <p>
+      Wi-Fi や つうしんの じょうたいを たしかめてから、<br>
+      もういちど ひらいてみてね。
+    </p>
+    <button type="button" onclick="location.reload()">もういちど よみこむ</button>
+  </div>
+</body>
+</html>

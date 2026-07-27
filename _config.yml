@@ -1,12 +1,14 @@
 # GitHub Pages 設定（https://gigayama.github.io/Gamification/）
 #
-# 公開するのは学習ポータル（manabi-portal/index.html）と、
-# ルートの入口ページ（index.html）だけです。
+# 公開するのは学習ポータル（manabi-portal/index.html）、ルートの入口ページ（index.html）、
+# それに PWA のファイル（manifest.json / sw.js / offline.html / icons/）です。
 #
-# - manabi-quest/ … Google Apps Script へ貼り付けるためのソース。
-#                   静的サイトとしては動かないため配信しません
-# - *.md         … リポジトリの説明。GitHub 上で読めれば十分なので配信しません
+# - manabi-quest/         … Google Apps Script へ貼り付けるためのソース。
+#                           静的サイトとしては動かないため配信しません
+# - *.md                  … リポジトリの説明。GitHub 上で読めれば十分なので配信しません
+# - icons/make_icons.py   … アイコンの生成スクリプト（配信不要）
 exclude:
   - manabi-quest
   - README.md
   - manabi-portal/README.md
+  - icons/make_icons.py

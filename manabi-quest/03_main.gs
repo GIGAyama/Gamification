@@ -19,11 +19,13 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile('index');
     // 埋め込み表示のときはポータル側にヘッダーがあるので、アプリ側の余白を詰める
     template.embedded = !!(e && e.parameter && e.parameter.embed);
+    // viewport-fit=cover: ノッチのある端末でも画面のはしまで使い、
+    // 下部バーは CSS の env(safe-area-inset-*) で安全な位置に置きます
     return template
       .evaluate()
       .setTitle('まなびクエスト')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
   } catch (err) {
     console.error(`doGet Error: ${err.message}`);
     return HtmlService.createHtmlOutput('<h1>エラー</h1><p>アプリの起動に失敗しました。管理者に連絡してください。</p>');
