@@ -16,6 +16,10 @@
  * - 初回正答率は course × objective × ソロプレイのレコードだけで計算する
  *   （§2.4 / §2.9 / §3.2: weak・review・selfReport・multiplayer は同じ土俵で比較しない）
  * - 受信のたびに活動時間に応じた経験値を付与し、ゲーミフィケーションへ接続する
+ * - 100マス計算アプリのレコードは「100マス計算記録」シートへも自動転記する
+ *   （手入力の自己申告を廃止し、アプリの実測値をランキング・バッジ・グラフの土台にする）
+ * - 送信そのものにも「そうしんボーナス」「れんぞくボーナス」を用意し、
+ *   きろくを送ることが児童にとってはっきり得になるようにする
  */
 
 /** 仕様 §3.1 の appId 予約値と表示名 */
@@ -25,6 +29,18 @@ const STUDY_APPS = {
   'keisan-card': 'けいさんカード',
   'keisan-block': 'さんすうブロック',
   'square100': '100マス計算'
+};
+
+/** 「100マス計算記録」シートへ自動転記する対象アプリ */
+const SQUARE100_APP_ID = 'square100';
+
+/** study.v1 の mode → 「100マス計算記録」の「モード」表示名 */
+const SQUARE100_MODE_LABELS = {
+  'add': 'たし算', 'addition': 'たし算', 'plus': 'たし算',
+  'sub': 'ひき算', 'subtraction': 'ひき算', 'minus': 'ひき算',
+  'mul': 'かけ算', 'multiplication': 'かけ算', 'times': 'かけ算',
+  'div': 'わり算', 'division': 'わり算',
+  'mix': 'ミックス', 'mixed': 'ミックス', 'random': 'ミックス'
 };
 
 const STUDY_SCHEMA = 'study.v1';
@@ -67,7 +83,8 @@ function studyJson_(obj) {
 
 /**
  * study.v1 レコード群を検証して「学習ログ」シートへ保存します。
- * @returns {Object} { success, saved: [id], duplicate: [id], rejected: [{id, reason}], gainedExp }
+ * @returns {Object} { success, saved: [id], duplicate: [id], rejected: [{id, reason}],
+ *                     gainedExp, reward: {…}, level, leveledUp }
  */
 function receiveStudyRecords_(payload) {
   const config = getConfig_();
@@ -102,10 +119,11 @@ function receiveStudyRecords_(payload) {
     const precision = String(config['学習ログ時刻精度'] || '時間帯');
     const coeff = getConfigNumber_(config, '学習アプリ経験値係数', 1);
     const expCap = getConfigNumber_(config, '学習アプリ経験値上限', 30);
+    const calcCoeff = getConfigNumber_(config, '100マス計算アプリ経験値係数', 0.5);
     const now = new Date();
 
-    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [];
-    let gainedExp = 0;
+    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [], calcRows = [];
+    let appExp = 0, calcExp = 0;
 
     records.forEach(rec => {
       const v = validateStudyRecord_(rec, now);
@@ -122,17 +140,150 @@ function receiveStudyRecords_(payload) {
       logMessages.push(`${v.rec.appLabel}で「${v.rec.unitTitle}」にとりくんだ`);
       if (coeff > 0) {
         const minutes = (v.rec.activeMs !== null ? v.rec.activeMs : v.rec.elapsedMs) / 60000;
-        gainedExp += Math.min(expCap, Math.floor(minutes * coeff));
+        appExp += Math.min(expCap, Math.floor(minutes * coeff));
+      }
+      // 100マス計算アプリのレコードは「100マス計算記録」シートへも転記し、点数ぶんの経験値を追加
+      const calc = buildCalcRecordRow_(v, student);
+      if (calc) {
+        calcRows.push(calc);
+        if (calcCoeff > 0) calcExp += Math.floor(calc.score * calcCoeff);
       }
       saved.push(v.rec.id);
     });
 
-    if (rows.length > 0) {
-      sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
-      logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
-      if (gainedExp > 0) addExp_(ss, student.email, gainedExp, '学習アプリ');
+    if (rows.length === 0) {
+      return { success: true, saved, duplicate, rejected, gainedExp: 0, reward: emptyStudyReward_() };
     }
-    return { success: true, saved, duplicate, rejected, gainedExp: rows.length > 0 ? gainedExp : 0 };
+
+    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
+    logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
+    appendCalcRecords_(ss, student, calcRows);
+
+    // 送信ボーナスは「今日はじめての送信」だけに付くので、ログを書く前に判定する
+    const reward = grantStudySendReward_(ss, student, config, now, rows.length, calcRows.length);
+    reward.appExp = appExp;
+    reward.calcExp = calcExp;
+
+    let leveledUp = false;
+    const applyExp = (amount, label) => {
+      const r = addExp_(ss, student.email, amount, label);
+      if (r && r.leveledUp) leveledUp = true;
+      return r;
+    };
+    applyExp(appExp, '学習アプリ');
+    applyExp(calcExp, '100マス計算');
+    applyExp(reward.sendExp, '学習きろくのそうしんボーナス');
+    const last = applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
+
+    const gainedExp = appExp + calcExp + reward.sendExp + reward.streakExp;
+    const level = last ? last.level : calculateLevel(getUserTotalExp_(ss, student.email), config).level;
+    return { success: true, saved, duplicate, rejected, gainedExp, reward, level, leveledUp };
+  });
+}
+
+/** ボーナスなしの初期値 */
+function emptyStudyReward_() {
+  return { appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, streak: 0, calcRecords: 0, records: 0 };
+}
+
+/**
+ * 送信そのものへのごほうびを付与します（1日1回まで）。
+ * - そうしんボーナス: その日はじめてきろくを送ったときの固定EXP
+ * - れんぞくボーナス: 連続して送っている日数 × 係数のEXP（上限日数まで）
+ * - 交換ポイント: ガチャ・アイテム交換にすぐ使えるごほうび
+ * 「送るとはっきり得をする」ことで、学習アプリでの学びをまなびクエストに持ち込む動機づけにします。
+ * ※ 経験値の加算は呼び出し側（他のEXPとまとめてレベルアップ判定するため）で行います。
+ */
+function grantStudySendReward_(ss, student, config, now, recordCount, calcCount) {
+  const reward = emptyStudyReward_();
+  reward.records = recordCount;
+  reward.calcRecords = calcCount;
+
+  const days = getStudySendDays_(ss, student.email);
+  const today = Utilities.formatDate(now, 'JST', 'yyyy-MM-dd');
+  const alreadySentToday = days.has(today);
+  days.add(today);
+  reward.streak = countStudySendStreak_(days, now);
+
+  writeLog_(ss, student.email, LOG_ACTIONS.SEND_STUDY_LOG,
+    `学習アプリのきろくを${recordCount}件そうしん（れんぞく${reward.streak}日目）`);
+  if (alreadySentToday) return reward;   // ボーナスは1日1回
+
+  reward.sendExp = Math.max(0, Math.floor(getConfigNumber_(config, '学習ログ送信ボーナス経験値', 50)));
+  const streakCoeff = getConfigNumber_(config, '学習ログ連続ボーナス係数', 10);
+  const streakCap = getConfigNumber_(config, '学習ログ連続ボーナス上限日数', 10);
+  if (streakCoeff > 0 && streakCap > 0) {
+    reward.streakExp = Math.floor(Math.min(reward.streak, streakCap) * streakCoeff);
+  }
+  const points = Math.floor(getConfigNumber_(config, '学習ログ送信ボーナス交換ポイント', 10));
+  if (points > 0 && addExchangePoints_(ss, student.email, points, '学習きろくのそうしんボーナス')) {
+    reward.exchangePoints = points;
+  }
+  return reward;
+}
+
+/** 「ログ」シートから、その児童が学習ログを送信した日（yyyy-MM-dd）の集合を返します */
+function getStudySendDays_(ss, email) {
+  const days = new Set();
+  const sheet = ss.getSheetByName(SHEETS.LOG);
+  if (!sheet || sheet.getLastRow() < 2) return days;
+  const lastRow = sheet.getLastRow();
+  const startRow = Math.max(2, lastRow - LIMITS.SEND_LOG_SCAN_ROWS + 1);
+  sheet.getRange(startRow, 1, lastRow - startRow + 1, 3).getValues().forEach(row => {
+    if (row[2] !== LOG_ACTIONS.SEND_STUDY_LOG) return;
+    if (String(row[1]).toLowerCase().trim() !== email) return;
+    const d = parseTimestamp_(row[0]);
+    if (d) days.add(Utilities.formatDate(d, 'JST', 'yyyy-MM-dd'));
+  });
+  return days;
+}
+
+/** 今日からさかのぼって、連続して送信できている日数を数えます */
+function countStudySendStreak_(days, now) {
+  let streak = 0;
+  const cursor = new Date(now.getTime());
+  while (days.has(Utilities.formatDate(cursor, 'JST', 'yyyy-MM-dd'))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+// ---------------------------------------------------------------------
+// 100マス計算記録への自動転記
+// ---------------------------------------------------------------------
+
+/**
+ * 100マス計算アプリ（square100）のレコードを「100マス計算記録」シートの1行に変換します。
+ * 通常出題 × 客観採点 × ソロプレイ × 完走 のレコードだけを対象にします
+ * （対戦・復習/にがて出題・自作問題・中断はタイムや点数を同じ土俵で比べられないため、
+ *   学習ログ側にだけ残します。仕様 §2.4 / §2.9 / §3.2）。
+ * 点数は「はじめの1回で解けた割合」を100点満点に換算した値です（仕様 §2.7 の主指標）。
+ * @returns {{row: Array, score: number, mode: string}|null}
+ */
+function buildCalcRecordRow_(v, student) {
+  const r = v.rec;
+  if (r.appId !== SQUARE100_APP_ID) return null;
+  if (r.status !== 'completed' || r.multiplayer) return null;
+  if (r.source !== 'course' || r.grading !== 'objective') return null;
+  if (!r.count || r.count <= 0 || !r.elapsedMs || r.elapsedMs <= 0) return null;
+
+  const mode = SQUARE100_MODE_LABELS[r.mode] || (r.unitTitle ? r.unitTitle.slice(0, 20) : r.mode);
+  const score = Math.round(100 * r.firstTryCorrect / r.count);
+  const time = Math.round(r.elapsedMs / 10) / 100;    // 秒（小数第2位まで）
+  const day = new Date(Utilities.formatDate(v.started, 'JST', 'yyyy/MM/dd') + ' 00:00:00');
+  return { row: [day, student.email, mode, r.count, score, time], score, mode };
+}
+
+/** 変換した100マス計算記録をまとめて追記し、ミッション判定用のログも残します */
+function appendCalcRecords_(ss, student, calcRows) {
+  if (!calcRows || calcRows.length === 0) return;
+  const sheet = ss.getSheetByName(SHEETS.CALC);
+  if (!sheet) return;
+  sheet.getRange(sheet.getLastRow() + 1, 1, calcRows.length, 6).setValues(calcRows.map(c => c.row));
+  calcRows.forEach(c => {
+    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_CALC,
+      `${RECORD_TYPES.calc.label}（${c.mode}）を記録: ${c.score}点`);
   });
 }
 
@@ -579,12 +730,114 @@ function getStudyLogForUser_(ss, email, recentLimit) {
 /** 児童本人が「きろく → 学習アプリ」タブで自分のログを見るためのAPI */
 function getMyStudyLog() {
   try {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
     const email = getCurrentEmail_();
-    return { success: true, data: getStudyLogForUser_(SpreadsheetApp.getActiveSpreadsheet(), email, 20) };
+    return {
+      success: true,
+      data: getStudyLogForUser_(ss, email, 20),
+      studyApp: getStudyAppPanelData_(ss, email, getConfig_())
+    };
   } catch (e) {
     console.error(`getMyStudyLog Error: ${e.message}`);
     return { success: false, message: e.message };
   }
+}
+
+/**
+ * 児童画面の「きろくをおくる」パネル用データ。
+ * 送信でもらえるごほうびを事前に見せ、送信が得になることを分かるようにします。
+ */
+function getStudyAppPanelData_(ss, email, config) {
+  const now = new Date();
+  const days = getStudySendDays_(ss, email);
+  const today = Utilities.formatDate(now, 'JST', 'yyyy-MM-dd');
+  const sentToday = days.has(today);
+  days.add(today);
+  const streakIfSent = countStudySendStreak_(days, now);
+  const streakCoeff = getConfigNumber_(config, '学習ログ連続ボーナス係数', 10);
+  const streakCap = getConfigNumber_(config, '学習ログ連続ボーナス上限日数', 10);
+
+  return {
+    enabled: !!String(config['学習ログ送信キー'] || '').trim(),
+    portalUrl: String(config['学習ポータルURL'] || '').trim(),
+    sentToday,
+    streak: sentToday ? streakIfSent : Math.max(0, streakIfSent - 1),
+    nextStreak: streakIfSent,
+    bonusExp: sentToday ? 0 : Math.max(0, Math.floor(getConfigNumber_(config, '学習ログ送信ボーナス経験値', 50))),
+    bonusStreakExp: sentToday ? 0 : Math.floor(Math.min(streakIfSent, Math.max(0, streakCap)) * Math.max(0, streakCoeff)),
+    bonusPoints: sentToday ? 0 : Math.max(0, Math.floor(getConfigNumber_(config, '学習ログ送信ボーナス交換ポイント', 10)))
+  };
+}
+
+// ---------------------------------------------------------------------
+// バッジ・ランキング用の軽量集計
+// ---------------------------------------------------------------------
+
+/**
+ * バッジ判定用に、その児童の学習アプリ実績をまとめます。
+ * ホーム表示のたびに走るため、「学習ログ」シートは必要な列だけを読みます。
+ * @param {Array[]} userLogs - 「ログ」シートのその児童の行（送信ストリークの判定に使用）
+ */
+function getStudyAppBadgeStats_(ss, email, userLogs) {
+  const stats = { records: 0, minutes: 0, sendStreak: 0 };
+  const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
+  if (sheet && sheet.getLastRow() >= 2) {
+    // B〜S列（メールアドレス〜activeMs）だけを読む
+    let ms = 0;
+    sheet.getRange(2, 2, sheet.getLastRow() - 1, 18).getValues().forEach(row => {
+      if (String(row[0]).toLowerCase().trim() !== email) return;
+      stats.records++;
+      const active = (row[17] === '' || row[17] === null) ? null : Number(row[17]);
+      ms += (active !== null && !isNaN(active)) ? active : (Number(row[16]) || 0);
+    });
+    stats.minutes = Math.round(ms / 60000);
+  }
+
+  const days = new Set(
+    (userLogs || [])
+      .filter(log => log[2] === LOG_ACTIONS.SEND_STUDY_LOG)
+      .map(log => parseTimestamp_(log[0]))
+      .filter(Boolean)
+      .map(d => Utilities.formatDate(d, 'JST', 'yyyy-MM-dd'))
+  );
+  const cursor = new Date();
+  // 今日まだ送っていない場合は、昨日までの連続日数をストリークとみなす
+  if (!days.has(Utilities.formatDate(cursor, 'JST', 'yyyy-MM-dd'))) cursor.setDate(cursor.getDate() - 1);
+  stats.sendStreak = countStudySendStreak_(days, cursor);
+  return stats;
+}
+
+/**
+ * 今週の学習アプリ学習時間ランキング（ひろば用）。
+ * ランキングは全児童の初期表示で毎回計算するため、必要な列だけを読みます。
+ * @returns {Array<{rank, name, value}>} value は分
+ */
+function getStudyAppRanking_(ss, nicknameMap) {
+  const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const numRows = sheet.getLastRow() - 1;
+  const heads = sheet.getRange(2, 2, numRows, 3).getValues();     // メールアドレス / 出席番号 / 学習日
+  const times = sheet.getRange(2, 18, numRows, 2).getValues();    // elapsedMs / activeMs
+  const { startOfWeek } = getWeekRange_();
+
+  const msByEmail = {};
+  heads.forEach((row, i) => {
+    const email = String(row[0]).toLowerCase().trim();
+    if (!nicknameMap[email]) return;
+    const day = parseTimestamp_(row[2]);
+    if (!day || day < startOfWeek) return;
+    const active = (times[i][1] === '' || times[i][1] === null) ? null : Number(times[i][1]);
+    const ms = (active !== null && !isNaN(active)) ? active : (Number(times[i][0]) || 0);
+    msByEmail[email] = (msByEmail[email] || 0) + ms;
+  });
+
+  return formatRanking_(
+    Object.keys(msByEmail)
+      .map(email => ({ name: nicknameMap[email], value: Math.round(msByEmail[email] / 60000) }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value),
+    0
+  );
 }
 
 /** 週次サマリーメール用: 期間内の学習アプリログの件数・人数・分数 */

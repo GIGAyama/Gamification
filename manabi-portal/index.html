@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>まなびクエスト｜学習ポータル</title>
+  <!--
+    まなびクエスト 学習ポータル
+    =====================================================================
+    gigayama.github.io（学習アプリと同一オリジン）に配置して使います。
+
+    このページは 2 つの役割をひとつの画面にまとめます。
+      ① まなびクエスト（GAS Webアプリ）を iframe で表示する
+      ② 学習アプリが localStorage（study.records.v1）に保存した study.v1 学習ログを
+         まなびクエストへ送信する
+
+    なぜポータルが親で、まなびクエストが iframe なのか:
+      ブラウザのストレージ分離（Storage Partitioning）により、サードパーティ iframe から
+      学習アプリの localStorage を読むことはできません。学習ログを読めるのは
+      「gigayama.github.io がトップレベル（＝このページ）」のときだけです。
+      そのため、ポータルを親ページにして送信を担当し、まなびクエストを iframe で表示します。
+
+    iframe の中のまなびクエストからも postMessage で送信を依頼できるので、
+    児童から見れば「まなびクエストの中に送信ボタンがある」ように使えます。
+    iframe が表示できない環境（サードパーティCookieのブロックなど）でも、
+    このページ上部の「きろくを おくる」ボタンだけで送信は完結します。
+
+    設定方法（先生向け）:
+      このページのURLに次のパラメータを付けて一度開くと、設定が端末に保存されます。
+        ?app=<まなびクエスト本体のWebアプリURL>
+        &endpoint=<受信用デプロイのURL>
+        &key=<学習ログ送信キー>
+      例) https://gigayama.github.io/manabi-portal/?app=https://script.google.com/a/macros/…/exec&endpoint=https://script.google.com/macros/s/…/exec&key=aikotoba
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
+      background: #eef4fb; color: #26313d;
+      display: flex; flex-direction: column; height: 100dvh;
+    }
+
+    /* ---- 上部バー ---- */
+    header {
+      background: #fff; border-bottom: 1px solid #dbe6f3;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+      padding: 8px 12px; flex: 0 0 auto;
+    }
+    .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .brand { font-weight: bold; font-size: 1rem; white-space: nowrap; }
+    .brand .sub { font-size: .72rem; color: #7b8794; font-weight: normal; display: block; }
+    .spacer { flex: 1 1 auto; }
+
+    label.inline { font-size: .78rem; font-weight: bold; color: #55616e; }
+    input[type=number].num {
+      width: 5.5rem; padding: 6px 8px; font-size: 1rem;
+      border: 2px solid #cfe0f5; border-radius: 8px;
+    }
+    .send-btn {
+      display: inline-flex; align-items: center; gap: .4rem;
+      padding: 10px 18px; font-size: 1rem; font-weight: bold;
+      color: #fff; background: #e5484d; border: none; border-radius: 999px;
+      cursor: pointer; box-shadow: 0 2px 6px rgba(229,72,77,.35);
+    }
+    .send-btn.idle { background: #2b7de9; box-shadow: 0 2px 6px rgba(43,125,233,.3); }
+    .send-btn:disabled { background: #b7c4d3; box-shadow: none; cursor: not-allowed; }
+    .count-pill {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-width: 1.8rem; height: 1.8rem; padding: 0 .5rem; margin-left: .1rem;
+      border-radius: 999px; background: rgba(255,255,255,.28); font-size: .9rem;
+    }
+    .link-btn {
+      background: none; border: none; color: #2b7de9; font-size: .8rem;
+      cursor: pointer; text-decoration: underline; padding: 2px 4px;
+    }
+
+    /* ---- 通知バー ---- */
+    .notice { font-size: .85rem; padding: 8px 12px; border-radius: 10px; margin-top: 8px; }
+    .notice.info { background: #eaf3ff; border: 1px solid #bcd8fb; }
+    .notice.good { background: #e7f6ec; border: 1px solid #9edcb6; }
+    .notice.bad { background: #fdecea; border: 1px solid #f3b0ab; }
+    .notice.warn { background: #fff6e0; border: 1px solid #f3d79a; }
+    .notice[hidden] { display: none; }
+    .notice a { color: #1a5fb4; }
+
+    /* ---- iframe ---- */
+    .frame-wrap { flex: 1 1 auto; position: relative; min-height: 0; }
+    iframe { width: 100%; height: 100%; border: 0; display: block; background: #eef4fb; }
+    .frame-fallback {
+      position: absolute; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px; text-align: center;
+      padding: 24px; background: #eef4fb;
+    }
+    .frame-fallback[hidden] { display: none; }
+    .frame-fallback .big {
+      display: inline-block; padding: 12px 24px; border-radius: 999px;
+      background: #2b7de9; color: #fff; font-weight: bold; text-decoration: none;
+    }
+
+    /* ---- 設定パネル ---- */
+    details.config { margin-top: 8px; }
+    details.config summary { font-size: .8rem; color: #55616e; cursor: pointer; }
+    .config-grid { display: grid; gap: 8px; margin-top: 8px; max-width: 720px; }
+    .config-grid input[type=url], .config-grid input[type=text] {
+      width: 100%; padding: 8px; border: 2px solid #cfe0f5; border-radius: 8px; font-size: .9rem;
+    }
+    .config-grid label { font-size: .78rem; font-weight: bold; color: #55616e; }
+    .config-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .sub-btn { padding: 7px 12px; font-size: .82rem; border: 1px solid #b9c6d4; background: #fff; border-radius: 8px; cursor: pointer; }
+    .muted { color: #7b8794; font-size: .78rem; }
+
+    @media (max-width: 600px) {
+      .brand .sub { display: none; }
+      .send-btn { padding: 9px 14px; font-size: .95rem; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="bar">
+    <div class="brand">🎒 まなびクエスト<span class="sub">がくしゅうポータル</span></div>
+    <label class="inline" for="student-number">しゅっせきばんごう</label>
+    <input type="number" id="student-number" class="num" min="1" max="99" inputmode="numeric" placeholder="12">
+    <div class="spacer"></div>
+    <span class="muted" id="pending-label"></span>
+    <button class="send-btn idle" id="send-btn" disabled>
+      <span id="send-label">📨 きろくを おくる</span><span class="count-pill" id="pending-count" hidden>0</span>
+    </button>
+  </div>
+
+  <div class="notice info" id="notice" hidden></div>
+
+  <details class="config" id="config-details">
+    <summary>⚙️ せってい（先生用）</summary>
+    <div class="config-grid">
+      <div>
+        <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内）</label>
+        <input type="url" id="conf-app" placeholder="https://script.google.com/a/macros/…/exec">
+      </div>
+      <div>
+        <label for="conf-endpoint">学習ログ受信用のWebアプリURL（アクセス: 全員）</label>
+        <input type="url" id="conf-endpoint" placeholder="https://script.google.com/macros/s/…/exec">
+      </div>
+      <div>
+        <label for="conf-key">学習ログ送信キー（「初期設定」シートと同じ合言葉）</label>
+        <input type="text" id="conf-key" placeholder="合言葉">
+      </div>
+      <div>
+        <label><input type="checkbox" id="conf-auto"> ページを開いたときに、たまっているきろくを自動でおくる</label>
+      </div>
+      <div class="config-actions">
+        <button class="sub-btn" id="conf-save-btn">設定を保存</button>
+        <button class="sub-btn" id="conf-test-btn">接続テスト</button>
+        <span class="muted" id="conf-status"></span>
+      </div>
+      <p class="muted">
+        URLパラメータ <code>?app=…&amp;endpoint=…&amp;key=…</code> 付きで開くと自動で保存されます（保存後はURLから消えます）。
+        本体URLと受信用URLは<b>別のデプロイ</b>です（本体＝組織内 / 受信用＝全員）。
+      </p>
+    </div>
+  </details>
+</header>
+
+<div class="frame-wrap">
+  <iframe id="app-frame" title="まなびクエスト" allow="clipboard-write"></iframe>
+  <div class="frame-fallback" id="frame-fallback" hidden>
+    <div id="fallback-text">まなびクエストをこの画面に表示できませんでした。</div>
+    <a class="big" id="fallback-link" href="#" target="_blank" rel="noopener">まなびクエストを 新しいタブでひらく</a>
+    <div class="muted">※ 上の「きろくを おくる」ボタンは、この画面のままつかえます。</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const LOG_KEY = 'study.records.v1';          // 仕様 §1: 全アプリ共通の学習ログキー
+  const CONF_KEY = 'studySender.config.v1';    // 送信ページ（study-log-sender）と設定を共有する
+  const NUMBER_KEY = 'studySender.number.v1';
+  const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
+  const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
+
+  const $ = id => document.getElementById(id);
+  const state = { appOrigin: null, appConnected: false, sending: false, autoSendDone: false };
+
+  /* ---------------- 設定 ---------------- */
+
+  function loadConfig() {
+    try {
+      const conf = JSON.parse(localStorage.getItem(CONF_KEY) || '{}');
+      return (conf && typeof conf === 'object') ? conf : {};
+    } catch (e) { return {}; }
+  }
+  function saveConfig(conf) {
+    localStorage.setItem(CONF_KEY, JSON.stringify(conf));
+  }
+  function applyUrlParams() {
+    const params = new URLSearchParams(location.search);
+    const map = { app: 'appUrl', endpoint: 'endpoint', key: 'key' };
+    const conf = loadConfig();
+    let changed = false;
+    Object.keys(map).forEach(param => {
+      const value = params.get(param);
+      if (value) { conf[map[param]] = value.trim(); changed = true; }
+    });
+    if (params.get('auto') !== null) {
+      conf.autoSend = params.get('auto') !== '0' && params.get('auto') !== 'off';
+      changed = true;
+    }
+    if (changed) {
+      saveConfig(conf);
+      // 送信キーがブラウザの履歴に残らないようにパラメータを消す
+      history.replaceState(null, '', location.pathname);
+    }
+  }
+
+  /* ---------------- 学習ログ（読み出し専用・仕様 §5.5） ---------------- */
+
+  function loadRecords() {
+    try {
+      const raw = localStorage.getItem(LOG_KEY);
+      if (!raw) return [];
+      const log = JSON.parse(raw);
+      return Array.isArray(log) ? log : [];
+    } catch (e) { return []; }
+  }
+
+  /** 送信できる形か（最低限のローカル検査。本検査はサーバー側 §9 が行う） */
+  function isSendable(r) {
+    return r && typeof r === 'object' && r.schema === 'study.v1' && typeof r.id === 'string' && r.id.length >= 8;
+  }
+
+  function pendingRecords() {
+    return loadRecords().filter(isSendable);
+  }
+
+  /** 送信済み（受理・重複・形式エラー）のレコードを端末から削除します（仕様 §1.3） */
+  function removeRecords(ids) {
+    if (!ids || ids.size === 0) return;
+    try {
+      const rest = loadRecords().filter(r => !(r && ids.has(r.id)));
+      localStorage.setItem(LOG_KEY, JSON.stringify(rest));
+    } catch (e) { /* 削除に失敗しても、次回はサーバー側の重複排除が守る */ }
+  }
+
+  /* ---------------- 表示 ---------------- */
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function showNotice(kind, html) {
+    const box = $('notice');
+    box.className = `notice ${kind}`;
+    box.innerHTML = html;
+    box.hidden = false;
+  }
+  function hideNotice() { $('notice').hidden = true; }
+
+  function renderPending() {
+    const count = pendingRecords().length;
+    const conf = loadConfig();
+    const configured = !!(conf.endpoint && conf.key);
+    const btn = $('send-btn');
+    const pill = $('pending-count');
+
+    pill.hidden = count === 0 || state.sending;
+    pill.textContent = count;
+    btn.classList.toggle('idle', count === 0);
+    btn.disabled = state.sending || count === 0 || !configured;
+    $('send-label').textContent = state.sending ? '📨 おくっています…' : '📨 きろくを おくる';
+
+    $('pending-label').textContent = !configured ? '先生: せっていが まだです'
+      : count === 0 ? 'おくるきろくは ありません'
+      : `おくれるきろく ${count}件`;
+
+    notifyApp({ type: 'PENDING_CHANGED', pending: count, studentNumber: currentNumber() });
+    return count;
+  }
+
+  function currentNumber() {
+    return String($('student-number').value || '').trim();
+  }
+
+  /* ---------------- iframe（まなびクエスト本体） ---------------- */
+
+  /** GAS Webアプリのユーザーコンテンツが動くオリジンだけを信頼します */
+  function isAppOrigin(origin) {
+    return typeof origin === 'string' &&
+      (/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/i.test(origin) ||
+       origin === 'https://script.google.com');
+  }
+
+  function notifyApp(message) {
+    const frame = $('app-frame');
+    if (!state.appConnected || !frame || !frame.contentWindow) return;
+    try {
+      frame.contentWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin || '*');
+    } catch (e) { /* 表示できていないだけなので無視 */ }
+  }
+
+  function loadApp() {
+    const conf = loadConfig();
+    const frame = $('app-frame');
+    if (!conf.appUrl) {
+      frame.hidden = true;
+      $('fallback-text').textContent = 'まなびクエストのURLがまだ設定されていません。';
+      $('fallback-link').hidden = true;
+      $('frame-fallback').hidden = false;
+      $('config-details').open = true;
+      return;
+    }
+    const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
+    $('fallback-link').href = conf.appUrl;
+    frame.src = url;
+    // 応答がないまま一定時間たったら、別タブで開く案内に切り替える
+    setTimeout(() => {
+      if (state.appConnected) return;
+      $('fallback-text').textContent =
+        'まなびクエストをこの画面に表示できませんでした。学校のGoogleアカウントでログインが必要かもしれません。';
+      $('frame-fallback').hidden = false;
+    }, FRAME_TIMEOUT_MS);
+  }
+
+  window.addEventListener('message', event => {
+    const frame = $('app-frame');
+    if (!frame || event.source !== frame.contentWindow || !isAppOrigin(event.origin)) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== 'object' || msg.source !== 'manabi-quest') return;
+    state.appOrigin = event.origin;
+
+    switch (msg.type) {
+      case 'APP_READY':
+        state.appConnected = true;
+        $('frame-fallback').hidden = true;
+        notifyApp({ type: 'PORTAL_READY', pending: pendingRecords().length, studentNumber: currentNumber() });
+        maybeAutoSend();
+        break;
+      case 'REQUEST_SEND':
+        send();
+        break;
+      case 'REQUEST_PENDING':
+        renderPending();
+        break;
+    }
+  });
+
+  /* ---------------- 送信 ---------------- */
+
+  async function post(endpoint, body) {
+    // Content-Type: text/plain にすると CORS のプリフライトが発生せず、
+    // GAS Webアプリ（アクセス: 全員）へそのまま届きます。
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  /** 複数チャンクの結果をひとつにまとめます（ボーナスはサーバー側で1日1回に制御済み） */
+  function mergeResult(total, result) {
+    total.saved += (result.saved || []).length;
+    total.duplicate += (result.duplicate || []).length;
+    total.rejected += (result.rejected || []).length;
+    total.gainedExp += result.gainedExp || 0;
+    const r = result.reward || {};
+    ['appExp', 'calcExp', 'sendExp', 'streakExp', 'exchangePoints', 'calcRecords'].forEach(k => {
+      total.reward[k] += r[k] || 0;
+    });
+    total.reward.streak = Math.max(total.reward.streak, r.streak || 0);
+    if (result.level) total.level = result.level;
+    if (result.leveledUp) total.leveledUp = true;
+    return total;
+  }
+
+  function finishSend(payload) {
+    state.sending = false;
+    renderPending();
+    notifyApp({ ...payload, type: 'SEND_RESULT', pending: pendingRecords().length });
+  }
+
+  async function send() {
+    if (state.sending) return;
+    const conf = loadConfig();
+    if (!conf.endpoint || !conf.key) {
+      const message = 'せっていが まだです。先生に「⚙️ せってい（先生用）」をたのんでください。';
+      showNotice('warn', message);
+      $('config-details').open = true;
+      finishSend({ ok: false, message });
+      return;
+    }
+    const studentNumber = currentNumber();
+    if (!studentNumber) {
+      const message = 'しゅっせきばんごうを 入れてから おくってね。';
+      showNotice('warn', `<b>しゅっせきばんごう</b>を 入れてから おくってね。`);
+      $('student-number').focus();
+      finishSend({ ok: false, message });
+      return;
+    }
+    localStorage.setItem(NUMBER_KEY, studentNumber);
+
+    const sendable = pendingRecords();
+    if (sendable.length === 0) {
+      showNotice('info', 'いま おくるきろくは ありません。学習アプリであそんでから、また おしてね。');
+      finishSend({ ok: true, saved: 0, duplicate: 0, rejected: 0, gainedExp: 0 });
+      return;
+    }
+
+    state.sending = true;
+    hideNotice();
+    renderPending();
+    notifyApp({ type: 'SEND_STARTED' });
+
+    const total = {
+      ok: true, saved: 0, duplicate: 0, rejected: 0, gainedExp: 0, level: null, leveledUp: false,
+      reward: { appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, calcRecords: 0, streak: 0 }
+    };
+
+    try {
+      for (let i = 0; i < sendable.length; i += CHUNK_SIZE) {
+        const chunk = sendable.slice(i, i + CHUNK_SIZE);
+        const result = await post(conf.endpoint, {
+          api: 'study-log', token: conf.key, studentNumber, records: chunk
+        });
+        if (!result.success) {
+          const message = result.message || 'おくれませんでした。';
+          showNotice('bad', `❌ ${escapeHtml(message)}`);
+          finishSend({ ok: false, message });
+          return;
+        }
+        mergeResult(total, result);
+        // 受理・重複・形式エラーはすべて「送信済み」として端末から削除する
+        removeRecords(new Set([
+          ...(result.saved || []),
+          ...(result.duplicate || []),
+          ...(result.rejected || []).map(r => r && r.id).filter(Boolean)
+        ]));
+      }
+    } catch (e) {
+      const message = `つうしんエラー（${e.message}）。インターネットにつながっているか たしかめてね。`;
+      showNotice('bad', `❌ ${escapeHtml(message)}`);
+      finishSend({ ok: false, message });
+      return;
+    }
+
+    const parts = [`✅ <b>${total.saved}件</b> おくりました！`];
+    if (total.gainedExp > 0) parts.push(`<b>+${total.gainedExp} EXP</b>`);
+    if (total.reward.exchangePoints > 0) parts.push(`交換Pt +${total.reward.exchangePoints}`);
+    if (total.reward.calcRecords > 0) parts.push(`100マス計算 ${total.reward.calcRecords}回分をきろく`);
+    if (total.reward.streak > 1) parts.push(`🔥 ${total.reward.streak}日れんぞく`);
+    if (total.duplicate > 0) parts.push(`<span class="muted">${total.duplicate}件はおくりずみ</span>`);
+    if (total.rejected > 0) parts.push(`<span class="muted">${total.rejected}件は形式エラー</span>`);
+    showNotice(total.saved > 0 ? 'good' : 'info', parts.join(' ／ '));
+    finishSend(total);
+  }
+
+  /** ページを開いたときの自動送信（設定でOFFにできます） */
+  function maybeAutoSend() {
+    const conf = loadConfig();
+    if (state.autoSendDone || conf.autoSend === false) return;
+    if (!conf.endpoint || !conf.key || !currentNumber()) return;
+    if (pendingRecords().length === 0) return;
+    state.autoSendDone = true;
+    send();
+  }
+
+  /* ---------------- 接続テスト（先生用） ---------------- */
+
+  async function testConnection() {
+    const endpoint = $('conf-endpoint').value.trim();
+    const key = $('conf-key').value.trim();
+    const status = $('conf-status');
+    if (!endpoint || !key) { status.textContent = '受信用URLと送信キーを入力してください。'; return; }
+    status.textContent = 'テスト中…';
+    try {
+      const result = await post(endpoint, { api: 'study-log', token: key, records: [] });
+      status.textContent = result.success ? '✅ 接続できました。' : `❌ ${result.message || '接続できません'}`;
+    } catch (e) {
+      status.textContent = `❌ 接続できません（${e.message}）`;
+    }
+  }
+
+  /* ---------------- 初期化 ---------------- */
+
+  applyUrlParams();
+  const conf = loadConfig();
+  $('conf-app').value = conf.appUrl || '';
+  $('conf-endpoint').value = conf.endpoint || '';
+  $('conf-key').value = conf.key || '';
+  $('conf-auto').checked = conf.autoSend !== false;
+  $('student-number').value = localStorage.getItem(NUMBER_KEY) || '';
+
+  renderPending();
+  loadApp();
+  if (!conf.endpoint || !conf.key || !conf.appUrl) $('config-details').open = true;
+
+  $('send-btn').addEventListener('click', send);
+  $('student-number').addEventListener('change', () => {
+    const value = currentNumber();
+    if (value) localStorage.setItem(NUMBER_KEY, value);
+    renderPending();
+  });
+  $('conf-save-btn').addEventListener('click', () => {
+    const next = {
+      appUrl: $('conf-app').value.trim(),
+      endpoint: $('conf-endpoint').value.trim(),
+      key: $('conf-key').value.trim(),
+      autoSend: $('conf-auto').checked
+    };
+    saveConfig(next);
+    $('conf-status').textContent = '保存しました。読み込み直します…';
+    setTimeout(() => location.reload(), 600);
+  });
+  $('conf-test-btn').addEventListener('click', testConnection);
+
+  // 別タブの学習アプリで学習ログが増えたら件数表示を更新する
+  window.addEventListener('storage', e => { if (e.key === LOG_KEY) renderPending(); });
+  window.addEventListener('focus', renderPending);
+})();
+</script>
+</body>
+</html>

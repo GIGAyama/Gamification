@@ -15,7 +15,7 @@
   <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
   <?!= include('css'); ?>
 </head>
-<body class="bg-body-tertiary d-flex flex-column min-vh-100">
+<body class="bg-body-tertiary d-flex flex-column min-vh-100<?!= (typeof embedded !== 'undefined' && embedded) ? ' embedded' : '' ?>">
 
   <!-- ナビゲーションヘッダー -->
   <nav class="navbar navbar-expand navbar-dark bg-primary shadow-sm sticky-top" id="main-nav" style="display:none;">
@@ -111,6 +111,8 @@
         </div>
         <div class="col-lg-8">
           <div class="row g-4">
+            <!-- 学習アプリのきろく送信パネル（ポータル埋め込み時はここから直接送信できる） -->
+            <div class="col-12" id="home-send-card"></div>
             <div class="col-12">
               <div class="card shadow-sm border-0 rounded-4">
                 <div class="card-header bg-transparent border-0 pt-3 pb-0">
