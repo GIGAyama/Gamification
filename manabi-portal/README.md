@@ -51,7 +51,7 @@ gigayama.github.io リポジトリに `manabi-portal/` フォルダとして `in
 
 ### 1. まなびクエスト側（GAS）
 
-1. `unified/` の最新スクリプトを反映し、メニュー「① 初期セットアップ」を再実行
+1. `manabi-quest/` の最新スクリプトを反映し、メニュー「① 初期セットアップ」を再実行
 2. 「初期設定」シートを設定し、メニューの「🔄 設定キャッシュをクリア」を実行
    - `学習ログ送信キー` … 合言葉（例: `sakura-3nen`）。空欄の間は受信しません
    - `学習ポータルURL` … `https://gigayama.github.io/manabi-portal/`
@@ -95,10 +95,3 @@ https://gigayama.github.io/manabi-portal/?app=<本体のWebアプリURL>&endpoin
 - まなびクエスト側の `doGet` は iframe 表示のため `XFrameOptionsMode.ALLOWALL` を指定しています。
   他サイトからも枠に入れられる状態になるため、児童に配るURLはポータルに統一してください
 - 送信キーはクラス運用のいたずら防止が目的で、機密情報を守るためのものではありません
-
-## 従来の送信ページ（study-log-sender）との関係
-
-[`../study-log-sender/`](../study-log-sender/) は「送信だけ」を行う単機能ページで、そのまま使えます。
-設定（送信先URL・送信キー・出席番号）は同じ localStorage キーを共有するため、
-どちらか一方で設定すれば両方に反映されます。
-**新規に導入する場合はポータル（このフォルダ）を配付してください。**

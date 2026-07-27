@@ -157,7 +157,7 @@ function playGacha(count) {
         ? getConfigNumber_(config, '10連ガチャコスト', 1800)
         : getConfigNumber_(config, 'ガチャコスト', 200);
 
-      const found = findRowData_(ss, SHEETS.USERS, 4, email);
+      const found = findUserRow_(ss, email);
       const currentExp = Number(found.data['経験値'] || 0);
       if (currentExp < cost) {
         return { success: false, message: '経験値がたりません。' };
@@ -193,7 +193,7 @@ function playGacha(count) {
       const userSheet = ss.getSheetByName(SHEETS.USERS);
       const newExp = currentExp - cost;
       const newExchangePoints = Number(found.data['交換ポイント'] || 0) + awardedPoints;
-      userSheet.getRange(found.row, 6, 1, 2).setValues([[newExp, newExchangePoints]]);
+      userSheet.getRange(found.row, USER_COLS.EXP, 1, 2).setValues([[newExp, newExchangePoints]]);
 
       // 新規アイテムを一括追記
       if (newItems.length > 0) {
@@ -238,11 +238,11 @@ function exchangeItem(itemId) {
       if (isNaN(cost) || cost <= 0) return { success: false, message: 'このアイテムは交換できません。' };
       if (getInventory_(ss, email).includes(itemId)) return { success: false, message: 'すでに持っているアイテムです。' };
 
-      const user = findRowData_(ss, SHEETS.USERS, 4, email);
+      const user = findUserRow_(ss, email);
       const points = Number(user.data['交換ポイント'] || 0);
       if (points < cost) return { success: false, message: '交換ポイントがたりません。' };
 
-      ss.getSheetByName(SHEETS.USERS).getRange(user.row, 7).setValue(points - cost);
+      ss.getSheetByName(SHEETS.USERS).getRange(user.row, USER_COLS.POINTS).setValue(points - cost);
       addItemToInventory_(ss, email, itemId);
       writeLog_(ss, email, LOG_ACTIONS.EXCHANGE_ITEM, `アイテム「${itemData.data['アイテム名']}」を交換 (コスト: ${cost})`);
       return { success: true, message: 'アイテムをこうかんしました！', newExchangePoints: points - cost };
@@ -364,7 +364,7 @@ function claimMissionReward(missionId) {
       if (!status) return { success: false, message: 'ミッションが見つかりません。' };
       if (!status.isComplete || status.isClaimed) return { success: false, message: 'まだ受け取れません。' };
 
-      const user = findRowData_(ss, SHEETS.USERS, 4, email);
+      const user = findUserRow_(ss, email);
       const userSheet = ss.getSheetByName(SHEETS.USERS);
       // 先にログを書いて二重受け取りを防ぐ
       writeLog_(ss, email, LOG_ACTIONS.CLAIM_MISSION_REWARD, `ミッションID: ${cleanedId} (${status.content})`);
@@ -376,11 +376,11 @@ function claimMissionReward(missionId) {
       if (status.rewardType === '経験値') {
         newExp += status.rewardAmount;
         newTotalExp += status.rewardAmount;
-        userSheet.getRange(user.row, 5, 1, 2).setValues([[newTotalExp, newExp]]);
+        userSheet.getRange(user.row, USER_COLS.TOTAL_EXP, 1, 2).setValues([[newTotalExp, newExp]]);
         checkLevelUp_(ss, email, newTotalExp - status.rewardAmount, newTotalExp, getConfig_());
       } else {
         newExchangePoints += status.rewardAmount;
-        userSheet.getRange(user.row, 7).setValue(newExchangePoints);
+        userSheet.getRange(user.row, USER_COLS.POINTS).setValue(newExchangePoints);
       }
       return { success: true, message: 'ほうしゅうを受け取りました！', newExp, newTotalExp, newExchangePoints };
     } catch (e) {

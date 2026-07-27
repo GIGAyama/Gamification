@@ -173,7 +173,7 @@ function getStudentDetails(email) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const config = getConfig_();
     const target = String(email).toLowerCase().trim();
-    const found = findRowData_(ss, SHEETS.USERS, 4, target);
+    const found = findUserRow_(ss, target);
     if (!found.data) return { success: false, message: '児童が見つかりません。' };
 
     const totalExp = Number(found.data['累計経験値'] || 0);
