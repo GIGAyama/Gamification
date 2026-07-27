@@ -7,7 +7,7 @@
 /**
  * Webアプリの初期表示。役割の判定はクライアントから getInitialAppData() で行います。
  *
- * XFrameOptionsMode.ALLOWALL は、学習ポータル（gigayama.github.io/manabi-portal/）の
+ * XFrameOptionsMode.ALLOWALL は、学習ポータル（gigayama.github.io 上の manabi-portal/）の
  * iframe 内でこのアプリを表示するために必要です。
  * ポータルは学習アプリと同一オリジンなので localStorage の学習ログを読むことができ、
  * 「まなびクエストと同じ画面」から学習データを送信できるようになります。
