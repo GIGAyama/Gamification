@@ -41,16 +41,170 @@ const Portal = {
   onResult: null        // 送信結果を受け取ったときのコールバック
 };
 
+/* ---------------------------------------------------------------------
+ * 画面階層（戻る操作）
+ * -------------------------------------------------------------------
+ * このアプリは1ページの中でタブ・フォーム・ダイアログを切り替える SPA なので、
+ * 「1つ前の画面」はブラウザの履歴ではなくアプリが覚えておく必要があります。
+ * ここでは開いた順に復元手順を積んでおき、次の3つの操作から同じ goBackOne() を呼びます。
+ *   ① 画面下部のナビゲーションバーの「もどる」
+ *   ② 画面の左右の端から中央へのスワイプ
+ *   ③ ポータル（親ページ）が受け取ったブラウザ/端末の戻る操作（NAV_BACK）
+ * 状態が変わるたびにポータルへ NAV_STATE を送り、下部バーの見た目をそろえます。
+ * ------------------------------------------------------------------- */
+const Nav = {
+  stack: [],          // { key, back() } を開いた順に積む
+  suppress: false,    // 復元中に新しい履歴を積まないためのフラグ
+  lastBackAt: 0,      // 二重発火を防ぐための直前の時刻
+  lastBackSource: null,
+  MAX: 30
+};
+
+/** ダイアログが開いているか（SweetAlert2） */
+function isDialogOpen_() {
+  return typeof Swal !== 'undefined' && typeof Swal.isVisible === 'function' && Swal.isVisible();
+}
+
+/** 1つ前の画面へ戻れるか */
+function navCanGoBack() {
+  return Nav.stack.length > 0 || isDialogOpen_();
+}
+
+/** 履歴を1つ積みます（同じ画面の連打は積みません） */
+function navPush(key, back) {
+  if (Nav.suppress) return;
+  const top = Nav.stack[Nav.stack.length - 1];
+  if (top && top.key === key) return;
+  Nav.stack.push({ key, back });
+  if (Nav.stack.length > Nav.MAX) Nav.stack.shift();
+  navNotify();
+}
+
+/** 積んである履歴のうち、指定キーの一番新しいものを取り除きます（画面を自分で閉じたとき用） */
+function navDrop(key) {
+  for (let i = Nav.stack.length - 1; i >= 0; i--) {
+    if (Nav.stack[i].key === key) {
+      Nav.stack.splice(i, 1);
+      navNotify();
+      return;
+    }
+  }
+}
+
+/** 現在の状態をポータルと画面下部のバーに反映します */
+function navNotify() {
+  const canGoBack = navCanGoBack();
+  postToPortal({ type: 'NAV_STATE', depth: Nav.stack.length, canGoBack });
+  const btn = document.getElementById('app-back-btn');
+  if (btn) btn.disabled = !canGoBack;
+}
+
+/** 1つ前の画面へ戻ります。戻れたら true */
+function goBackOne() {
+  if (isDialogOpen_()) { Swal.close(); navNotify(); return true; }
+  const entry = Nav.stack.pop();
+  if (!entry) { navNotify(); return false; }
+  Nav.suppress = true;
+  try {
+    entry.back();
+  } catch (e) {
+    console.warn('画面を戻せませんでした:', e && e.message);
+  } finally {
+    Nav.suppress = false;
+  }
+  navNotify();
+  return true;
+}
+
+/**
+ * 「戻る」要求の入口。
+ * 画面端のスワイプは、端末によってはブラウザの戻る操作も一緒に起こします。
+ * 「1回の操作」が別々の入口から二重に届いたときだけ無視し、
+ * 同じ入口の連打（もどるを2回押して2階層あがる等）はそのまま受け付けます。
+ */
+function requestBack(source) {
+  const now = Date.now();
+  if (source !== Nav.lastBackSource && now - Nav.lastBackAt < 600) return false;
+  Nav.lastBackAt = now;
+  Nav.lastBackSource = source;
+  return goBackOne();
+}
+
+/**
+ * 画面の左右の端から中央へのスワイプで戻ります。
+ * ポータルに埋め込まれているときは、ポータル側の細い帯（画面のいちばん端）と
+ * このハンドラ（その内側）の両方でスワイプを拾えるようにしています。
+ */
+function initEdgeSwipeBack() {
+  const EDGE = 32;        // 端からこの範囲で始めたスワイプだけを「戻る」とみなす
+  const THRESHOLD = 60;   // 中央方向へこれだけ動かしたら成立
+  let startX = 0, startY = 0, startedAt = 0, direction = null;
+
+  document.addEventListener('touchstart', event => {
+    direction = null;
+    if (event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const width = window.innerWidth || document.documentElement.clientWidth;
+    if (touch.clientX <= EDGE) direction = 'left';
+    else if (touch.clientX >= width - EDGE) direction = 'right';
+    else return;
+    startX = touch.clientX;
+    startY = touch.clientY;
+    startedAt = Date.now();
+  }, { passive: true });
+
+  document.addEventListener('touchend', event => {
+    if (!direction) return;
+    const dir = direction;
+    direction = null;
+    const touch = event.changedTouches[0];
+    if (!touch) return;
+    const travel = dir === 'left' ? (touch.clientX - startX) : (startX - touch.clientX);
+    const drift = Math.abs(touch.clientY - startY);
+    if (travel >= THRESHOLD && drift < 80 && Date.now() - startedAt < 1200) requestBack('gesture');
+  }, { passive: true });
+
+  document.addEventListener('touchcancel', () => { direction = null; }, { passive: true });
+}
+
+/**
+ * Webアプリを直接ひらいたとき（ポータルの iframe ではないとき）の履歴ガード。
+ * 履歴にダミーを1つ積んでおき、ブラウザの戻る操作をアプリ内の「戻る」に変換します。
+ * これでアプリが閉じたり、思わぬページへ飛んだりしません。
+ * ポータル経由のときはポータル側が同じ役目を担うので、ここでは何もしません。
+ */
+function initStandaloneHistoryGuard() {
+  if (document.body.classList.contains('embedded')) return;
+  try {
+    history.pushState({ mq: 'guard' }, '');
+  } catch (e) {
+    return;   // サンドボックスの制約で積めない環境では、下部バーとスワイプだけで戻ります
+  }
+  window.addEventListener('popstate', () => {
+    try { history.pushState({ mq: 'guard' }, ''); } catch (e) { /* 続行 */ }
+    requestBack('history');
+  });
+}
+
 /** ポータルとして許可するオリジン（GitHub Pages のみ） */
 function isPortalOrigin_(origin) {
   return typeof origin === 'string' && /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin);
 }
 
-/** 親ページ（ポータル）へメッセージを送ります */
+/**
+ * ポータル（いちばん外側のページ）へメッセージを送ります。
+ *
+ * ※ 宛先は window.parent ではなく window.top です。
+ *   GAS の Webアプリは「script.google.com のページ」の中の
+ *   「googleusercontent.com の iframe」でユーザーコードを動かすため、
+ *   ポータルに埋め込むと次のような入れ子になります。
+ *       ポータル(github.io) ＞ script.google.com ＞ googleusercontent.com（このコード）
+ *   window.parent は script.google.com のページであってポータルではありません。
+ */
 function postToPortal(message) {
-  if (!Portal.embedded) return false;
+  if (window.self === window.top) return false;   // いちばん外側なら送り先がない
   try {
-    window.parent.postMessage({ source: 'manabi-quest', ...message }, Portal.origin || '*');
+    window.top.postMessage({ source: 'manabi-quest', ...message }, Portal.origin || '*');
     return true;
   } catch (e) {
     return false;
@@ -59,12 +213,14 @@ function postToPortal(message) {
 
 /** ポータルとのメッセージ受信を開始します */
 function initPortalBridge() {
-  if (window.self === window.top) return;   // 埋め込みでなければ何もしない
-  Portal.embedded = true;
+  // GAS は常にサンドボックスの iframe で動くので window.top との比較では
+  // 「ポータルに埋め込まれているか」を判定できません。
+  // サーバー側が ?embed=1 のときに付ける body.embedded を正とします。
+  Portal.embedded = document.body.classList.contains('embedded');
 
   window.addEventListener('message', event => {
-    // 親フレーム かつ GitHub Pages のオリジンからのメッセージだけを受け付ける
-    if (event.source !== window.parent || !isPortalOrigin_(event.origin)) return;
+    // いちばん外側のページ かつ GitHub Pages のオリジンからのメッセージだけを受け付ける
+    if (event.source !== window.top || !isPortalOrigin_(event.origin)) return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object' || msg.source !== 'manabi-portal') return;
     Portal.origin = event.origin;
@@ -88,6 +244,10 @@ function initPortalBridge() {
         Portal.pending = Number(msg.pending) || 0;
         if (Portal.onResult) Portal.onResult(msg);
         else if (Portal.onUpdate) Portal.onUpdate(msg);
+        break;
+      case 'NAV_BACK':
+        // ポータルが受け取った戻る操作（下部バー・スワイプ・ブラウザの戻る）
+        requestBack('portal');
         break;
     }
   });
@@ -142,8 +302,20 @@ async function apiWithLoading(message, funcName, ...args) {
   }
 }
 
-/** ビュー切り替え */
-function showView(viewId) {
+/** いま表示しているメインビューのID */
+let currentViewId = null;
+
+/**
+ * ビュー切り替え。
+ * @param {string} viewId
+ * @param {Object} [options] - { push: true } で「戻る」履歴に前の画面を積みます
+ *                             （タブのタップなど、児童・先生の操作で移動したとき）
+ */
+function showView(viewId, options) {
+  if (options && options.push && currentViewId && currentViewId !== viewId) {
+    const previous = currentViewId;   // クロージャに値を閉じ込める（変数を参照しない）
+    navPush('view:' + previous, () => showView(previous));
+  }
   document.querySelectorAll('.spa-view').forEach(v => v.classList.add('d-none'));
   const view = document.getElementById(viewId);
   if (view) view.classList.remove('d-none');
@@ -152,6 +324,10 @@ function showView(viewId) {
     tab.classList.toggle('active-tab', active);
     tab.classList.toggle('text-secondary', !active);
   });
+  currentViewId = viewId;
+  // タブを切り替えたら、いつも画面の先頭から見せる
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  navNotify();
 }
 
 /** 日付の表示整形 (ISO文字列 → M/d) */
@@ -362,10 +538,25 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ポータルとの接続は初期データの取得より先に始めておく
   initPortalBridge();
 
-  // タブクリックの共通ハンドラ
+  // タブクリックの共通ハンドラ（タップでの移動は「戻る」履歴に積む）
   document.querySelectorAll('.nav-tab').forEach(tab => {
-    tab.addEventListener('click', () => showView(tab.dataset.view));
+    tab.addEventListener('click', () => showView(tab.dataset.view, { push: true }));
   });
+
+  // 画面下部のナビゲーションバー（ポータルに埋め込まれていないときに表示）
+  const backBtn = document.getElementById('app-back-btn');
+  if (backBtn) backBtn.addEventListener('click', () => requestBack('button'));
+
+  // 画面端からのスワイプで戻る
+  initEdgeSwipeBack();
+  initStandaloneHistoryGuard();
+
+  // PC のキーボード（Alt + ←）でも戻れるようにする
+  document.addEventListener('keydown', e => {
+    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); requestBack('key'); }
+  });
+
+  navNotify();
 
   try {
     const result = await api('getInitialAppData');

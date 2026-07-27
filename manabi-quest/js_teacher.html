@@ -61,7 +61,7 @@ function renderTeacherDashboard(data) {
   tbody.querySelectorAll('.t-detail-link').forEach(btn => {
     btn.addEventListener('click', () => {
       document.getElementById('t-student-select').value = btn.dataset.email;
-      showView('view-t-student');
+      showView('view-t-student', { push: true });
       loadStudentDetail(btn.dataset.email);
     });
   });
@@ -104,7 +104,7 @@ function renderStudentAlerts(alerts) {
   area.querySelectorAll('.t-alert-card').forEach(card => {
     card.addEventListener('click', () => {
       document.getElementById('t-student-select').value = card.dataset.email;
-      showView('view-t-student');
+      showView('view-t-student', { push: true });
       loadStudentDetail(card.dataset.email);
     });
   });

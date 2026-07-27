@@ -6,6 +6,81 @@
 
   body {
     font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif;
+    /* 画面端からのスワイプ（戻る操作）で、ページが横に流れないようにする */
+    overscroll-behavior-x: none;
+  }
+
+  /* =================================================================
+   * メインの表示領域
+   * どの端末でもコンテンツの幅を最大限に使えるよう、Bootstrap の .container
+   * （固定幅）ではなく可変幅にしています。大画面では読みやすい幅で止めます。
+   * ================================================================= */
+  .app-main {
+    width: 100%;
+    max-width: 1440px;
+    margin-left: auto;
+    margin-right: auto;
+    /* 左右の余白は Bootstrap の行ガター（--bs-gutter-x の半分 = .75rem）以上にします。
+       これより狭いと .row の負のマージンがはみ出して横スクロールが出ます。 */
+    padding-left: 1.25rem;
+    padding-right: 1.25rem;
+  }
+  @media (max-width: 767.98px) {
+    .app-main {
+      padding-left: .75rem;
+      padding-right: .75rem;
+      padding-top: .85rem !important;
+      padding-bottom: 1rem !important;
+    }
+    /* ナビゲーションの高さを詰めて、そのぶんコンテンツを広くする */
+    #main-nav { padding-top: .15rem !important; padding-bottom: .15rem !important; }
+    #main-nav .navbar-brand { font-size: 1rem; }
+    #main-nav #nav-user-info { font-size: .85rem; gap: .5rem !important; }
+    /* ブランド行はスクロールで隠し、タブは画面上部に貼り付けて常に押せるようにする */
+    #main-nav { position: static !important; }
+    #student-tabs, #teacher-tabs { position: sticky; top: 0; z-index: 1020; }
+  }
+  @media (min-width: 1600px) {
+    .app-main { max-width: 1600px; }
+  }
+
+  /* ---- 画面下部のナビゲーションバー（Webアプリを直接ひらいたとき） ---- */
+  .app-backbar {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 1030;
+    align-items: center;
+    gap: .75rem;
+    padding: .4rem .9rem;
+    padding-bottom: calc(.4rem + env(safe-area-inset-bottom, 0px));
+    background: #fff;
+    border-top: 1px solid #dee2e6;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, .06);
+  }
+  .app-back-btn {
+    border: 1px solid #cfe0f5;
+    background: #f4f9ff;
+    color: var(--mq-primary);
+    font-weight: bold;
+    font-family: inherit;
+    border-radius: 999px;
+    padding: .5rem 1.4rem;
+    font-size: 1rem;
+    min-height: 44px;
+  }
+  .app-back-btn:disabled { color: #adb5bd; background: #f1f3f5; border-color: #e9ecef; }
+  .app-backbar-hint { font-size: .72rem; color: #8a99a8; }
+  /* ポータル（PWA）の中では、ポータル側の下部バーを使う */
+  body.embedded .app-backbar { display: none !important; }
+  @media (max-width: 991.98px), (pointer: coarse) {
+    body:not(.embedded) .app-backbar { display: flex; }
+    /* 下部バーに隠れないぶんの余白 */
+    body:not(.embedded) { padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px)); }
+    body:not(.embedded) .app-backbar-hint { display: none; }
+  }
+  @media (min-width: 992px) and (pointer: coarse) {
+    body:not(.embedded) .app-backbar-hint { display: inline; }
   }
 
   /* ---- ナビゲーションタブ ---- */
@@ -154,8 +229,9 @@
   .star-rating { cursor: pointer; font-size: 1.4rem; color: #ffc107; user-select: none; }
   .star-rating .star.off { color: #dee2e6; }
 
-  @media (max-width: 576px) {
-    .nav-tab { font-size: .85rem; padding: .7rem .3rem !important; }
+  @media (max-width: 767.98px) {
+    /* 高さを詰めてコンテンツ領域を広げつつ、指で押しやすい大きさは確保する */
+    .nav-tab { font-size: .82rem; padding: .6rem .25rem !important; min-height: 44px; }
   }
 
   /* ---- ふりがな（ルビ）: 低学年向けに漢字の上へ読みを表示 ---- */

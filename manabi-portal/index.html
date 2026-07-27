@@ -2,17 +2,31 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>まなびクエスト｜学習ポータル</title>
+  <meta name="description" content="まなびクエストと学習アプリのきろく送信をひとつの画面にまとめた学習ポータル">
+
+  <!-- ---- PWA（Chrome / Safari からアプリとしてインストールできるようにする） ---- -->
+  <link rel="manifest" href="../manifest.json">
+  <meta name="theme-color" content="#2b7de9">
+  <link rel="icon" href="../icons/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="../icons/apple-touch-icon.png">
+  <!-- iOS（Safari）でホーム画面から起動したときにアプリ表示にする -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="まなびクエスト">
   <!--
     まなびクエスト 学習ポータル
     =====================================================================
     gigayama.github.io（学習アプリと同一オリジン）で公開して使います。
 
-    このページは 2 つの役割をひとつの画面にまとめます。
-      ① まなびクエスト（GAS Webアプリ）を iframe で表示する
+    このページは 3 つの役割をひとつの画面にまとめます。
+      ① まなびクエスト（GAS Webアプリ）を iframe で全画面表示する
       ② 学習アプリが localStorage（study.records.v1）に保存した study.v1 学習ログを
          まなびクエストへ送信する
+      ③ PWA の外側（アプリシェル）として、下部ナビゲーションバーと
+         「戻る」操作（タップ／画面端からのスワイプ／ブラウザの戻る）を提供する
 
     なぜポータルが親で、まなびクエストが iframe なのか:
       ブラウザのストレージ分離（Storage Partitioning）により、サードパーティ iframe から
@@ -20,10 +34,12 @@
       「gigayama.github.io がトップレベル（＝このページ）」のときだけです。
       そのため、ポータルを親ページにして送信を担当し、まなびクエストを iframe で表示します。
 
-    iframe の中のまなびクエストからも postMessage で送信を依頼できるので、
-    児童から見れば「まなびクエストの中に送信ボタンがある」ように使えます。
-    iframe が表示できない環境（サードパーティCookieのブロックなど）でも、
-    このページ上部の「きろくを おくる」ボタンだけで送信は完結します。
+    戻る操作について:
+      画面の階層（タブ・フォーム・ダイアログ）は iframe の中のまなびクエストが持っています。
+      このページは「戻ってほしい」という合図（NAV_BACK）を送るだけで、
+      どこへ戻るかはアプリ側が判断します。
+      ブラウザの戻る（Android の戻るジェスチャー、iOS の画面端スワイプ、戻るボタン）は
+      履歴ガード（下の initHistoryGuard）が受け止めるので、アプリが終了することはありません。
 
     設定方法（先生向け）:
       このページのURLに次のパラメータを付けて一度開くと、設定が端末に保存されます。
@@ -33,145 +49,374 @@
       例) https://gigayama.github.io/Gamification/manabi-portal/?app=https://script.google.com/a/macros/…/exec&endpoint=https://script.google.com/macros/s/…/exec&key=aikotoba
   -->
   <style>
-    * { box-sizing: border-box; }
-    html, body { height: 100%; }
-    body {
+    /* =================================================================
+     * アプリシェル
+     * どの端末でもコンテンツ（まなびクエスト本体）の面積を最大にするため、
+     * ポータル自身の枠は「小さい画面では下部バーだけ」にしています。
+     * ================================================================= */
+    :root {
+      --brand: #2b7de9;
+      --brand-dark: #1c5fb8;
+      --bg: #eef4fb;
+      --ink: #26313d;
+      --muted: #7b8794;
+      --line: #dbe6f3;
+      --tabbar-h: 58px;
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --safe-t: env(safe-area-inset-top, 0px);
+      --safe-l: env(safe-area-inset-left, 0px);
+      --safe-r: env(safe-area-inset-right, 0px);
+    }
+
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    html, body {
+      height: 100%;
       margin: 0;
+      /* PWA として起動したときに、ページ全体が引っぱられて動かないようにする */
+      overscroll-behavior: none;
+    }
+    body {
       font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
-      background: #eef4fb; color: #26313d;
-      display: flex; flex-direction: column; height: 100dvh;
+      background: var(--bg);
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      height: 100dvh;      /* アドレスバーの伸縮で高さが変わる端末に対応 */
+      overflow: hidden;
     }
 
-    /* ---- 上部バー ---- */
-    header {
-      background: #fff; border-bottom: 1px solid #dbe6f3;
-      box-shadow: 0 1px 4px rgba(0,0,0,.06);
-      padding: 8px 12px; flex: 0 0 auto;
+    button { font-family: inherit; }
+
+    /* ---- 上部バー（大きい画面のみ。スマホ・タブレット縦では非表示） ---- */
+    .appbar {
+      flex: 0 0 auto;
+      display: none;
+      align-items: center;
+      gap: 12px;
+      padding: 6px calc(14px + var(--safe-r)) 6px calc(14px + var(--safe-l));
+      padding-top: calc(6px + var(--safe-t));
+      background: #fff;
+      border-bottom: 1px solid var(--line);
     }
-    .bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .brand { font-weight: bold; font-size: 1rem; white-space: nowrap; }
-    .brand .sub { font-size: .72rem; color: #7b8794; font-weight: normal; display: block; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: bold; white-space: nowrap; }
+    .brand img { width: 26px; height: 26px; border-radius: 7px; }
+    .brand .sub { font-size: .72rem; color: var(--muted); font-weight: normal; }
     .spacer { flex: 1 1 auto; }
+    .status { font-size: .8rem; color: var(--muted); }
 
-    label.inline { font-size: .78rem; font-weight: bold; color: #55616e; }
-    input[type=number].num {
-      width: 5.5rem; padding: 6px 8px; font-size: 1rem;
-      border: 2px solid #cfe0f5; border-radius: 8px;
+    /* ---- コンテンツ（まなびクエスト本体） ---- */
+    .stage {
+      flex: 1 1 auto;
+      position: relative;
+      min-height: 0;
+      padding-top: var(--safe-t);
+      background: var(--bg);
     }
-    .send-btn {
-      display: inline-flex; align-items: center; gap: .4rem;
-      padding: 10px 18px; font-size: 1rem; font-weight: bold;
-      color: #fff; background: #e5484d; border: none; border-radius: 999px;
-      cursor: pointer; box-shadow: 0 2px 6px rgba(229,72,77,.35);
+    iframe {
+      width: 100%; height: 100%; border: 0; display: block; background: var(--bg);
     }
-    .send-btn.idle { background: #2b7de9; box-shadow: 0 2px 6px rgba(43,125,233,.3); }
-    .send-btn:disabled { background: #b7c4d3; box-shadow: none; cursor: not-allowed; }
-    .count-pill {
-      display: inline-flex; align-items: center; justify-content: center;
-      min-width: 1.8rem; height: 1.8rem; padding: 0 .5rem; margin-left: .1rem;
-      border-radius: 999px; background: rgba(255,255,255,.28); font-size: .9rem;
-    }
-    .link-btn {
-      background: none; border: none; color: #2b7de9; font-size: .8rem;
-      cursor: pointer; text-decoration: underline; padding: 2px 4px;
-    }
-
-    /* ---- 通知バー ---- */
-    .notice { font-size: .85rem; padding: 8px 12px; border-radius: 10px; margin-top: 8px; }
-    .notice.info { background: #eaf3ff; border: 1px solid #bcd8fb; }
-    .notice.good { background: #e7f6ec; border: 1px solid #9edcb6; }
-    .notice.bad { background: #fdecea; border: 1px solid #f3b0ab; }
-    .notice.warn { background: #fff6e0; border: 1px solid #f3d79a; }
-    .notice[hidden] { display: none; }
-    .notice a { color: #1a5fb4; }
-
-    /* ---- iframe ---- */
-    .frame-wrap { flex: 1 1 auto; position: relative; min-height: 0; }
-    iframe { width: 100%; height: 100%; border: 0; display: block; background: #eef4fb; }
     .frame-fallback {
-      position: absolute; inset: 0; display: flex; flex-direction: column;
-      align-items: center; justify-content: center; gap: 12px; text-align: center;
-      padding: 24px; background: #eef4fb;
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 14px; text-align: center; padding: 24px; background: var(--bg);
     }
     .frame-fallback[hidden] { display: none; }
     .frame-fallback .big {
-      display: inline-block; padding: 12px 24px; border-radius: 999px;
-      background: #2b7de9; color: #fff; font-weight: bold; text-decoration: none;
+      display: inline-block; padding: 14px 26px; border-radius: 999px;
+      background: var(--brand); color: #fff; font-weight: bold; text-decoration: none;
     }
 
-    /* ---- 設定パネル ---- */
-    details.config { margin-top: 8px; }
-    details.config summary { font-size: .8rem; color: #55616e; cursor: pointer; }
-    .config-grid { display: grid; gap: 8px; margin-top: 8px; max-width: 720px; }
-    .config-grid input[type=url], .config-grid input[type=text] {
-      width: 100%; padding: 8px; border: 2px solid #cfe0f5; border-radius: 8px; font-size: .9rem;
+    /* ---- 画面端のスワイプ受け（戻るジェスチャー） ----
+       まなびクエスト本体（iframe）の中でもスワイプを検出しますが、
+       別オリジンの iframe の上ではこのページはタッチを受け取れないため、
+       画面の左右にごく細い透明の帯を重ねて確実に戻れるようにします。
+       上下の端は本体のタブ・ボタンに重ならないよう空けています。 */
+    .edge-zone {
+      position: absolute; top: 15%; bottom: 15%; width: 20px;
+      touch-action: none; z-index: 5; display: none;
     }
-    .config-grid label { font-size: .78rem; font-weight: bold; color: #55616e; }
-    .config-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .sub-btn { padding: 7px 12px; font-size: .82rem; border: 1px solid #b9c6d4; background: #fff; border-radius: 8px; cursor: pointer; }
-    .muted { color: #7b8794; font-size: .78rem; }
+    .edge-zone.left { left: 0; }
+    .edge-zone.right { right: 0; }
+    @media (pointer: coarse) { .edge-zone { display: block; } }
 
-    @media (max-width: 600px) {
-      .brand .sub { display: none; }
-      .send-btn { padding: 9px 14px; font-size: .95rem; }
+    /* スワイプ中に出る「戻る」の目印 */
+    .edge-hint {
+      position: absolute; top: 50%; z-index: 6;
+      width: 44px; height: 44px; margin-top: -22px;
+      border-radius: 50%; background: rgba(43,125,233,.92); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
+      opacity: 0; pointer-events: none; transition: opacity .12s;
+      box-shadow: 0 4px 14px rgba(0,0,0,.25);
+    }
+    .edge-hint.left { left: 0; transform: translateX(-60px); }
+    .edge-hint.right { right: 0; transform: translateX(60px); }
+    .edge-hint.show { opacity: 1; }
+
+    /* ---- 下部ナビゲーションバー ---- */
+    .tabbar {
+      flex: 0 0 auto;
+      display: flex; align-items: stretch;
+      background: #fff;
+      border-top: 1px solid var(--line);
+      padding-bottom: var(--safe-b);
+      padding-left: var(--safe-l);
+      padding-right: var(--safe-r);
+      box-shadow: 0 -2px 10px rgba(38, 49, 61, .06);
+    }
+    .tab {
+      flex: 1 1 0; min-width: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: 2px; padding: 6px 4px; height: var(--tabbar-h);
+      border: none; background: none; color: #4a5763;
+      font-size: .68rem; font-weight: bold; cursor: pointer;
+      position: relative;
+    }
+    .tab .ico { font-size: 1.25rem; line-height: 1.1; }
+    .tab:disabled { color: #bcc6d1; cursor: default; }
+    .tab:active:not(:disabled) { background: #eef4fb; }
+    .tab.primary { color: var(--brand); }
+    .tab.primary.alert { color: #e5484d; }
+    .tab .badge {
+      position: absolute; top: 4px; right: 50%; margin-right: -22px;
+      min-width: 18px; height: 18px; padding: 0 5px;
+      border-radius: 999px; background: #e5484d; color: #fff;
+      font-size: .68rem; line-height: 18px; text-align: center;
+    }
+    .tab .badge[hidden] { display: none; }
+    .tab .num-chip {
+      display: inline-block; min-width: 2rem; padding: 0 .35rem;
+      border-radius: 999px; background: #eef4fb; color: var(--brand-dark);
+      font-size: .95rem; line-height: 1.35;
+    }
+    .tab .num-chip.empty { background: #fdecea; color: #c0392b; }
+
+    /* ---- 通知（コンテンツの上に浮かせて、表示面積を減らさない） ---- */
+    .toast-area {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 10px;
+      width: min(560px, calc(100% - 24px)); z-index: 60;   /* シートより手前に出す */
+      display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+      transition: bottom .15s;
+    }
+    /* インストール案内が出ているときは、その上に重ならないよう持ち上げる */
+    body.has-install .toast-area { bottom: 84px; }
+    .toast {
+      pointer-events: auto;
+      padding: 10px 14px; border-radius: 12px; font-size: .88rem; line-height: 1.6;
+      box-shadow: 0 6px 20px rgba(38, 49, 61, .18); cursor: pointer;
+      animation: toast-in .18s ease-out;
+    }
+    @keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+    .toast.info { background: #eaf3ff; border: 1px solid #bcd8fb; }
+    .toast.good { background: #e7f6ec; border: 1px solid #9edcb6; }
+    .toast.bad  { background: #fdecea; border: 1px solid #f3b0ab; }
+    .toast.warn { background: #fff6e0; border: 1px solid #f3d79a; }
+    .toast .muted { color: var(--muted); }
+
+    /* ---- シート（設定・出席番号）: 下から出す ----
+       下部ナビゲーションバーは覆いません。シートを開いていても
+       「もどる」でひとつ前に戻れるようにするためです。 */
+    .sheet-backdrop {
+      position: absolute; inset: 0;
+      z-index: 40;
+      background: rgba(20, 30, 40, .42);
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .sheet-backdrop[hidden] { display: none; }
+    .sheet {
+      width: min(680px, 100%);
+      max-height: 100%;
+      overflow-y: auto; -webkit-overflow-scrolling: touch;
+      background: #fff; color: var(--ink);
+      border-radius: 20px 20px 0 0;
+      padding: 18px 18px calc(18px + var(--safe-b));
+      animation: sheet-in .2s ease-out;
+    }
+    @keyframes sheet-in { from { transform: translateY(24px); opacity: .4; } to { transform: none; opacity: 1; } }
+    @media (min-width: 700px) {
+      .sheet-backdrop { align-items: center; }
+      .sheet { border-radius: 20px; max-height: calc(100% - 32px); }
+    }
+    .sheet h2 { margin: 0 0 4px; font-size: 1.05rem; }
+    .sheet .lead { margin: 0 0 14px; font-size: .82rem; color: var(--muted); line-height: 1.7; }
+    .field { margin-bottom: 12px; }
+    .field label { display: block; font-size: .78rem; font-weight: bold; color: #55616e; margin-bottom: 4px; }
+    .field input[type=url], .field input[type=text], .field input[type=number] {
+      width: 100%; padding: 10px; border: 2px solid #cfe0f5; border-radius: 10px;
+      font-size: 1rem; font-family: inherit; background: #fff; color: var(--ink);
+    }
+    .field input:focus { outline: none; border-color: var(--brand); }
+    .field .hint { font-size: .74rem; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .btn {
+      padding: 12px 18px; border-radius: 12px; border: none; cursor: pointer;
+      font-size: 1rem; font-weight: bold; font-family: inherit;
+    }
+    .btn.primary { background: var(--brand); color: #fff; }
+    .btn.ghost { background: #fff; color: #46535f; border: 1px solid #b9c6d4; }
+    .btn:disabled { background: #ccd6e0; color: #fff; cursor: not-allowed; }
+    .btn.wide { width: 100%; }
+    .muted { color: var(--muted); font-size: .8rem; }
+    code { background: #f4f7fa; border-radius: 4px; padding: 1px 5px; font-size: .95em; }
+
+    /* 出席番号シートは大きく打てるように */
+    #number-input { font-size: 2rem; text-align: center; letter-spacing: .1em; padding: 14px; }
+
+    /* ---- インストールのおすすめ ---- */
+    .install-bar {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      bottom: 10px;
+      width: min(560px, calc(100% - 24px)); z-index: 25;
+      background: #fff; border: 1px solid var(--line); border-radius: 14px;
+      box-shadow: 0 8px 24px rgba(38, 49, 61, .18);
+      padding: 12px 14px; display: flex; align-items: center; gap: 10px;
+      font-size: .85rem; line-height: 1.5;
+    }
+    .install-bar[hidden] { display: none; }
+    .install-bar img { width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto; }
+    .install-bar .close {
+      border: none; background: none; color: var(--muted); font-size: 1.2rem;
+      cursor: pointer; padding: 2px 6px; flex: 0 0 auto;
+    }
+
+    /* ---- 大きい画面（PC・タブレット横）では上部バーを出す ---- */
+    @media (min-width: 768px) {
+      .appbar { display: flex; }
+      .stage { padding-top: 0; }
+      .tab { font-size: .72rem; }
+    }
+
+    /* ---- ダークモード ---- */
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #121a24; --ink: #e8eef5; --line: #2a3745; --muted: #93a2b3; }
+      .appbar, .tabbar, .sheet, .install-bar { background: #1a2431; }
+      .tab { color: #b9c6d4; }
+      .tab:active:not(:disabled) { background: #22303f; }
+      .tab .num-chip { background: #22303f; color: #8bb8f0; }
+      .field input[type=url], .field input[type=text], .field input[type=number] {
+        background: #131c26; color: var(--ink); border-color: #2f4054;
+      }
+      .btn.ghost { background: #1a2431; color: #cfdae6; border-color: #33465a; }
+      code { background: #22303f; }
+      .toast.info { background: #12293f; border-color: #24486d; }
+      .toast.good { background: #12331f; border-color: #24663c; }
+      .toast.bad  { background: #3a1a1a; border-color: #6d3230; }
+      .toast.warn { background: #3a2f12; border-color: #6d5a24; }
     }
   </style>
 </head>
 <body>
 
-<header>
-  <div class="bar">
-    <div class="brand">🎒 まなびクエスト<span class="sub">がくしゅうポータル</span></div>
-    <label class="inline" for="student-number">しゅっせきばんごう</label>
-    <input type="number" id="student-number" class="num" min="1" max="99" inputmode="numeric" placeholder="12">
-    <div class="spacer"></div>
-    <span class="muted" id="pending-label"></span>
-    <button class="send-btn idle" id="send-btn" disabled>
-      <span id="send-label">📨 きろくを おくる</span><span class="count-pill" id="pending-count" hidden>0</span>
-    </button>
+<!-- ===================== 上部バー（大きい画面のみ） ===================== -->
+<header class="appbar">
+  <div class="brand">
+    <img src="../icons/icon-192.png" alt="">
+    <span>まなびクエスト<span class="sub">　がくしゅうポータル</span></span>
   </div>
-
-  <div class="notice info" id="notice" hidden></div>
-
-  <details class="config" id="config-details">
-    <summary>⚙️ せってい（先生用）</summary>
-    <div class="config-grid">
-      <div>
-        <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内）</label>
-        <input type="url" id="conf-app" placeholder="https://script.google.com/a/macros/…/exec">
-      </div>
-      <div>
-        <label for="conf-endpoint">学習ログ受信用のWebアプリURL（アクセス: 全員）</label>
-        <input type="url" id="conf-endpoint" placeholder="https://script.google.com/macros/s/…/exec">
-      </div>
-      <div>
-        <label for="conf-key">学習ログ送信キー（「初期設定」シートと同じ合言葉）</label>
-        <input type="text" id="conf-key" placeholder="合言葉">
-      </div>
-      <div>
-        <label><input type="checkbox" id="conf-auto"> ページを開いたときに、たまっているきろくを自動でおくる</label>
-      </div>
-      <div class="config-actions">
-        <button class="sub-btn" id="conf-save-btn">設定を保存</button>
-        <button class="sub-btn" id="conf-test-btn">接続テスト</button>
-        <span class="muted" id="conf-status"></span>
-      </div>
-      <p class="muted">
-        URLパラメータ <code>?app=…&amp;endpoint=…&amp;key=…</code> 付きで開くと自動で保存されます（保存後はURLから消えます）。
-        本体URLと受信用URLは<b>別のデプロイ</b>です（本体＝組織内 / 受信用＝全員）。
-      </p>
-    </div>
-  </details>
+  <div class="spacer"></div>
+  <span class="status" id="pending-label"></span>
+  <button class="btn ghost" id="install-btn" hidden style="padding:8px 14px;font-size:.85rem;">📲 アプリとして入れる</button>
 </header>
 
-<div class="frame-wrap">
+<!-- ===================== コンテンツ ===================== -->
+<div class="stage" id="stage">
   <iframe id="app-frame" title="まなびクエスト" allow="clipboard-write"></iframe>
+
   <div class="frame-fallback" id="frame-fallback" hidden>
+    <div style="font-size:2.4rem;">🎒</div>
     <div id="fallback-text">まなびクエストをこの画面に表示できませんでした。</div>
     <a class="big" id="fallback-link" href="#" target="_blank" rel="noopener">まなびクエストを 新しいタブでひらく</a>
-    <div class="muted">※ 上の「きろくを おくる」ボタンは、この画面のままつかえます。</div>
+    <div class="muted">※ 下の「おくる」ボタンは、この画面のままつかえます。</div>
+  </div>
+
+  <!-- 戻るジェスチャー用（タッチ端末のみ表示） -->
+  <div class="edge-zone left" id="edge-left" aria-hidden="true"></div>
+  <div class="edge-zone right" id="edge-right" aria-hidden="true"></div>
+  <div class="edge-hint left" id="edge-hint-left" aria-hidden="true">‹</div>
+  <div class="edge-hint right" id="edge-hint-right" aria-hidden="true">›</div>
+
+  <!--
+    通知・インストール案内・シートは、画面全体ではなく「コンテンツ領域」の中に置きます。
+    こうすると下部ナビゲーションバーが必ず操作できる状態で残り、
+    シートを開いていても「もどる」でひとつ前に戻れます。
+  -->
+  <div class="toast-area" id="toast-area"></div>
+
+  <div class="install-bar" id="install-bar" hidden>
+    <img src="../icons/icon-192.png" alt="">
+    <div style="flex:1 1 auto;" id="install-text"></div>
+    <button class="btn primary" id="install-bar-btn" style="padding:8px 14px;font-size:.85rem;">入れる</button>
+    <button class="close" id="install-close" aria-label="とじる">×</button>
+  </div>
+
+<!-- ===================== 出席番号シート ===================== -->
+<div class="sheet-backdrop" id="number-sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="number-title">
+    <h2 id="number-title">🔢 しゅっせきばんごう</h2>
+    <p class="lead">きろくを おくるときに つかいます。一度いれると おぼえておきます。</p>
+    <div class="field">
+      <input type="number" id="number-input" min="1" max="99" inputmode="numeric" placeholder="12" autocomplete="off">
+    </div>
+    <div class="row">
+      <button class="btn primary" id="number-save" style="flex:1 1 auto;">きめる</button>
+      <button class="btn ghost" id="number-cancel">やめる</button>
+    </div>
   </div>
 </div>
+
+<!-- ===================== 設定シート（先生用） ===================== -->
+<div class="sheet-backdrop" id="config-sheet" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="config-title">
+    <h2 id="config-title">⚙️ せってい（先生用）</h2>
+    <p class="lead">
+      本体URLと受信用URLは<b>別のデプロイ</b>です（本体＝組織内 / 受信用＝全員）。
+      URLパラメータ <code>?app=…&amp;endpoint=…&amp;key=…</code> 付きで開くと自動で保存されます。
+    </p>
+    <div class="field">
+      <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内）</label>
+      <input type="url" id="conf-app" placeholder="https://script.google.com/a/macros/…/exec" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="conf-endpoint">学習ログ受信用のWebアプリURL（アクセス: 全員）</label>
+      <input type="url" id="conf-endpoint" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+    </div>
+    <div class="field">
+      <label for="conf-key">学習ログ送信キー（「初期設定」シートと同じ合言葉）</label>
+      <input type="text" id="conf-key" placeholder="合言葉" autocomplete="off">
+    </div>
+    <div class="field">
+      <label><input type="checkbox" id="conf-auto"> ページを開いたときに、たまっているきろくを自動でおくる</label>
+    </div>
+    <div class="row" style="margin-bottom:10px;">
+      <button class="btn primary" id="conf-save-btn">保存する</button>
+      <button class="btn ghost" id="conf-test-btn">接続テスト</button>
+      <button class="btn ghost" id="conf-close-btn">とじる</button>
+    </div>
+    <div class="muted" id="conf-status"></div>
+    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
+    <div class="muted" id="install-help"></div>
+  </div>
+</div>
+</div>
+
+<!-- ===================== 下部ナビゲーションバー ===================== -->
+<nav class="tabbar" aria-label="ナビゲーション">
+  <button class="tab" id="back-btn" type="button">
+    <span class="ico" aria-hidden="true">◀</span><span>もどる</span>
+  </button>
+  <button class="tab primary" id="send-btn" type="button" disabled>
+    <span class="ico" aria-hidden="true">📨</span><span id="send-label">おくる</span>
+    <span class="badge" id="pending-count" hidden>0</span>
+  </button>
+  <button class="tab" id="number-btn" type="button">
+    <span class="num-chip empty" id="number-chip">—</span><span>ばんごう</span>
+  </button>
+  <button class="tab" id="config-btn" type="button">
+    <span class="ico" aria-hidden="true">⚙️</span><span>せってい</span>
+  </button>
+</nav>
 
 <script>
 (() => {
@@ -180,13 +425,30 @@
   const LOG_KEY = 'study.records.v1';          // 仕様 §1: 全アプリ共通の学習ログキー
   const CONF_KEY = 'studySender.config.v1';    // 送信先URL・送信キー（端末ごとに保存）
   const NUMBER_KEY = 'studySender.number.v1';  // 出席番号（端末ごとに保存）
+  const INSTALL_HINT_KEY = 'studySender.installHint.v1';
   const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
+  const BACK_DEBOUNCE_MS = 600;                // 「1回の操作」が別々の入口から二重に届くのを無視する時間
 
   const $ = id => document.getElementById(id);
-  const state = { appOrigin: null, appConnected: false, sending: false, autoSendDone: false };
+  const state = {
+    appOrigin: null,
+    appWindow: null,        // まなびクエストが動いているサンドボックスの window
+    appConnected: false,
+    frameLoaded: false,     // iframe が何かを読み込めたか（ログイン画面も含む）
+    sending: false,
+    autoSendDone: false,
+    canGoBack: false,       // iframe の中のアプリが「戻れる」かどうか
+    navStateKnown: false,   // アプリから画面階層の状態を受け取れているか
+    lastBackAt: 0,
+    lastBackSource: null,   // 直前の「戻る」がどの操作から来たか
+    installPrompt: null,
+    wantSendOnLoad: false   // ホーム画面ショートカット（?action=send）から開かれた
+  };
 
-  /* ---------------- 設定 ---------------- */
+  /* ================================================================
+   * 設定
+   * ================================================================ */
 
   function loadConfig() {
     try {
@@ -195,10 +457,14 @@
     } catch (e) { return {}; }
   }
   function saveConfig(conf) {
-    localStorage.setItem(CONF_KEY, JSON.stringify(conf));
+    try { localStorage.setItem(CONF_KEY, JSON.stringify(conf)); }
+    catch (e) { showToast('bad', 'せっていを保存できませんでした（ブラウザの保存領域を確認してください）。'); }
   }
+
   function applyUrlParams() {
     const params = new URLSearchParams(location.search);
+    state.wantSendOnLoad = params.get('action') === 'send';
+
     const map = { app: 'appUrl', endpoint: 'endpoint', key: 'key' };
     const conf = loadConfig();
     let changed = false;
@@ -210,14 +476,14 @@
       conf.autoSend = params.get('auto') !== '0' && params.get('auto') !== 'off';
       changed = true;
     }
-    if (changed) {
-      saveConfig(conf);
-      // 送信キーがブラウザの履歴に残らないようにパラメータを消す
-      history.replaceState(null, '', location.pathname);
-    }
+    if (changed) saveConfig(conf);
+    // 送信キーがブラウザの履歴に残らないように、パラメータは必ず消す
+    if (location.search) history.replaceState(null, '', location.pathname);
   }
 
-  /* ---------------- 学習ログ（読み出し専用・仕様 §5.5） ---------------- */
+  /* ================================================================
+   * 学習ログ（読み出し専用・仕様 §5.5）
+   * ================================================================ */
 
   function loadRecords() {
     try {
@@ -237,69 +503,125 @@
     return loadRecords().filter(isSendable);
   }
 
-  /** 送信済み（受理・重複・形式エラー）のレコードを端末から削除します（仕様 §1.3） */
+  /**
+   * 送信済み（受理・重複・形式エラー）のレコードを端末から削除します（仕様 §1.3）。
+   * サーバーはレコードIDを小文字にそろえて返すため、大文字を含むIDでも
+   * 消し残さないよう小文字にそろえて突き合わせます
+   * （消し残すと、そのレコードが毎回「重複」として送られ続けてしまいます）。
+   */
   function removeRecords(ids) {
     if (!ids || ids.size === 0) return;
+    const sent = new Set();
+    ids.forEach(id => { if (id) sent.add(String(id).toLowerCase()); });
+    if (sent.size === 0) return;
     try {
-      const rest = loadRecords().filter(r => !(r && ids.has(r.id)));
+      const rest = loadRecords().filter(r =>
+        !(r && typeof r.id === 'string' && sent.has(r.id.toLowerCase())));
       localStorage.setItem(LOG_KEY, JSON.stringify(rest));
     } catch (e) { /* 削除に失敗しても、次回はサーバー側の重複排除が守る */ }
   }
 
-  /* ---------------- 表示 ---------------- */
+  /* ================================================================
+   * 表示
+   * ================================================================ */
 
   function escapeHtml(s) {
     return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function showNotice(kind, html) {
-    const box = $('notice');
-    box.className = `notice ${kind}`;
+  /**
+   * 通知をコンテンツの上に浮かせて表示します。
+   * 画面（＝まなびクエスト本体）の高さを削らないので、狭い端末でも表示面積が減りません。
+   */
+  function showToast(kind, html, timeoutMs) {
+    const area = $('toast-area');
+    const box = document.createElement('div');
+    box.className = `toast ${kind}`;
     box.innerHTML = html;
-    box.hidden = false;
+    const remove = () => { if (box.parentNode) box.parentNode.removeChild(box); };
+    box.addEventListener('click', remove);
+    area.appendChild(box);
+    const ms = timeoutMs !== undefined ? timeoutMs : (kind === 'bad' || kind === 'warn' ? 9000 : 5000);
+    if (ms > 0) setTimeout(remove, ms);
+    return box;
   }
-  function hideNotice() { $('notice').hidden = true; }
+
+  function currentNumber() {
+    try { return String(localStorage.getItem(NUMBER_KEY) || '').trim(); }
+    catch (e) { return ''; }
+  }
 
   function renderPending() {
     const count = pendingRecords().length;
     const conf = loadConfig();
     const configured = !!(conf.endpoint && conf.key);
     const btn = $('send-btn');
-    const pill = $('pending-count');
+    const badge = $('pending-count');
+    const number = currentNumber();
 
-    pill.hidden = count === 0 || state.sending;
-    pill.textContent = count;
-    btn.classList.toggle('idle', count === 0);
+    badge.hidden = count === 0 || state.sending;
+    badge.textContent = count > 99 ? '99+' : String(count);
+    btn.classList.toggle('alert', count > 0 && !state.sending);
     btn.disabled = state.sending || count === 0 || !configured;
-    $('send-label').textContent = state.sending ? '📨 おくっています…' : '📨 きろくを おくる';
+    $('send-label').textContent = state.sending ? 'おくり中' : 'おくる';
+
+    const chip = $('number-chip');
+    chip.textContent = number || '—';
+    chip.classList.toggle('empty', !number);
 
     $('pending-label').textContent = !configured ? '先生: せっていが まだです'
       : count === 0 ? 'おくるきろくは ありません'
       : `おくれるきろく ${count}件`;
 
-    notifyApp({ type: 'PENDING_CHANGED', pending: count, studentNumber: currentNumber() });
+    notifyApp({ type: 'PENDING_CHANGED', pending: count, studentNumber: number });
     return count;
   }
 
-  function currentNumber() {
-    return String($('student-number').value || '').trim();
+  /**
+   * 「もどる」ボタンの有効・無効。
+   * まなびクエスト側が古くて NAV_STATE を送ってこない場合でも操作できるよう、
+   * 状態が分からないうちは有効のままにします。
+   */
+  function renderBackButton() {
+    $('back-btn').disabled = !(state.canGoBack || isAnySheetOpen() || !state.navStateKnown);
   }
 
-  /* ---------------- iframe（まなびクエスト本体） ---------------- */
+  /* ================================================================
+   * iframe（まなびクエスト本体）
+   * ================================================================ */
 
   /** GAS Webアプリのユーザーコンテンツが動くオリジンだけを信頼します */
   function isAppOrigin(origin) {
     return typeof origin === 'string' &&
-      (/^https:\/\/[a-z0-9-]+\.googleusercontent\.com$/i.test(origin) ||
+      (/^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.googleusercontent\.com$/i.test(origin) ||
        origin === 'https://script.google.com');
   }
 
-  function notifyApp(message) {
-    const frame = $('app-frame');
-    if (!state.appConnected || !frame || !frame.contentWindow) return;
+  /**
+   * 受け取ったメッセージが、この画面の中の iframe から来たものかを確かめます。
+   *
+   * ※ 送り主は iframe そのもの（script.google.com）ではありません。
+   *   GAS は Webアプリのページの中でさらに googleusercontent.com の iframe を作り、
+   *   その中でユーザーコードを動かすためです。
+   *       このページ ＞ script.google.com ＞ googleusercontent.com（まなびクエスト）
+   *   そこで「送り主のいちばん外側がこのウィンドウであること」を確認します。
+   *   （他のタブや別サイトの窓は top がこのページにならないので通りません）
+   */
+  function isFromApp(event) {
+    if (!isAppOrigin(event.origin)) return false;
+    if (!event.source || event.source === window) return false;
     try {
-      frame.contentWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin || '*');
+      return event.source.top === window;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function notifyApp(message) {
+    if (!state.appConnected || !state.appWindow) return;
+    try {
+      state.appWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin || '*');
     } catch (e) { /* 表示できていないだけなので無視 */ }
   }
 
@@ -311,27 +633,40 @@
       $('fallback-text').textContent = 'まなびクエストのURLがまだ設定されていません。';
       $('fallback-link').hidden = true;
       $('frame-fallback').hidden = false;
-      $('config-details').open = true;
+      openConfigSheet();
       return;
     }
+    frame.hidden = false;
+    $('fallback-link').hidden = false;
     const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
     $('fallback-link').href = conf.appUrl;
+    frame.addEventListener('load', () => { state.frameLoaded = true; });
     frame.src = url;
-    // 応答がないまま一定時間たったら、別タブで開く案内に切り替える
+
+    // 応答がないまま一定時間たったときの案内。
+    // 中身が表示できているとき（Googleのログイン画面など）は画面を覆わず、
+    // 案内だけを浮かべます。覆ってしまうとログインの続きができなくなるためです。
     setTimeout(() => {
       if (state.appConnected) return;
-      $('fallback-text').textContent =
-        'まなびクエストをこの画面に表示できませんでした。学校のGoogleアカウントでログインが必要かもしれません。';
-      $('frame-fallback').hidden = false;
+      if (!state.frameLoaded) {
+        $('fallback-text').textContent =
+          'まなびクエストをこの画面に表示できませんでした。学校のGoogleアカウントでログインが必要かもしれません。';
+        $('frame-fallback').hidden = false;
+        return;
+      }
+      const box = showToast('warn',
+        'まなびクエストの読み込みに時間がかかっています。<br>' +
+        '学校のGoogleアカウントでのログインが必要な場合は、<b>ここをタップ</b>して新しいタブでひらいてください。', 0);
+      box.addEventListener('click', () => window.open(conf.appUrl, '_blank', 'noopener'));
     }, FRAME_TIMEOUT_MS);
   }
 
   window.addEventListener('message', event => {
-    const frame = $('app-frame');
-    if (!frame || event.source !== frame.contentWindow || !isAppOrigin(event.origin)) return;
+    if (!isFromApp(event)) return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object' || msg.source !== 'manabi-quest') return;
     state.appOrigin = event.origin;
+    state.appWindow = event.source;
 
     switch (msg.type) {
       case 'APP_READY':
@@ -346,10 +681,114 @@
       case 'REQUEST_PENDING':
         renderPending();
         break;
+      case 'REQUEST_NUMBER':          // アプリ側から出席番号の入力を頼まれた
+        openNumberSheet();
+        break;
+      case 'NAV_STATE':               // アプリの画面階層が変わった
+        state.navStateKnown = true;
+        state.canGoBack = !!msg.canGoBack;
+        renderBackButton();
+        break;
     }
   });
 
-  /* ---------------- 送信 ---------------- */
+  /* ================================================================
+   * 「戻る」ナビゲーション
+   * ------------------------------------------------------------
+   * ・下部バーの「もどる」
+   * ・画面の左右の端から中央へのスワイプ
+   * ・ブラウザ/端末の戻る操作（Android の戻るジェスチャー、iOS の端スワイプ）
+   * この3つをすべて同じ goBack() にまとめ、短時間の二重発火を無視します。
+   * 履歴には必ず「ガード」を1つ積んでおくので、戻る操作でページを離れる
+   * ＝アプリが終了することはありません。
+   * ================================================================ */
+
+  function isAnySheetOpen() {
+    return !$('config-sheet').hidden || !$('number-sheet').hidden;
+  }
+
+  function goBack(source) {
+    const now = Date.now();
+    // 画面端のスワイプは、端末によってはブラウザの戻る（popstate）も一緒に起こします。
+    // 「1回の操作」が別々の入口から二重に届いたときだけ無視し、
+    // 同じ入口の連打（もどるを2回タップして2階層あがる等）はそのまま受け付けます。
+    if (source !== state.lastBackSource && now - state.lastBackAt < BACK_DEBOUNCE_MS) return;
+    state.lastBackAt = now;
+    state.lastBackSource = source;
+
+    // ① 開いているシートを閉じる
+    if (!$('number-sheet').hidden) { closeNumberSheet(); return; }
+    if (!$('config-sheet').hidden) { closeConfigSheet(); return; }
+
+    // ② まなびクエスト本体に「1つ前の画面へ」と伝える
+    if (state.appConnected && (state.canGoBack || !state.navStateKnown)) {
+      notifyApp({ type: 'NAV_BACK' });
+      return;
+    }
+
+    // ③ これ以上戻れない（アプリは終了させない）
+    if (source !== 'history') showToast('info', 'ここが さいしょの がめんです。', 3000);
+  }
+
+  /**
+   * 履歴ガード。
+   * 常に履歴の先頭にダミーの1件を積んでおき、戻る操作が来たら
+   * 積み直したうえでアプリ内の「戻る」に変換します。
+   */
+  function initHistoryGuard() {
+    try {
+      history.replaceState({ mq: 'base' }, '', location.href);
+      history.pushState({ mq: 'guard' }, '', location.href);
+    } catch (e) { return; }
+    window.addEventListener('popstate', () => {
+      try { history.pushState({ mq: 'guard' }, '', location.href); } catch (e) { /* 続行 */ }
+      goBack('history');
+    });
+  }
+
+  /** 画面端からのスワイプ（左端→右／右端→左 のどちらでも「戻る」） */
+  function bindEdgeSwipe(zone, hint, direction) {
+    let startX = 0, startY = 0, startedAt = 0, tracking = false;
+    const THRESHOLD = 48;
+
+    zone.addEventListener('touchstart', e => {
+      const t = e.changedTouches[0];
+      startX = t.clientX; startY = t.clientY; startedAt = Date.now(); tracking = true;
+    }, { passive: true });
+
+    zone.addEventListener('touchmove', e => {
+      if (!tracking) return;
+      const t = e.changedTouches[0];
+      const travel = direction === 'left' ? (t.clientX - startX) : (startX - t.clientX);
+      const drift = Math.abs(t.clientY - startY);
+      if (travel > 10 && drift < 70) {
+        e.preventDefault();   // 横に動かしている間は画面を動かさない
+        hint.classList.add('show');
+        const shift = Math.min(travel, 70);
+        hint.style.transform = direction === 'left'
+          ? `translateX(${shift - 60}px)` : `translateX(${60 - shift}px)`;
+      }
+    }, { passive: false });
+
+    const finish = e => {
+      if (!tracking) return;
+      tracking = false;
+      hint.classList.remove('show');
+      hint.style.transform = '';
+      const t = e.changedTouches[0];
+      const travel = direction === 'left' ? (t.clientX - startX) : (startX - t.clientX);
+      const drift = Math.abs(t.clientY - startY);
+      if (travel >= THRESHOLD && drift < 70 && Date.now() - startedAt < 1200) goBack('gesture');
+    };
+    zone.addEventListener('touchend', finish, { passive: true });
+    zone.addEventListener('touchcancel', () => {
+      tracking = false; hint.classList.remove('show'); hint.style.transform = '';
+    }, { passive: true });
+  }
+
+  /* ================================================================
+   * 送信
+   * ================================================================ */
 
   async function post(endpoint, body) {
     // Content-Type: text/plain にすると CORS のプリフライトが発生せず、
@@ -389,31 +828,29 @@
     if (state.sending) return;
     const conf = loadConfig();
     if (!conf.endpoint || !conf.key) {
-      const message = 'せっていが まだです。先生に「⚙️ せってい（先生用）」をたのんでください。';
-      showNotice('warn', message);
-      $('config-details').open = true;
+      const message = 'せっていが まだです。先生に「⚙️ せってい」をたのんでください。';
+      showToast('warn', message);
+      openConfigSheet();
       finishSend({ ok: false, message });
       return;
     }
     const studentNumber = currentNumber();
     if (!studentNumber) {
       const message = 'しゅっせきばんごうを 入れてから おくってね。';
-      showNotice('warn', `<b>しゅっせきばんごう</b>を 入れてから おくってね。`);
-      $('student-number').focus();
+      showToast('warn', `<b>しゅっせきばんごう</b>を 入れてから おくってね。`);
+      openNumberSheet();
       finishSend({ ok: false, message });
       return;
     }
-    localStorage.setItem(NUMBER_KEY, studentNumber);
 
     const sendable = pendingRecords();
     if (sendable.length === 0) {
-      showNotice('info', 'いま おくるきろくは ありません。学習アプリであそんでから、また おしてね。');
+      showToast('info', 'いま おくるきろくは ありません。学習アプリであそんでから、また おしてね。');
       finishSend({ ok: true, saved: 0, duplicate: 0, rejected: 0, gainedExp: 0 });
       return;
     }
 
     state.sending = true;
-    hideNotice();
     renderPending();
     notifyApp({ type: 'SEND_STARTED' });
 
@@ -430,7 +867,7 @@
         });
         if (!result.success) {
           const message = result.message || 'おくれませんでした。';
-          showNotice('bad', `❌ ${escapeHtml(message)}`);
+          showToast('bad', `❌ ${escapeHtml(message)}`);
           finishSend({ ok: false, message });
           return;
         }
@@ -444,7 +881,7 @@
       }
     } catch (e) {
       const message = `つうしんエラー（${e.message}）。インターネットにつながっているか たしかめてね。`;
-      showNotice('bad', `❌ ${escapeHtml(message)}`);
+      showToast('bad', `❌ ${escapeHtml(message)}`);
       finishSend({ ok: false, message });
       return;
     }
@@ -456,21 +893,65 @@
     if (total.reward.streak > 1) parts.push(`🔥 ${total.reward.streak}日れんぞく`);
     if (total.duplicate > 0) parts.push(`<span class="muted">${total.duplicate}件はおくりずみ</span>`);
     if (total.rejected > 0) parts.push(`<span class="muted">${total.rejected}件は形式エラー</span>`);
-    showNotice(total.saved > 0 ? 'good' : 'info', parts.join(' ／ '));
+    showToast(total.saved > 0 ? 'good' : 'info', parts.join(' ／ '));
     finishSend(total);
   }
 
-  /** ページを開いたときの自動送信（設定でOFFにできます） */
+  /**
+   * ページを開いたときの自動送信（設定でOFFにできます）。
+   * まなびクエストが表示できない環境でも動くよう、iframe の接続とは切り離しています。
+   */
   function maybeAutoSend() {
     const conf = loadConfig();
-    if (state.autoSendDone || conf.autoSend === false) return;
+    if (state.autoSendDone || state.sending) return;
+    if (!state.wantSendOnLoad && conf.autoSend === false) return;
     if (!conf.endpoint || !conf.key || !currentNumber()) return;
     if (pendingRecords().length === 0) return;
     state.autoSendDone = true;
     send();
   }
 
-  /* ---------------- 接続テスト（先生用） ---------------- */
+  /* ================================================================
+   * シート（出席番号・設定）
+   * ================================================================ */
+
+  function openNumberSheet() {
+    $('number-input').value = currentNumber();
+    $('number-sheet').hidden = false;
+    renderBackButton();
+    setTimeout(() => { $('number-input').focus(); $('number-input').select(); }, 50);
+  }
+  function closeNumberSheet() {
+    $('number-sheet').hidden = true;
+    renderBackButton();
+  }
+  function saveNumber() {
+    const raw = String($('number-input').value || '').trim();
+    const value = raw.replace(/[^0-9]/g, '');
+    if (!value || Number(value) < 1 || Number(value) > 99) {
+      showToast('warn', '1〜99 の しゅっせきばんごうを 入れてね。');
+      return;
+    }
+    try { localStorage.setItem(NUMBER_KEY, value); } catch (e) { /* 保存できなくても続行 */ }
+    closeNumberSheet();
+    renderPending();
+    showToast('good', `しゅっせきばんごうを <b>${escapeHtml(value)}</b> にしました。`, 2500);
+  }
+
+  function openConfigSheet() {
+    const conf = loadConfig();
+    $('conf-app').value = conf.appUrl || '';
+    $('conf-endpoint').value = conf.endpoint || '';
+    $('conf-key').value = conf.key || '';
+    $('conf-auto').checked = conf.autoSend !== false;
+    $('conf-status').textContent = '';
+    $('config-sheet').hidden = false;
+    renderBackButton();
+  }
+  function closeConfigSheet() {
+    $('config-sheet').hidden = true;
+    renderBackButton();
+  }
 
   async function testConnection() {
     const endpoint = $('conf-endpoint').value.trim();
@@ -486,26 +967,140 @@
     }
   }
 
-  /* ---------------- 初期化 ---------------- */
+  /* ================================================================
+   * PWA（インストールと更新）
+   * ================================================================ */
+
+  const isStandalone = () =>
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+
+  /** インストール案内バーの表示切替（トーストが重ならないよう body にも印を付ける） */
+  function setInstallBar(visible) {
+    document.getElementById('install-bar').hidden = !visible;
+    document.body.classList.toggle('has-install', visible);
+  }
+
+  const isIos = () =>
+    /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS はMac判定になる
+
+  function initPwa() {
+    // --- Service Worker（オフライン起動とインストール要件） ---
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('../sw.js', { scope: '../' }).then(reg => {
+          reg.addEventListener('updatefound', () => {
+            const sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', () => {
+              // すでに動いている版があるときだけ「新しくなったよ」と知らせる
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                const box = showToast('info',
+                  '✨ あたらしいバージョンがあります。<b>ここをタップ</b>すると新しくなります。', 0);
+                box.addEventListener('click', () => sw.postMessage({ type: 'SKIP_WAITING' }));
+              }
+            });
+          });
+        }).catch(() => { /* 登録できなくても通常どおり使えます */ });
+      });
+
+      let reloading = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (reloading) return;
+        reloading = true;
+        location.reload();
+      });
+    }
+
+    // --- インストールの案内 ---
+    const helpText = isIos()
+      ? 'iPhone / iPad（Safari）: 下の「共有」ボタン → <b>「ホーム画面に追加」</b> をえらぶと、アプリとして使えます。'
+      : 'Chrome: アドレスバーの「インストール」アイコン、またはメニューの <b>「アプリをインストール」</b> からアプリとして使えます。';
+    $('install-help').innerHTML = `📲 <b>アプリとしてインストールする</b><br>${helpText}`;
+
+    if (isStandalone()) return;   // すでにアプリとして起動している
+
+    let hintDismissed = false;
+    try { hintDismissed = localStorage.getItem(INSTALL_HINT_KEY) === 'off'; } catch (e) { /* 続行 */ }
+
+    window.addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      state.installPrompt = e;
+      $('install-btn').hidden = false;
+      if (!hintDismissed) {
+        $('install-text').innerHTML = 'まなびクエストを <b>アプリとして</b> ホーム画面に入れられます。';
+        setInstallBar(true);
+      }
+    });
+
+    // iOS はインストール用のイベントがないので、案内だけ出す
+    if (isIos() && !hintDismissed) {
+      $('install-text').innerHTML = '「共有」→<b>「ホーム画面に追加」</b>で、アプリとして使えます。';
+      $('install-bar-btn').hidden = true;
+      setInstallBar(true);
+    }
+
+    window.addEventListener('appinstalled', () => {
+      setInstallBar(false);
+      $('install-btn').hidden = true;
+      state.installPrompt = null;
+      showToast('good', '🎉 アプリとしてインストールしました！つぎからはアイコンからひらけます。');
+    });
+  }
+
+  async function runInstall() {
+    if (!state.installPrompt) {
+      openConfigSheet();
+      return;
+    }
+    const prompt = state.installPrompt;
+    state.installPrompt = null;
+    setInstallBar(false);
+    $('install-btn').hidden = true;
+    prompt.prompt();
+    try { await prompt.userChoice; } catch (e) { /* 選ばなくても問題なし */ }
+  }
+
+  function dismissInstallHint() {
+    setInstallBar(false);
+    try { localStorage.setItem(INSTALL_HINT_KEY, 'off'); } catch (e) { /* 続行 */ }
+  }
+
+  /* ================================================================
+   * 初期化
+   * ================================================================ */
 
   applyUrlParams();
+  initHistoryGuard();
+  initPwa();
+
   const conf = loadConfig();
-  $('conf-app').value = conf.appUrl || '';
-  $('conf-endpoint').value = conf.endpoint || '';
-  $('conf-key').value = conf.key || '';
-  $('conf-auto').checked = conf.autoSend !== false;
-  $('student-number').value = localStorage.getItem(NUMBER_KEY) || '';
-
   renderPending();
+  renderBackButton();
   loadApp();
-  if (!conf.endpoint || !conf.key || !conf.appUrl) $('config-details').open = true;
 
-  $('send-btn').addEventListener('click', send);
-  $('student-number').addEventListener('change', () => {
-    const value = currentNumber();
-    if (value) localStorage.setItem(NUMBER_KEY, value);
-    renderPending();
-  });
+  // 先生の設定がまだなら設定シートを、児童の出席番号がまだなら番号シートを開く
+  if (!conf.endpoint || !conf.key || !conf.appUrl) {
+    openConfigSheet();
+  } else if (!currentNumber()) {
+    openNumberSheet();
+  }
+
+  // iframe の表示可否にかかわらず、開いた直後に自動送信を試みる
+  maybeAutoSend();
+
+  $('back-btn').addEventListener('click', () => goBack('button'));
+  $('send-btn').addEventListener('click', () => send());
+  $('number-btn').addEventListener('click', openNumberSheet);
+  $('config-btn').addEventListener('click', openConfigSheet);
+
+  $('number-save').addEventListener('click', saveNumber);
+  $('number-cancel').addEventListener('click', closeNumberSheet);
+  $('number-input').addEventListener('keydown', e => { if (e.key === 'Enter') saveNumber(); });
+
+  $('conf-close-btn').addEventListener('click', closeConfigSheet);
+  $('conf-test-btn').addEventListener('click', testConnection);
   $('conf-save-btn').addEventListener('click', () => {
     const next = {
       appUrl: $('conf-app').value.trim(),
@@ -517,11 +1112,29 @@
     $('conf-status').textContent = '保存しました。読み込み直します…';
     setTimeout(() => location.reload(), 600);
   });
-  $('conf-test-btn').addEventListener('click', testConnection);
+
+  // シートの外側をタップしたら閉じる
+  [['number-sheet', closeNumberSheet], ['config-sheet', closeConfigSheet]].forEach(([id, close]) => {
+    $(id).addEventListener('click', e => { if (e.target === $(id)) close(); });
+  });
+
+  $('install-btn').addEventListener('click', runInstall);
+  $('install-bar-btn').addEventListener('click', runInstall);
+  $('install-close').addEventListener('click', dismissInstallHint);
+
+  bindEdgeSwipe($('edge-left'), $('edge-hint-left'), 'left');
+  bindEdgeSwipe($('edge-right'), $('edge-hint-right'), 'right');
+
+  // キーボード操作（PC）: Esc でシートを閉じる / Alt+← で戻る
+  window.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && isAnySheetOpen()) { goBack('key'); return; }
+    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack('key'); }
+  });
 
   // 別タブの学習アプリで学習ログが増えたら件数表示を更新する
   window.addEventListener('storage', e => { if (e.key === LOG_KEY) renderPending(); });
   window.addEventListener('focus', renderPending);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) renderPending(); });
 })();
 </script>
 </body>
