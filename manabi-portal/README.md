@@ -1,10 +1,10 @@
 # 🎒 まなびクエスト 学習ポータル（manabi-portal）
 
 **「まなびクエスト」と「学習データの送信」をひとつの画面にまとめた入口ページ**です。
-gigayama.github.io（学習アプリと同一オリジン）に配置し、児童はここから毎日アプリを開きます。
+gigayama.github.io（学習アプリと同一オリジン）で公開し、児童はここから毎日アプリを開きます。
 
 ```
-┌─ https://gigayama.github.io/manabi-portal/ ────────────────┐
+┌─ https://gigayama.github.io/Gamification/manabi-portal/ ───┐
 │ 🎒 まなびクエスト  しゅっせきばんごう[12]   📨 きろくを おくる (3) │ ← ポータル（送信担当）
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
@@ -39,13 +39,15 @@ gigayama.github.io（学習アプリと同一オリジン）に配置し、児�
 
 ## 配置場所
 
-**学習アプリと同一オリジン**に置く必要があります。
+**学習アプリと同一オリジン**（`https://gigayama.github.io`）である必要があります。
+オリジンはスキーム＋ホスト＋ポートで決まり**パスは関係しない**ので、
+このリポジトリを GitHub Pages で公開するだけで条件を満たします。
 
 ```
-https://gigayama.github.io/manabi-portal/index.html
+https://gigayama.github.io/Gamification/manabi-portal/
 ```
 
-gigayama.github.io リポジトリに `manabi-portal/` フォルダとして `index.html` をコピーしてください。
+公開手順はリポジトリの [README](../README.md#github-pages-で公開する) を参照してください。
 
 ## セットアップ手順
 
@@ -54,7 +56,7 @@ gigayama.github.io リポジトリに `manabi-portal/` フォルダとして `in
 1. `manabi-quest/` の最新スクリプトを反映し、メニュー「① 初期セットアップ」を再実行
 2. 「初期設定」シートを設定し、メニューの「🔄 設定キャッシュをクリア」を実行
    - `学習ログ送信キー` … 合言葉（例: `sakura-3nen`）。空欄の間は受信しません
-   - `学習ポータルURL` … `https://gigayama.github.io/manabi-portal/`
+   - `学習ポータルURL` … `https://gigayama.github.io/Gamification/manabi-portal/`
      （Webアプリを直接開いた児童に、ポータルへの導線を出すために使います）
 3. **デプロイを2つ**作ります（両方とも実行ユーザー: **自分**）
 
@@ -68,7 +70,7 @@ gigayama.github.io リポジトリに `manabi-portal/` フォルダとして `in
 次の形式のURLを一度開くと、設定が端末に保存されます（以後はパラメータ不要）。
 
 ```
-https://gigayama.github.io/manabi-portal/?app=<本体のWebアプリURL>&endpoint=<受信用のWebアプリURL>&key=<学習ログ送信キー>
+https://gigayama.github.io/Gamification/manabi-portal/?app=<本体のWebアプリURL>&endpoint=<受信用のWebアプリURL>&key=<学習ログ送信キー>
 ```
 
 - 自動送信を止めたいときは `&auto=0` を付けます

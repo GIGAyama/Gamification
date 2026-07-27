@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>まなびクエスト</title>
+  <!--
+    GitHub Pages の入口ページ（https://gigayama.github.io/Gamification/）
+    =====================================================================
+    児童に配るのは学習ポータル（manabi-portal/）のURLです。
+    このページは、ルートURLを開いてしまったときの案内と、
+    設定パラメータ（?app=…&endpoint=…&key=…）付きで開かれたときの
+    ポータルへの受け渡しを担当します。
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
+      background: linear-gradient(160deg, #eaf4ff, #fdf1e7);
+      color: #33404d;
+    }
+    .card {
+      width: 100%;
+      max-width: 480px;
+      background: #fff;
+      border-radius: 24px;
+      padding: 32px 28px;
+      box-shadow: 0 12px 32px rgba(60, 90, 130, .14);
+      text-align: center;
+    }
+    h1 { margin: 0 0 4px; font-size: 1.5rem; }
+    .lead { margin: 0 0 24px; color: #6a7a8a; font-size: .95rem; }
+    .go {
+      display: block;
+      padding: 16px;
+      border-radius: 16px;
+      background: #4a90e2;
+      color: #fff;
+      font-size: 1.15rem;
+      font-weight: bold;
+      text-decoration: none;
+    }
+    .go:hover { background: #3d7cc9; }
+    .note {
+      margin: 24px 0 0;
+      padding-top: 20px;
+      border-top: 1px solid #eef2f6;
+      font-size: .8rem;
+      line-height: 1.7;
+      color: #8a99a8;
+      text-align: left;
+    }
+    .note a { color: #6a7a8a; }
+    code { background: #f4f7fa; border-radius: 4px; padding: 1px 5px; font-size: .95em; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎒 まなびクエスト</h1>
+    <p class="lead">学習ポータルへ すすんでください</p>
+    <a class="go" id="go" href="./manabi-portal/">ポータルを ひらく</a>
+    <p class="note">
+      児童に配付するURLは <code>./manabi-portal/</code> です。
+      設定パラメータ（<code>?app=…&amp;endpoint=…&amp;key=…</code>）を付けてこのページを開いた場合は、
+      自動でポータルへ引き継ぎます。
+      セットアップ手順は <a href="https://github.com/GIGAyama/Gamification">リポジトリの README</a> を参照してください。
+    </p>
+  </div>
+
+  <script>
+    // 設定パラメータ付きで開かれたときは、そのままポータルへ引き継ぐ
+    // （先生が配付URLのパスを付け忘れても設定が保存されるように）
+    (() => {
+      const query = window.location.search;
+      const target = './manabi-portal/' + query;
+      document.getElementById('go').href = target;
+      if (query.length > 1) window.location.replace(target);
+    })();
+  </script>
+</body>
+</html>

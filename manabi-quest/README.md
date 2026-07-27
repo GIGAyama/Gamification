@@ -80,7 +80,7 @@
 児童に配るURLは、本体のWebアプリURLではなく **学習ポータル** にします。
 
 ```
-https://gigayama.github.io/manabi-portal/?app=<本体URL>&endpoint=<受信用URL>&key=<学習ログ送信キー>
+https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=<受信用URL>&key=<学習ログ送信キー>
 ```
 
 ポータルはまなびクエストを iframe で表示しつつ、学習アプリの学習ログ送信も担当します
@@ -165,7 +165,7 @@ https://gigayama.github.io/manabi-portal/?app=<本体URL>&endpoint=<受信用URL
 ```
 学習アプリ（保存のみ / 匿名）
   └─ localStorage: study.records.v1
-       └─ 学習ポータル（../manabi-portal/ を gigayama.github.io に配置。出席番号を付与）
+       └─ 学習ポータル（../manabi-portal/ を GitHub Pages で公開。出席番号を付与）
             │    ├─ まなびクエスト本体を iframe で表示（postMessage で送信を依頼できる）
             │    └─ たまっているきろくを自動／ボタンで送信
             └─ POST → まなびクエスト doPost（このアプリ）
@@ -193,7 +193,7 @@ https://gigayama.github.io/manabi-portal/?app=<本体URL>&endpoint=<受信用URL
    **`学習ポータルURL`** にポータルのURLを設定 → メニューの「🔄 設定キャッシュをクリア」
 3. **受信用のデプロイ**を追加作成: 「デプロイ → 新しいデプロイ → ウェブアプリ」で実行ユーザー **自分** / アクセス **全員**
    （児童用の本体デプロイ〔組織内〕とは別に共存できます。受信用 URL では児童マスタ未登録者はアプリを使えません）
-4. 学習ポータルを `https://gigayama.github.io/manabi-portal/` に配置し、本体URL・受信用URL・送信キーを設定
+4. 学習ポータルを `https://gigayama.github.io/Gamification/manabi-portal/` に公開し、本体URL・受信用URL・送信キーを設定
    （手順の詳細は [`../manabi-portal/README.md`](../manabi-portal/README.md)）
 
 ### 集計の考え方（仕様に準拠）
