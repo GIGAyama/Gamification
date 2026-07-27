@@ -133,6 +133,24 @@ const Furigana = {
   SKIP_TAGS: new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEXTAREA', 'INPUT', 'SELECT', 'OPTION', 'RUBY', 'RT', 'RP', 'CODE', 'svg', 'SVG'])
 };
 
+/**
+ * kuromoji は辞書URLを path.join で連結するため「https://」が「https:/」に潰れ、
+ * GAS のサンドボックス（googleusercontent.com）ではこれが自ドメイン相対として
+ * 解決されて全辞書ファイルが 404 になる。辞書取得の XHR に限り、URL を正しい
+ * CDN の絶対URLへ戻すパッチを当てる。戻り値は解除用の関数。
+ */
+function patchKuromojiDictUrl_() {
+  const origOpen = XMLHttpRequest.prototype.open;
+  XMLHttpRequest.prototype.open = function(method, url, ...rest) {
+    if (typeof url === 'string') {
+      const i = url.indexOf('cdn.jsdelivr.net/npm/kuromoji@');
+      if (i !== -1) url = 'https://' + url.slice(i);
+    }
+    return origOpen.call(this, method, url, ...rest);
+  };
+  return () => { XMLHttpRequest.prototype.open = origOpen; };
+}
+
 /** 児童画面向けにふりがなエンジンを起動します（教員画面では呼びません） */
 async function initFurigana() {
   try {
@@ -140,7 +158,16 @@ async function initFurigana() {
     const KuroshiroCtor = Kuroshiro.default || Kuroshiro;
     const AnalyzerCtor = KuromojiAnalyzer.default || KuromojiAnalyzer;
     const kuroshiro = new KuroshiroCtor();
-    await kuroshiro.init(new AnalyzerCtor({ dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' }));
+    const unpatch = patchKuromojiDictUrl_();
+    try {
+      // 辞書（約6MB）が読めない・遅すぎる環境ではルビなしで続行する
+      await Promise.race([
+        kuroshiro.init(new AnalyzerCtor({ dictPath: 'https://cdn.jsdelivr.net/npm/kuromoji@0.1.2/dict/' })),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('辞書の読み込みがタイムアウトしました')), 60000))
+      ]);
+    } finally {
+      unpatch();
+    }
     Furigana.kuroshiro = kuroshiro;
     Furigana.ready = true;
     document.body.classList.add('furigana-on');
