@@ -76,6 +76,7 @@ const LOG_ACTIONS = {
   CLAIM_MISSION_REWARD: 'CLAIM_MISSION_REWARD',
   AWARD_BADGE: 'AWARD_BADGE',
   GRANT_POINT: 'GRANT_POINT',
+  BONUS_POINT: 'BONUS_POINT',             // 交換ポイントのボーナス付与（先生からの配布と区別する）
   // 学習記録（保存と同時に記録され、ミッション/バッジ判定に使う）
   RECORD_TYPING: 'RECORD_TYPING',
   RECORD_CALC: 'RECORD_CALC',
@@ -86,13 +87,18 @@ const LOG_ACTIONS = {
   RECORD_TEST: 'RECORD_TEST',
   RECORD_MORAL: 'RECORD_MORAL',
   RECORD_STUDY_APP: 'RECORD_STUDY_APP',   // 学習アプリ(study.v1)ログの受信
+  SEND_STUDY_LOG: 'SEND_STUDY_LOG',       // 学習アプリのきろくを送信した（1送信につき1件）
   ACHIEVE_GOAL: 'ACHIEVE_GOAL'
 };
 
-/** 記録種別 → 表示名・ログ種別の対応表 */
+/**
+ * 記録種別 → 表示名・ログ種別の対応表。
+ * appOnly: true の種別は児童のアプリ内フォームでは入力できません
+ * （学習アプリ〔study.v1〕から届いたログをもとに自動でシートへ記録されます）。
+ */
 const RECORD_TYPES = {
   typing: { label: 'タイピング', log: LOG_ACTIONS.RECORD_TYPING },
-  calc: { label: '100マス計算', log: LOG_ACTIONS.RECORD_CALC },
+  calc: { label: '100マス計算', log: LOG_ACTIONS.RECORD_CALC, appOnly: true },
   reading: { label: '読書', log: LOG_ACTIONS.RECORD_READING },
   growth: { label: '成長のきろく', log: LOG_ACTIONS.RECORD_GROWTH },
   study: { label: '自主学習', log: LOG_ACTIONS.RECORD_STUDY },
@@ -119,7 +125,8 @@ const LIMITS = {
   RECENT_LOGS: 50,
   RECORDS_DISPLAY: 50,
   RANKING: 10,
-  CALC_RANKING_MIN_SCORE: 90
+  CALC_RANKING_MIN_SCORE: 90,
+  SEND_LOG_SCAN_ROWS: 5000        // 送信ストリーク判定でさかのぼる「ログ」シートの行数
 };
 
 /** キャッシュ有効期限（秒） */

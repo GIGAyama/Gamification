@@ -15,6 +15,10 @@ function initStudentApp(data) {
   renderPlazaView(data);
   bindStudentEvents();
 
+  // 学習ポータル（iframe の親ページ）からの通知でパネルを更新する
+  Portal.onUpdate = () => renderStudySendPanels();
+  Portal.onResult = handlePortalSendResult;
+
   if (data.bonusApplied) {
     Swal.fire({
       icon: 'success', title: 'ログインボーナス！',
@@ -54,10 +58,151 @@ function renderHome(data) {
   document.getElementById('home-motto').textContent = motto ? `「${motto}」` : '';
 
   renderAvatar(document.getElementById('home-avatar'), data.avatar, data.allItems);
+  renderStudySendPanels();
   renderMissions(data.missions);
   renderAnnouncements('home-announcements', data.announcements, false);
   renderActivity(data.recentActivity);
   renderBadges(data.badges, data.allBadges);
+}
+
+/* ---------------- 学習アプリのきろくを おくる ---------------- */
+
+/**
+ * 「きろくをおくる」パネル。
+ * ポータル（gigayama.github.io）の iframe 内で開かれているときは、この画面のボタンから
+ * 親ページに送信を依頼できます（学習アプリの localStorage は同一オリジンの親しか読めないため）。
+ * 直接Webアプリを開いているときは、ポータルへの案内を表示します。
+ */
+function studySendPanelHtml(compact) {
+  const s = (App.data && App.data.studyApp) || {};
+  if (!s.enabled) {
+    return compact
+      ? `<div class="alert alert-light border small mb-3 no-furigana">先生が学習ログの受け取り設定をすると、ここからきろくを送れるようになります。</div>`
+      : '';
+  }
+
+  const rewards = [];
+  if (s.bonusExp > 0) rewards.push(`<span class="reward-chip text-primary">そうしんボーナス +${s.bonusExp} EXP</span>`);
+  if (s.bonusStreakExp > 0) rewards.push(`<span class="reward-chip text-danger">れんぞく${s.nextStreak}日目 +${s.bonusStreakExp} EXP</span>`);
+  if (s.bonusPoints > 0) rewards.push(`<span class="reward-chip text-warning-emphasis">交換Pt +${s.bonusPoints}</span>`);
+  const rewardHtml = rewards.length
+    ? `<div class="mt-2">${rewards.join('')}</div>`
+    : `<div class="mt-2 small text-muted">今日はもうボーナスをもらったよ。きろくぶんのEXPはこのあともふえるよ！</div>`;
+  const streakHtml = s.streak > 0
+    ? `<span class="badge bg-danger ms-2">🔥 ${s.streak}日れんぞく</span>` : '';
+
+  // ① ポータルの中にいる → その場で送信できる
+  if (Portal.embedded && Portal.connected) {
+    if (Portal.sending) {
+      return `<div class="card send-card"><div class="card-body d-flex align-items-center gap-3">
+        <div class="spinner-border text-primary"></div>
+        <div class="fw-bold">きろくを おくっています…</div>
+      </div></div>`;
+    }
+    if (Portal.pending > 0) {
+      return `<div class="card send-card has-pending"><div class="card-body">
+        <div class="d-flex align-items-center gap-3 flex-wrap">
+          <span class="send-pending-badge">${Portal.pending}</span>
+          <div class="flex-grow-1">
+            <div class="fw-bold fs-5">おくれる がくしゅうきろくが ${Portal.pending}件 あるよ！${streakHtml}</div>
+            <div class="small text-muted">おくると まなびクエストの けいけんちに なるよ。</div>
+            ${rewardHtml}
+          </div>
+          <button class="btn btn-danger fw-bold send-btn" data-study-send><i class="bi bi-send-fill"></i> きろくを おくる</button>
+        </div>
+      </div></div>`;
+    }
+    return `<div class="card send-card"><div class="card-body d-flex align-items-center gap-3 flex-wrap">
+      <div class="flex-grow-1">
+        <div class="fw-bold">おくるきろくは ありません${streakHtml}</div>
+        <div class="small text-muted">学習アプリであそんだあと、ここに「おくる」ボタンが出るよ。</div>
+      </div>
+      <button class="btn btn-outline-primary btn-sm fw-bold" data-study-refresh><i class="bi bi-arrow-clockwise"></i> たしかめる</button>
+    </div></div>`;
+  }
+
+  // ② Webアプリを直接開いている → ポータルへ案内する
+  const portalUrl = s.portalUrl;
+  return `<div class="card send-card"><div class="card-body d-flex align-items-center gap-3 flex-wrap">
+    <div class="flex-grow-1">
+      <div class="fw-bold">学習アプリの きろくを おくろう${streakHtml}</div>
+      <div class="small text-muted">${portalUrl
+        ? '「学習ポータル」からひらくと、この画面のボタンでそのまま おくれるよ。'
+        : '先生に「学習ポータル」のURLを教えてもらってね。'}</div>
+      ${rewardHtml}
+    </div>
+    ${portalUrl
+      ? `<a class="btn btn-primary fw-bold send-btn" href="${esc(portalUrl)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> ポータルをひらく</a>`
+      : ''}
+  </div></div>`;
+}
+
+/** ホームと「きろく」タブの送信パネルをまとめて描き直します */
+function renderStudySendPanels() {
+  ['home-send-card', 'apps-send-card', 'calc-send-card'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = studySendPanelHtml(id !== 'home-send-card');
+    el.classList.toggle('d-none', el.innerHTML.trim() === '');   // 空のときは余白を作らない
+    el.querySelectorAll('[data-study-send]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (requestPortalSend()) renderStudySendPanels();
+      });
+    });
+    el.querySelectorAll('[data-study-refresh]').forEach(btn => {
+      btn.addEventListener('click', () => postToPortal({ type: 'REQUEST_PENDING' }));
+    });
+  });
+}
+
+/** ポータルから送信結果を受け取ったときの演出とデータ更新 */
+function handlePortalSendResult(msg) {
+  renderStudySendPanels();
+  if (!msg.ok) {
+    Swal.fire('おくれませんでした', esc(msg.message || 'もういちど ためしてね。'), 'warning');
+    return;
+  }
+  if (!msg.saved) {
+    toast('あたらしいきろくは ありませんでした', 'info');
+    return;
+  }
+
+  const r = msg.reward || {};
+  const lines = [`<b>${msg.saved}件</b>の きろくを おくりました！`];
+  if (r.calcRecords > 0) lines.push(`🧮 100マス計算 <b>${r.calcRecords}回分</b> がきろくされたよ`);
+  if (msg.gainedExp > 0) lines.push(`<b class="text-primary fs-5">+${msg.gainedExp} EXP</b> ゲット！`);
+  const detail = [];
+  if (r.appExp > 0) detail.push(`学習時間 +${r.appExp}`);
+  if (r.calcExp > 0) detail.push(`100マスの点数 +${r.calcExp}`);
+  if (r.sendExp > 0) detail.push(`そうしんボーナス +${r.sendExp}`);
+  if (r.streakExp > 0) detail.push(`れんぞく${r.streak}日目 +${r.streakExp}`);
+  if (detail.length > 0) lines.push(`<span class="small text-muted">（${detail.join(' / ')}）</span>`);
+  if (r.exchangePoints > 0) lines.push(`🎁 交換ポイント <b>+${r.exchangePoints}</b>`);
+  if (msg.duplicate > 0) lines.push(`<span class="small text-muted">${msg.duplicate}件は おくりずみでした</span>`);
+
+  Swal.fire({ icon: 'success', title: 'やったね！', html: lines.join('<br>') }).then(() => {
+    if (msg.leveledUp) {
+      Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${msg.level}</b> になりました！` })
+        .then(refreshStudentData);
+    } else {
+      refreshStudentData();
+    }
+  });
+}
+
+/** 送信後などに、サーバーの最新データで画面を作り直します */
+async function refreshStudentData() {
+  try {
+    const data = await api('getStudentAppData');
+    if (!data.success) return;
+    App.data = { ...App.data, ...data };
+    renderStudentHeader(data.profile);
+    renderHome(data);
+    renderCalcTab(data.records);
+    renderRankings('rankings-container', data.rankings);
+    studyAppLoaded = false;
+    if (!document.getElementById('rtab-apps').classList.contains('d-none')) loadStudyAppTab();
+  } catch (e) { /* 表示更新の失敗は致命的ではない */ }
 }
 
 function renderMissions(missions) {
@@ -210,6 +355,7 @@ async function loadStudyAppTab() {
       return;
     }
     studyAppLoaded = true;
+    if (result.studyApp) App.data.studyApp = result.studyApp;
     renderStudyAppTab(result.data);
   } catch (e) {
     area.innerHTML = emptyMessage('よみこめませんでした。もういちどためしてね。');
@@ -221,11 +367,13 @@ function renderStudyAppTab(d) {
   const s = d.summary || {};
   if (!s.records) {
     area.innerHTML = `
+      <div id="apps-send-card" class="mb-3"></div>
       <div class="card record-form-card shadow-sm"><div class="card-body text-center py-4">
         <div style="font-size:2rem;">🎮</div>
         <p class="fw-bold mb-1">学習アプリのきろくは、まだとどいていません</p>
-        <p class="small text-muted mb-0">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算であそんだら、<br>先生からもらった「そうしんページ」できろくを送ると、ここに表示されるよ。</p>
+        <p class="small text-muted mb-0">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算であそんだら、<br>上の「きろくを おくる」ボタンでおくると、ここに表示されるよ。</p>
       </div></div>`;
+    renderStudySendPanels();
     return;
   }
   const min = m => (!m || m <= 0) ? '0分' : (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 > 0 ? `${m % 60}分` : ''}` : `${m}分`);
@@ -239,6 +387,7 @@ function renderStudyAppTab(d) {
   const apps = Object.keys(d.apps || {}).map(label =>
     `<span class="badge bg-light text-dark border me-1 mb-1">${esc(label)}: ${d.apps[label]}回</span>`).join('');
   area.innerHTML = `
+    <div id="apps-send-card" class="mb-3"></div>
     <div class="row g-2 mb-3">
       ${statCard('今週', `${d.week.records}回`, 'text-primary')}
       ${statCard('今週の時間', min(d.week.minutes), 'text-info')}
@@ -265,12 +414,13 @@ function renderStudyAppTab(d) {
       </div>
       <div class="card-footer small text-muted">「せいかい」は、はじめの1回でとけた数だよ。まちがえてもチャレンジしたことが大切！</div>
     </div>`;
+  renderStudySendPanels();
 }
 
 function renderRecordInputMenu(data) {
+  // 100マス計算は自己申告ではなく、100マス計算アプリのきろくから自動で記録されます
   const menu = [
     { type: 'typing', emoji: '⌨️', label: 'タイピング' },
-    { type: 'calc', emoji: '🧮', label: '100マスけいさん' },
     { type: 'reading', emoji: '📖', label: 'どくしょ' },
     { type: 'growth', emoji: '🌱', label: 'せいちょう' },
     { type: 'study', emoji: '💡', label: 'じしゅ学習' },
@@ -332,15 +482,6 @@ function recordFormHtml(type) {
         <div class="col-4"><label class="form-label small fw-bold">時間（秒）</label><input type="number" class="form-control" id="f-time" min="1" step="0.1"></div>
       </div>
       <div class="mt-3 p-2 bg-light rounded small" id="typing-goal-info"></div>`;
-    case 'calc': return `
-      <div class="row g-2">
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">モード</label>
-          <select class="form-select" id="f-mode"><option>たし算</option><option>ひき算</option><option>かけ算</option><option>わり算</option></select></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">問題数</label>
-          <select class="form-select" id="f-questions"><option>100</option><option>50</option><option>30</option></select></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数</label><input type="number" class="form-control" id="f-score" min="0" max="100"></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">タイム（秒）</label><input type="number" class="form-control" id="f-ctime" min="1" step="0.1"></div>
-      </div>`;
     case 'reading': return `
       <div class="row g-2">
         <div class="col-md-6"><label class="form-label small fw-bold">本のだいめい</label><input type="text" class="form-control" id="f-title"></div>
@@ -416,7 +557,6 @@ function collectFormData(type) {
   const v = id => (document.getElementById(id) ? document.getElementById(id).value : '');
   switch (type) {
     case 'typing': return { correct: v('f-correct'), total: v('f-total'), time: v('f-time') };
-    case 'calc': return { mode: v('f-mode'), questions: v('f-questions'), score: v('f-score'), time: v('f-ctime') };
     case 'reading': return {
       title: v('f-title'), genre: v('f-genre'), pages: v('f-pages'),
       rating: document.getElementById('f-rating').dataset.value, comment: v('f-comment')
@@ -438,7 +578,7 @@ function collectFormData(type) {
 }
 
 const RECORD_LABELS = {
-  typing: 'タイピング', calc: '100マスけいさん', reading: 'どくしょ', growth: 'せいちょうのきろく',
+  typing: 'タイピング', reading: 'どくしょ', growth: 'せいちょうのきろく',
   study: 'じしゅ学習', lesson: 'じゅぎょうのふり返り', test: 'テストのふり返り', moral: 'どうとくノート'
 };
 
@@ -597,6 +737,11 @@ function renderTypingTab(records) {
 
 function renderCalcTab(records) {
   document.getElementById('rtab-calc').innerHTML = `
+    <div id="calc-send-card" class="mb-3"></div>
+    <div class="alert alert-light border small">
+      🧮 100マス計算のきろくは、<b>100マス計算アプリ</b>のきろくをおくると自動でふえるよ。
+      点数は「はじめの1回でとけた数」を100点まんてんにしたものだよ。
+    </div>
     <div class="card record-form-card shadow-sm mb-3"><div class="card-body">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="fw-bold mb-0">タイムのグラフ</h6><div id="calc-chart-selector"></div>
@@ -606,6 +751,7 @@ function renderCalcTab(records) {
     <div class="card record-form-card shadow-sm"><div class="card-body p-0">${recordTable(
       ['日付', 'モード', '問題数', '点数', 'タイム(秒)'],
       records.calc.map(r => [r.date, r.mode, r.questions, r.score, r.time]))}</div></div>`;
+  renderStudySendPanels();
   if (!document.getElementById('rtab-calc').classList.contains('d-none')) drawCalcChart(records.calcChart);
 }
 
@@ -973,6 +1119,10 @@ function renderRankings(containerId, rankings) {
     <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
       <h6 class="fw-bold text-primary"><i class="bi bi-keyboard"></i> タイピングはやさ</h6>
       ${list(rankings.typing || [], i => `${i.value}打/秒`)}
+    </div></div>
+    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+      <h6 class="fw-bold text-info"><i class="bi bi-joystick"></i> 今週の学習アプリ時間</h6>
+      ${list(rankings.studyApp || [], i => `${i.value}分`)}
     </div></div>
     ${calcHtml ? `<div class="card shadow-sm border-0 rounded-4"><div class="card-body">
       <h6 class="fw-bold text-success"><i class="bi bi-calculator"></i> 100マスタイム</h6>${calcHtml}

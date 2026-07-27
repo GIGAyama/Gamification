@@ -20,6 +20,95 @@ function api(funcName, ...args) {
   });
 }
 
+/* ---------------------------------------------------------------------
+ * 学習ポータル連携（gigayama.github.io の iframe に埋め込まれたとき）
+ * -------------------------------------------------------------------
+ * 学習アプリの学習ログは、同一オリジンのポータルページからしか読み出せません
+ * （ブラウザのストレージ分離により、サードパーティ iframe からは読めない）。
+ * そこでポータルを親ページ、このアプリを iframe とし、
+ * アプリ内の「きろくをおくる」ボタンは postMessage で親に送信を依頼します。
+ * 埋め込みでない場合（Webアプリを直接開いた場合）は、ポータルURLへの案内を出します。
+ * ------------------------------------------------------------------- */
+const Portal = {
+  embedded: false,      // ポータルの iframe 内で動いているか
+  connected: false,     // ポータルとハンドシェイクできたか
+  origin: null,         // ポータルのオリジン（検証済み）
+  pending: 0,           // 端末にたまっている未送信のきろく件数
+  studentNumber: '',    // ポータルに入力されている出席番号
+  sending: false,
+  sendTimer: null,      // 応答がないまま待機表示が固まるのを防ぐタイマー
+  onUpdate: null,       // 状態が変わったときに児童画面が再描画するためのコールバック
+  onResult: null        // 送信結果を受け取ったときのコールバック
+};
+
+/** ポータルとして許可するオリジン（GitHub Pages のみ） */
+function isPortalOrigin_(origin) {
+  return typeof origin === 'string' && /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin);
+}
+
+/** 親ページ（ポータル）へメッセージを送ります */
+function postToPortal(message) {
+  if (!Portal.embedded) return false;
+  try {
+    window.parent.postMessage({ source: 'manabi-quest', ...message }, Portal.origin || '*');
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+/** ポータルとのメッセージ受信を開始します */
+function initPortalBridge() {
+  if (window.self === window.top) return;   // 埋め込みでなければ何もしない
+  Portal.embedded = true;
+
+  window.addEventListener('message', event => {
+    // 親フレーム かつ GitHub Pages のオリジンからのメッセージだけを受け付ける
+    if (event.source !== window.parent || !isPortalOrigin_(event.origin)) return;
+    const msg = event.data;
+    if (!msg || typeof msg !== 'object' || msg.source !== 'manabi-portal') return;
+    Portal.origin = event.origin;
+    Portal.connected = true;
+
+    switch (msg.type) {
+      case 'PORTAL_READY':
+      case 'PENDING_CHANGED':
+        Portal.pending = Number(msg.pending) || 0;
+        Portal.studentNumber = String(msg.studentNumber || '');
+        Portal.sending = false;
+        if (Portal.onUpdate) Portal.onUpdate(msg);
+        break;
+      case 'SEND_STARTED':
+        Portal.sending = true;
+        if (Portal.onUpdate) Portal.onUpdate(msg);
+        break;
+      case 'SEND_RESULT':
+        Portal.sending = false;
+        clearTimeout(Portal.sendTimer);
+        Portal.pending = Number(msg.pending) || 0;
+        if (Portal.onResult) Portal.onResult(msg);
+        else if (Portal.onUpdate) Portal.onUpdate(msg);
+        break;
+    }
+  });
+
+  postToPortal({ type: 'APP_READY' });
+}
+
+/** ポータルにきろくの送信を依頼します（アプリ内のボタンから呼びます） */
+function requestPortalSend() {
+  if (!Portal.embedded || !Portal.connected) return false;
+  Portal.sending = true;
+  // ポータルから結果が返らなくても、待機表示のまま固まらないようにする
+  clearTimeout(Portal.sendTimer);
+  Portal.sendTimer = setTimeout(() => {
+    if (!Portal.sending) return;
+    Portal.sending = false;
+    if (Portal.onUpdate) Portal.onUpdate({ type: 'SEND_TIMEOUT' });
+  }, 30000);
+  return postToPortal({ type: 'REQUEST_SEND' });
+}
+
 /** HTMLエスケープ */
 function esc(text) {
   if (text === null || text === undefined) return '';
@@ -270,6 +359,9 @@ async function flushFuriganaQueue_() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
+  // ポータルとの接続は初期データの取得より先に始めておく
+  initPortalBridge();
+
   // タブクリックの共通ハンドラ
   document.querySelectorAll('.nav-tab').forEach(tab => {
     tab.addEventListener('click', () => showView(tab.dataset.view));

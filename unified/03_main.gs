@@ -6,15 +6,26 @@
 
 /**
  * Webアプリの初期表示。役割の判定はクライアントから getInitialAppData() で行います。
+ *
+ * XFrameOptionsMode.ALLOWALL は、学習ポータル（gigayama.github.io/manabi-portal/）の
+ * iframe 内でこのアプリを表示するために必要です。
+ * ポータルは学習アプリと同一オリジンなので localStorage の学習ログを読むことができ、
+ * 「まなびクエストと同じ画面」から学習データを送信できるようになります。
+ * （逆向き＝このアプリが github.io を iframe で埋め込む構成は、ブラウザのストレージ分離により
+ *   サードパーティ iframe から学習アプリの localStorage を読めないため成立しません）
  */
-function doGet() {
+function doGet(e) {
   try {
-    return HtmlService.createTemplateFromFile('index')
+    const template = HtmlService.createTemplateFromFile('index');
+    // 埋め込み表示のときはポータル側にヘッダーがあるので、アプリ側の余白を詰める
+    template.embedded = !!(e && e.parameter && e.parameter.embed);
+    return template
       .evaluate()
       .setTitle('まなびクエスト')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
       .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
-  } catch (e) {
-    console.error(`doGet Error: ${e.message}`);
+  } catch (err) {
+    console.error(`doGet Error: ${err.message}`);
     return HtmlService.createHtmlOutput('<h1>エラー</h1><p>アプリの起動に失敗しました。管理者に連絡してください。</p>');
   }
 }
@@ -86,6 +97,7 @@ function getStudentAppData() {
     records: getMyRecords(email),
     moralMaterials: getMoralMaterials_(ss),
     testUnits: getTestUnits_(ss),
+    studyApp: getStudyAppPanelData_(ss, email, config),
     bonusApplied,
     bonusPoints
   };
@@ -214,6 +226,26 @@ function addExp_(ss, email, amount, sourceLabel) {
   const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
   const level = calculateLevel(newTotal, config).level;
   return { totalExp: newTotal, exp: newExp, level, leveledUp };
+}
+
+/**
+ * 交換ポイントを加算します（ガチャ・アイテム交換にすぐ使えるごほうび）。
+ * @returns {boolean} 加算できたか
+ */
+function addExchangePoints_(ss, email, amount, sourceLabel) {
+  if (!amount || amount <= 0) return false;
+  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  if (!found.data) return false;
+  const newPoints = Number(found.data['交換ポイント'] || 0) + amount;
+  ss.getSheetByName(SHEETS.USERS).getRange(found.row, 7).setValue(newPoints);
+  writeLog_(ss, email, LOG_ACTIONS.BONUS_POINT, `${sourceLabel}で交換ポイント +${amount}`);
+  return true;
+}
+
+/** 児童マスタの累計経験値を取得します */
+function getUserTotalExp_(ss, email) {
+  const found = findRowData_(ss, SHEETS.USERS, 4, email);
+  return found.data ? Number(found.data['累計経験値'] || 0) : 0;
 }
 
 /** レベルアップしていればログに記録します */

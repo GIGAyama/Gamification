@@ -21,6 +21,9 @@ function saveRecord(payload) {
       const config = getConfig_();
       const typeDef = RECORD_TYPES[type];
       if (!typeDef) throw new Error(`不明な記録種別です: ${type}`);
+      if (typeDef.appOnly) {
+        throw new Error(`${typeDef.label}は学習アプリのきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
+      }
 
       let gainedExp = 0;
       let goalAchieved = false;
@@ -38,7 +41,6 @@ function saveRecord(payload) {
           }
           break;
         }
-        case 'calc': gainedExp = saveCalcRecord_(ss, email, formData, config); break;
         case 'reading': gainedExp = saveReadingRecord_(ss, email, formData, config); break;
         case 'growth': gainedExp = saveGrowthRecord_(ss, email, formData, config); break;
         case 'study': gainedExp = saveStudyRecord_(ss, email, formData, config); break;
@@ -119,17 +121,8 @@ function saveTypingRecord_(ss, email, data, config) {
   return { gainedExp, goalAchieved };
 }
 
-function saveCalcRecord_(ss, email, data, config) {
-  const questions = parseInt(data.questions, 10);
-  const score = parseInt(data.score, 10);
-  const time = parseFloat(data.time);
-  if (!data.mode || isNaN(questions) || isNaN(score) || isNaN(time) || time <= 0 || score < 0) {
-    throw new Error('入力内容が正しくありません。');
-  }
-  ss.getSheetByName(SHEETS.CALC).appendRow([new Date(), email, data.mode, questions, score, time]);
-  const divisor = getConfigNumber_(config, '100マス計算タイム除数', 0.05);
-  return Math.max(0, score - Math.floor(time / divisor));
-}
+// ※ 100マス計算は自己申告の手入力を廃止し、100マス計算アプリ（study.v1）から届いた
+//    レコードを 10_studylog.gs が「100マス計算記録」シートへ自動転記します。
 
 function saveReadingRecord_(ss, email, data, config) {
   const pages = parseInt(data.pages, 10);
@@ -350,9 +343,13 @@ function getTypingChartData_(ss, email) {
   return [header].concat(rows);
 }
 
+/**
+ * 100マス計算の記録（100マス計算アプリから自動転記されたもの）。
+ * 学習日は仕様 §4.1 にならって日付までを保存しているため、日付だけを表示します。
+ */
 function getCalcRecords_(ss, email) {
   return getUserRows_(ss, SHEETS.CALC, email, 6, LIMITS.RECORDS_DISPLAY).map(row => ({
-    date: formatDate_(row[0], 'yyyy/MM/dd HH:mm'),
+    date: formatDate_(row[0], 'yyyy/MM/dd'),
     mode: row[2], questions: row[3], score: row[4],
     time: Number(row[5]).toFixed(2)
   }));

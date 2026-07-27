@@ -320,7 +320,7 @@ function getMissionStatus_(ss, email) {
  * - RECORD_* : 該当する記録ログの件数
  * - PLAY_GACHA : ガチャ回数
  * - TOTAL_EXP_WEEK : 期間内の合計獲得EXP
- * - TOTAL_STUDY_WEEK / TOTAL_READING_WEEK / TOTAL_CALC_WEEK : 協力用の件数
+ * - TOTAL_STUDY_WEEK / TOTAL_READING_WEEK / TOTAL_CALC_WEEK / TOTAL_APP_WEEK : 協力用の件数
  */
 function countMissionProgress_(logs, conditionKey) {
   switch (conditionKey) {
@@ -343,6 +343,8 @@ function countMissionProgress_(logs, conditionKey) {
       return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_READING).length;
     case 'TOTAL_CALC_WEEK':
       return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_CALC).length;
+    case 'TOTAL_APP_WEEK':
+      return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_STUDY_APP).length;
     default:
       // RECORD_TYPING などのログ種別をそのまま数える
       return logs.filter(log => log[2] === conditionKey).length;
@@ -438,6 +440,10 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
   const userLogs = allLogs.filter(log => String(log[1]).toLowerCase().trim() === email);
   const profileData = findRowData_(ss, SHEETS.PROFILE, 1, email).data;
 
+  // 学習アプリ系（APP_*）のバッジがある場合だけ、学習ログの集計を1回だけ行う
+  const needsAppStats = badgesMaster.some(b => !earnedIds.has(b.id) && String(b.conditionKey).indexOf('APP_') === 0);
+  const appStats = needsAppStats ? getStudyAppBadgeStats_(ss, email, userLogs) : null;
+
   for (const badge of badgesMaster) {
     if (earnedIds.has(badge.id)) continue;
     let achieved = false;
@@ -478,6 +484,10 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
       case 'MISSION_REWARD_COUNT':
         achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.CLAIM_MISSION_REWARD).length >= v;
         break;
+      // --- 学習アプリ連携（study.v1） ---
+      case 'APP_RECORD_COUNT': achieved = !!appStats && appStats.records >= v; break;
+      case 'APP_MINUTES_TOTAL': achieved = !!appStats && appStats.minutes >= v; break;
+      case 'APP_SEND_STREAK_DAYS': achieved = !!appStats && appStats.sendStreak >= v; break;
     }
 
     if (achieved) {
@@ -529,11 +539,11 @@ function getLogsInRange_(ss, startDate, endDate) {
 }
 
 /**
- * ランキング（累計EXPトップ5・今日のMVP・タイピング速度・100マス計算タイム）を取得します。
+ * ランキング（累計EXPトップ5・今日のMVP・タイピング速度・100マス計算タイム・今週の学習アプリ時間）を取得します。
  */
 function getRankings_(ss, config) {
   const userSheet = ss.getSheetByName(SHEETS.USERS);
-  if (!userSheet || userSheet.getLastRow() < 2) return { top5: [], mvp: [], typing: [], calc: {} };
+  if (!userSheet || userSheet.getLastRow() < 2) return { top5: [], mvp: [], typing: [], calc: {}, studyApp: [] };
   const usersData = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, 5).getValues()
     .filter(row => row[0] != TEACHER_ROLE_ID && row[3]);
 
@@ -576,7 +586,8 @@ function getRankings_(ss, config) {
     top5,
     mvp,
     typing: getTypingRanking_(ss, nicknameMap),
-    calc: getCalcRanking_(ss, nicknameMap)
+    calc: getCalcRanking_(ss, nicknameMap),
+    studyApp: getStudyAppRanking_(ss, nicknameMap)
   };
 }
 
@@ -623,13 +634,17 @@ function getCalcRanking_(ss, nicknameMap) {
   return rankings;
 }
 
-/** 同値同順位のランキング整形 */
-function formatRanking_(sortedArray) {
+/**
+ * 同値同順位のランキング整形
+ * @param {number} [decimals=2] - 表示する小数点以下の桁数（分・回数などは 0）
+ */
+function formatRanking_(sortedArray, decimals) {
+  const digits = (decimals === undefined) ? 2 : decimals;
   let rank = 0, prevValue = null, count = 0;
   return sortedArray.slice(0, LIMITS.RANKING).map(item => {
     count++;
     if (item.value !== prevValue) { rank = count; prevValue = item.value; }
-    return { rank, name: item.name, value: Number(item.value).toFixed(2) };
+    return { rank, name: item.name, value: Number(item.value).toFixed(digits) };
   });
 }
 
@@ -743,7 +758,9 @@ function getRecentLogs_(ss, email) {
         break;
       }
       case LOG_ACTIONS.GRANT_POINT: message = `先生から ${detailStr} もらいました！`; break;
+      case LOG_ACTIONS.BONUS_POINT: message = `🎁 ${detailStr}`; break;
       case LOG_ACTIONS.RECORD_STUDY_APP: message = `🎮 ${detailStr}`; break;
+      case LOG_ACTIONS.SEND_STUDY_LOG: message = `📨 ${detailStr}`; break;
       case LOG_ACTIONS.ACHIEVE_GOAL: message = `🏆 タイピングの目標をたっせいしました！`; break;
       case LOG_ACTIONS.SAVE_AVATAR: message = 'アバターの見た目をほぞんしました。'; break;
       case LOG_ACTIONS.EXCHANGE_ITEM:
