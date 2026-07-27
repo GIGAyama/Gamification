@@ -62,6 +62,9 @@ function sendWeeklyClassSummary() {
   const mSheet = ss.getSheetByName(SHEETS.SHOKEN_MATERIALS);
   if (mSheet && mSheet.getLastRow() >= 2) materialTotal = mSheet.getLastRow() - 1;
 
+  // 学習アプリ（study.v1 共通学習ログ）の取り組み
+  const studyApp = getStudyLogRangeStats_(ss, start, end);
+
   // 声かけリスト
   const alerts = getStudentAlerts_(ss, students, config);
 
@@ -82,6 +85,8 @@ function sendWeeklyClassSummary() {
 
 ■ 記録の件数（合計 ${totalRecords} 件）
 ${recordLines}
+
+■ 学習アプリ（共通学習ログ）: ${studyApp.records}件 / ${studyApp.students}人 / 約${studyApp.minutes}分
 
 ■ 今週記録した児童: ${activeEmails.size} / ${students.length} 人
 ■ 1件も記録がなかった児童:
@@ -159,6 +164,7 @@ function removeTriggersByHandler_(handlerName) {
 function getArchivableSheets_() {
   return [
     SHEETS.TYPING, SHEETS.CALC, SHEETS.READING, SHEETS.GROWTH, SHEETS.STUDY, SHEETS.GOAL,
+    SHEETS.STUDY_LOG,
     SHEETS.LESSON, SHEETS.TEST, SHEETS.MORAL,
     SHEETS.LOG, SHEETS.INVENTORY, SHEETS.EARNED_BADGES,
     SHEETS.SHOKEN_MATERIALS, SHEETS.GENERAL_SHOKEN, SHEETS.MORAL_SHOKEN,

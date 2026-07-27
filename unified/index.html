@@ -48,6 +48,7 @@
       <button data-view="view-t-student" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-search"></i> 児童の詳細</button>
       <button data-view="view-t-shoken" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-lightbulb"></i> AI所見</button>
       <button data-view="view-t-grades" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-graph-up"></i> 成績・評価</button>
+      <button data-view="view-t-studylog" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-joystick"></i> 学習アプリ</button>
       <button data-view="view-t-manage" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-gear"></i> 管理・出力</button>
     </div>
   </div>
@@ -148,6 +149,7 @@
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-reading">読書</button></li>
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-notes">せいちょう・自学</button></li>
         <li class="nav-item"><button class="nav-link" data-rtab="rtab-lesson">じゅぎょう</button></li>
+        <li class="nav-item"><button class="nav-link" data-rtab="rtab-apps">学習アプリ</button></li>
       </ul>
       <div id="rtab-input" class="record-tab"></div>
       <div id="rtab-typing" class="record-tab d-none"></div>
@@ -155,6 +157,7 @@
       <div id="rtab-reading" class="record-tab d-none"></div>
       <div id="rtab-notes" class="record-tab d-none"></div>
       <div id="rtab-lesson" class="record-tab d-none"></div>
+      <div id="rtab-apps" class="record-tab d-none"></div>
     </div>
 
     <!-- ============ 児童: クエスト（ガチャ・アバター） ============ -->
@@ -385,6 +388,60 @@
             <button id="tg-attitude-export" class="btn btn-outline-success btn-sm fw-bold"><i class="bi bi-box-arrow-down"></i> シートへ出力</button>
           </div>
           <div id="tg-attitude" class="table-responsive custom-scrollbar" style="max-height:420px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 教員: 学習アプリ（study.v1 共通学習ログ） ============ -->
+    <div id="view-t-studylog" class="spa-view d-none">
+      <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+        <h4 class="fw-bold text-primary mb-0"><i class="bi bi-joystick"></i> 学習アプリのとりくみ</h4>
+        <div class="d-flex gap-2 align-items-center">
+          <select id="tl-period" class="form-select form-select-sm" style="max-width:130px;">
+            <option value="week" selected>今週</option>
+            <option value="month">30日間</option>
+            <option value="all">すべて</option>
+          </select>
+          <button id="tl-reload-btn" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+        </div>
+      </div>
+      <p class="small text-muted mb-3">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算（gigayama.github.io）の共通学習ログ（study.v1）を集計しています。児童は各アプリで学習したあと、送信ページから記録を送ります。</p>
+      <div id="tl-setup-note" class="d-none mb-3"></div>
+      <div class="row g-3 mb-4" id="tl-stats-cards"></div>
+      <div class="row g-4 mb-4">
+        <div class="col-lg-7">
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-header bg-transparent fw-bold"><i class="bi bi-people"></i> 児童別のとりくみ</div>
+            <div class="card-body p-0 custom-scrollbar" style="max-height:420px;overflow-y:auto;">
+              <table class="table table-hover table-sm mb-0 align-middle">
+                <thead class="table-light sticky-top"><tr><th>番号</th><th>名前</th><th>回数</th><th>学習時間</th><th>初回正答率</th><th>中断</th><th>最終学習日</th></tr></thead>
+                <tbody id="tl-student-rows"></tbody>
+              </table>
+            </div>
+            <div class="card-footer bg-transparent small text-muted">初回正答率＝1回目の解答で正解できた割合。通常出題×客観採点×ソロプレイのレコードだけで計算しています（自己評価・復習/にがて出題・対戦モードは母集団が異なるため除外。仕様 §2.4/§2.9/§3.2）。</div>
+          </div>
+        </div>
+        <div class="col-lg-5">
+          <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-header bg-transparent fw-bold"><i class="bi bi-grid"></i> アプリ別</div>
+            <div class="card-body" id="tl-app-list"></div>
+          </div>
+          <div class="card shadow-sm border-warning rounded-4">
+            <div class="card-header bg-warning text-dark fw-bold"><i class="bi bi-exclamation-triangle"></i> クラスのつまずき問題</div>
+            <div class="card-body">
+              <p class="small text-muted mb-2">初回で誤答した児童が多い問題です。「クラスの何人が同じ問題を落としたか」は明日の授業づくりの材料になります。</p>
+              <div id="tl-stumbles" class="custom-scrollbar" style="max-height:300px;overflow-y:auto;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card shadow-sm border-0 rounded-4">
+        <div class="card-header bg-transparent fw-bold"><i class="bi bi-clock-history"></i> 最近の学習</div>
+        <div class="card-body p-0 custom-scrollbar" style="max-height:360px;overflow-y:auto;">
+          <table class="table table-sm table-hover mb-0 align-middle">
+            <thead class="table-light sticky-top"><tr><th>学習日</th><th>時間帯</th><th>児童</th><th>アプリ</th><th>内容</th><th class="text-center">初回正答/解答</th><th>時間</th><th></th></tr></thead>
+            <tbody id="tl-recent-rows"></tbody>
+          </table>
         </div>
       </div>
     </div>
