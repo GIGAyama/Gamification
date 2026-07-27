@@ -33,6 +33,12 @@ const SHEETS = {
   MORAL_MATERIALS: '道徳教材リスト',
   TEST_UNITS: 'テスト単元リスト',
 
+  // --- ふり返りの循環（週次ふり返り） ---
+  WEEKLY_REFLECTION: '週次ふり返り',           // 週の総括と「来週のめあて」
+
+  // --- 仲間とのつながり ---
+  CHEERS: '応援',                              // 児童どうしの応援スタンプ
+
   // --- ゲーミフィケーション ---
   ITEMS: 'アイテムマスタ',
   INVENTORY: 'インベントリ',
@@ -73,6 +79,47 @@ const USER_COLS = {
 /** ふり返りシートの「所見抽出」フラグ列（1始まり） */
 const SHOKEN_FLAG_COLS = { lesson: 9, test: 10 };
 
+/**
+ * ふり返りシートの「AIコーチ」列（1始まり）。
+ * 所見材料抽出と同じ1回のAI応答から、児童向けの応援コメントを取り出して保存します。
+ * 既存シートを壊さないよう、いずれも「所見抽出」列の直後に追加しています。
+ */
+const AI_COACH_COLS = { lesson: 10, test: 11 };
+
+/**
+ * 「目標記録」シートの列番号（1始まり）。
+ * A〜F は旧タイピング専用フォーマットで、G 以降が全種目対応で追加した列です。
+ * 「種類」が空の行は旧データなので typing として読みます（getGoalData_ の後方互換）。
+ */
+const GOAL_COLS = {
+  EMAIL: 1,
+  SPEED: 2,        // 速さ目標（typing のみ）
+  ACCURACY: 3,     // 正答率目標（typing のみ）
+  STATUS: 4,
+  CREATED: 5,
+  ACHIEVED: 6,
+  KIND: 7,         // typing / reading / calc / study / app / free
+  PERIOD: 8,       // 週 / 月
+  TARGET: 9,       // 目標値（free は空）
+  MEMO: 10         // 自由記述のめあて本文
+};
+
+/**
+ * 全種目に広げた目標の種類。
+ * unit は児童画面の表示に、progress は ログ/記録から自動集計するときの集計キーに使います。
+ */
+const GOAL_KINDS = {
+  typing: { label: 'タイピングの速さ', unit: '打/秒', metric: 'typingSpeed' },
+  reading: { label: '読書のページ数', unit: 'ページ', metric: 'readingPages' },
+  calc: { label: '100マス計算の回数', unit: '回', metric: 'calcCount' },
+  study: { label: '自主学習の回数', unit: '回', metric: 'studyCount' },
+  app: { label: '学習アプリの時間', unit: '分', metric: 'appMinutes' },
+  free: { label: '自分で決めためあて', unit: '', metric: null }
+};
+
+/** 目標の期間 */
+const GOAL_PERIODS = { WEEK: '週', MONTH: '月' };
+
 /** 学習指導要領の3観点（AI所見材料の分類に使用） */
 const SHOKEN_VIEWPOINTS = ['知識・技能', '思考・判断・表現', '主体的に学習に取り組む態度'];
 
@@ -103,8 +150,43 @@ const LOG_ACTIONS = {
   RECORD_MORAL: 'RECORD_MORAL',
   RECORD_STUDY_APP: 'RECORD_STUDY_APP',   // 学習アプリ(study.v1)ログの受信
   SEND_STUDY_LOG: 'SEND_STUDY_LOG',       // 学習アプリのきろくを送信した（1送信につき1件）
-  ACHIEVE_GOAL: 'ACHIEVE_GOAL'
+  ACHIEVE_GOAL: 'ACHIEVE_GOAL',
+  // --- 成果を実感するための行動（改善で追加） ---
+  SET_GOAL: 'SET_GOAL',                       // めあてを立てた
+  NEW_RECORD: 'NEW_RECORD',                   // 自己ベストを更新した
+  RECORD_STREAK: 'RECORD_STREAK',             // 連続きろくボーナスを受け取った
+  WEEKLY_REFLECTION: 'WEEKLY_REFLECTION',     // 週次ふり返りを書いた
+  SEND_CHEER: 'SEND_CHEER',                   // 友だちに応援スタンプを送った
+  RECEIVE_CHEER: 'RECEIVE_CHEER',             // 応援スタンプをもらった
+  TEACHER_PRAISE: 'TEACHER_PRAISE'            // 先生からひとことをもらった
 };
+
+/**
+ * 自己ベストの種目 → 表示名。A-2「じこベスト更新」の演出とログに使います。
+ */
+const BEST_RECORD_TYPES = {
+  typingSpeed: { label: 'タイピングの速さ', unit: '打/秒', decimals: 2 },
+  testScore: { label: 'テストの点数', unit: '点', decimals: 0 },
+  calcTime: { label: '100マス計算のタイム', unit: '秒', decimals: 2, lowerIsBetter: true }
+};
+
+/** 応援スタンプの種類（自由記述を持たせず、定型のみにしてトラブルを防ぎます） */
+const CHEER_STAMPS = {
+  clap: { label: 'すごい！', emoji: '👏' },
+  fire: { label: 'がんばってるね', emoji: '🔥' },
+  heart: { label: 'すてき！', emoji: '💖' },
+  muscle: { label: 'まけないぞ', emoji: '💪' },
+  star: { label: 'かがやいてる', emoji: '⭐' }
+};
+
+/** 先生からのひとことで使える定型スタンプ */
+const PRAISE_STAMPS = [
+  'よくがんばりました',
+  'せいちょうしているね',
+  'いい気づきです',
+  'ていねいに書けています',
+  'つづける力がすばらしい'
+];
 
 /**
  * 記録種別 → 表示名・ログ種別の対応表。
@@ -141,7 +223,12 @@ const LIMITS = {
   RECORDS_DISPLAY: 50,
   RANKING: 10,
   CALC_RANKING_MIN_SCORE: 90,
-  SEND_LOG_SCAN_ROWS: 5000        // 送信ストリーク判定でさかのぼる「ログ」シートの行数
+  SEND_LOG_SCAN_ROWS: 5000,       // 送信ストリーク判定でさかのぼる「ログ」シートの行数
+  INSIGHT_SCAN_ROWS: 20000,       // がんばりカレンダー等の集計でさかのぼる「ログ」シートの行数
+  CALENDAR_WEEKS: 12,             // がんばりカレンダーに表示する週数
+  WORD_ALBUM: 60,                 // ことばアルバムに読み込むふり返りの件数
+  BOOKSHELF: 40,                  // みんなの本棚に表示する冊数
+  CHEERS_PER_DAY: 5               // 1日に送れる応援スタンプの数
 };
 
 /** キャッシュ有効期限（秒） */

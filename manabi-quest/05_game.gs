@@ -345,7 +345,13 @@ function countMissionProgress_(logs, conditionKey) {
       return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_CALC).length;
     case 'TOTAL_APP_WEEK':
       return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_STUDY_APP).length;
+    case 'TOTAL_LESSON_WEEK':
+      return logs.filter(log => log[2] === LOG_ACTIONS.RECORD_LESSON).length;
+    case 'TOTAL_CHEER_WEEK':
+      return logs.filter(log => log[2] === LOG_ACTIONS.SEND_CHEER).length;
     default:
+      // WEEKLY_REFLECTION / SET_GOAL / SEND_CHEER / NEW_RECORD などもここで数えます
+      // （条件キーをそのままログ種別として扱う既存のルール）
       // RECORD_TYPING などのログ種別をそのまま数える
       return logs.filter(log => log[2] === conditionKey).length;
   }
@@ -434,10 +440,7 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
   const newlyAwarded = [];
   if (badgesMaster.length === 0) return { updatedEarnedBadges: [], newlyAwarded };
 
-  const logSheet = ss.getSheetByName(SHEETS.LOG);
-  const allLogs = (logSheet && logSheet.getLastRow() >= 2)
-    ? logSheet.getRange(2, 1, logSheet.getLastRow() - 1, 4).getValues() : [];
-  const userLogs = allLogs.filter(log => String(log[1]).toLowerCase().trim() === email);
+  const userLogs = getAllLogRows_(ss).filter(log => String(log[1]).toLowerCase().trim() === email);
   const profileData = findRowData_(ss, SHEETS.PROFILE, 1, email).data;
 
   // 学習アプリ系（APP_*）のバッジがある場合だけ、学習ログの集計を1回だけ行う
@@ -488,6 +491,30 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
       case 'APP_RECORD_COUNT': achieved = !!appStats && appStats.records >= v; break;
       case 'APP_MINUTES_TOTAL': achieved = !!appStats && appStats.minutes >= v; break;
       case 'APP_SEND_STREAK_DAYS': achieved = !!appStats && appStats.sendStreak >= v; break;
+      // --- 日々の積み重ね・ふり返りの循環・仲間とのつながり ---
+      // いずれも「ログ」シートの種別を数えるだけなので、追加のシートアクセスはありません
+      case 'RECORD_STREAK_DAYS':
+        achieved = calcStreakFromDays_(
+          userLogs.filter(log => isRecordAction_(log[2]))
+            .map(log => dateKey_(log[0]))
+            .filter(Boolean)
+        ) >= v;
+        break;
+      case 'NEW_RECORD_COUNT':
+        achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.NEW_RECORD).length >= v;
+        break;
+      case 'WEEKLY_REFLECTION_COUNT':
+        achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.WEEKLY_REFLECTION).length >= v;
+        break;
+      case 'GOAL_ACHIEVED_COUNT':
+        achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.ACHIEVE_GOAL).length >= v;
+        break;
+      case 'CHEER_SENT_COUNT':
+        achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.SEND_CHEER).length >= v;
+        break;
+      case 'CHEER_RECEIVED_COUNT':
+        achieved = userLogs.filter(log => log[2] === LOG_ACTIONS.RECEIVE_CHEER).length >= v;
+        break;
     }
 
     if (achieved) {
@@ -527,23 +554,28 @@ function calculateLoginStreak_(email, userLogs) {
 // ランキング・広場・お知らせ・ログ
 // ---------------------------------------------------------------------
 
-/** 期間内のログを取得します */
+/** 期間内のログを取得します（シートの読み込みは getAllLogRows_ に集約） */
 function getLogsInRange_(ss, startDate, endDate) {
-  const sheet = ss.getSheetByName(SHEETS.LOG);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues()
-    .filter(row => {
-      const d = new Date(row[0]);
-      return d >= startDate && d <= endDate;
-    });
+  return getAllLogRows_(ss).filter(row => {
+    const d = new Date(row[0]);
+    return d >= startDate && d <= endDate;
+  });
 }
 
 /**
- * ランキング（累計EXPトップ5・今日のMVP・タイピング速度・100マス計算タイム・今週の学習アプリ時間）を取得します。
+ * ランキングを取得します。
+ *
+ * 絶対値のランキング（累計EXP・タイピング速度・100マスタイム）は顔ぶれが固定されやすく、
+ * 上位に届かない児童には成果が返りません。そこで「今週の伸び」「連続きろく日数」など、
+ * 誰でも1位になりうる軸をあわせて出します。
  */
 function getRankings_(ss, config) {
   const userSheet = ss.getSheetByName(SHEETS.USERS);
-  if (!userSheet || userSheet.getLastRow() < 2) return { top5: [], mvp: [], typing: [], calc: {}, studyApp: [] };
+  const emptyResult = {
+    top5: [], mvp: [], typing: [], calc: {}, studyApp: [],
+    growth: [], streak: [], reading: [], effort: []
+  };
+  if (!userSheet || userSheet.getLastRow() < 2) return emptyResult;
   const usersData = userSheet.getRange(2, 1, userSheet.getLastRow() - 1, 5).getValues()
     .filter(row => row[0] != TEACHER_ROLE_ID && row[3]);
 
@@ -582,13 +614,108 @@ function getRankings_(ss, config) {
     .sort((a, b) => b.gainedExp - a.gainedExp)
     .slice(0, 5);
 
+  const classStats = getClassLogStats_(ss, nicknameMap);
+
   return {
     top5,
     mvp,
     typing: getTypingRanking_(ss, nicknameMap),
     calc: getCalcRanking_(ss, nicknameMap),
-    studyApp: getStudyAppRanking_(ss, nicknameMap)
+    studyApp: getStudyAppRanking_(ss, nicknameMap),
+    // 誰でも1位になりうる軸
+    growth: classStats.growth,
+    streak: classStats.streak,
+    effort: classStats.effort,
+    reading: getReadingRanking_(ss, nicknameMap)
   };
+}
+
+/**
+ * 実行中だけ有効なクラス集計のキャッシュ。
+ * ランキング（ひろば）と応援ボードの両方が同じ集計を使うため、
+ * 1回の実行で「ログ」シートを2度読まないようにしています。
+ */
+let CLASS_LOG_STATS_CACHE_ = null;
+
+/**
+ * 「ログ」シートを1回だけ読み、クラス全員ぶんの
+ * 今週の伸び・連続きろく日数・今週のきろく数を作ります。
+ * @returns {{growth:Array, streak:Array, effort:Array, weekRecords:Object}}
+ */
+function getClassLogStats_(ss, nicknameMap) {
+  if (CLASS_LOG_STATS_CACHE_) return CLASS_LOG_STATS_CACHE_;
+  const rows = readRecentLogRows_(ss, LIMITS.INSIGHT_SCAN_ROWS);
+  const { startOfWeek } = getWeekRange_();
+  const lastWeekStart = new Date(startOfWeek);
+  lastWeekStart.setDate(startOfWeek.getDate() - 7);
+
+  const thisWeek = {}, lastWeek = {}, daysByEmail = {};
+  rows.forEach(row => {
+    const email = String(row[1]).toLowerCase().trim();
+    if (!nicknameMap[email]) return;
+    if (!isRecordAction_(row[2])) return;
+    const date = parseTimestamp_(row[0]);
+    if (!date) return;
+    (daysByEmail[email] = daysByEmail[email] || []).push(Utilities.formatDate(date, 'JST', 'yyyy-MM-dd'));
+    if (date >= startOfWeek) thisWeek[email] = (thisWeek[email] || 0) + 1;
+    else if (date >= lastWeekStart) lastWeek[email] = (lastWeek[email] || 0) + 1;
+  });
+
+  const emails = Object.keys(nicknameMap);
+
+  // 今週の伸び: 先週より何件多くきろくできたか（マイナスは載せません）
+  const growth = formatRanking_(
+    emails
+      .map(email => ({ name: nicknameMap[email], value: (thisWeek[email] || 0) - (lastWeek[email] || 0) }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value),
+    0
+  );
+
+  // 連続きろく日数
+  const streak = formatRanking_(
+    emails
+      .map(email => ({ name: nicknameMap[email], value: calcStreakFromDays_(daysByEmail[email] || []) }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value),
+    0
+  );
+
+  // 今週のきろく数
+  const effort = formatRanking_(
+    emails
+      .map(email => ({ name: nicknameMap[email], value: thisWeek[email] || 0 }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value),
+    0
+  );
+
+  CLASS_LOG_STATS_CACHE_ = { growth, streak, effort, weekRecords: thisWeek };
+  return CLASS_LOG_STATS_CACHE_;
+}
+
+/** クラス集計のキャッシュを捨てます（ログを書いたあとに呼びます） */
+function clearClassLogStatsCache_() {
+  CLASS_LOG_STATS_CACHE_ = null;
+}
+
+/** 読書ページ数のランキング（読書王） */
+function getReadingRanking_(ss, nicknameMap) {
+  const sheet = ss.getSheetByName(SHEETS.READING);
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const pages = {};
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues().forEach(row => {
+    const email = String(row[1]).toLowerCase().trim();
+    if (!nicknameMap[email]) return;
+    pages[email] = (pages[email] || 0) + (Number(row[4]) || 0);
+  });
+  return formatRanking_(
+    Object.keys(pages)
+      .map(email => ({ name: nicknameMap[email], value: pages[email] }))
+      .filter(item => item.value > 0)
+      .sort((a, b) => b.value - a.value),
+    0
+  );
 }
 
 /** タイピング速度ランキング */
@@ -686,12 +813,19 @@ function getPlazaData_(ss, config) {
     });
 }
 
-/** 表示対象のお知らせを取得します */
-function getAnnouncements_(forTeacher) {
+/**
+ * 表示対象のお知らせを取得します。
+ * 「宛先」列が空ならクラス全員向け、メールアドレスが入っていればその児童だけに届く
+ * 「先生からのひとこと」です（既存の行は宛先が空なので、これまでどおり全員に出ます）。
+ * @param {boolean} forTeacher - 教員画面か（期限切れも含めて全部返す）
+ * @param {string} [email] - 児童画面のとき、その児童のメールアドレス
+ */
+function getAnnouncements_(forTeacher, email) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.ANNOUNCEMENTS);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const now = new Date();
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues()
+  const target = String(email || '').toLowerCase().trim();
+  return sheet.getRange(2, 1, sheet.getLastRow() - 1, Math.min(5, sheet.getMaxColumns())).getValues()
     .map((row, index) => {
       const timestamp = parseTimestamp_(row[0]) || new Date(0);
       let endDate = null;
@@ -699,9 +833,15 @@ function getAnnouncements_(forTeacher) {
         const d = parseTimestamp_(row[3]);
         if (d) { endDate = d; endDate.setHours(23, 59, 59, 999); }
       }
-      return { timestamp, message: row[1], author: row[2], endDate, rowNum: index + 2 };
+      const to = String(row[4] || '').toLowerCase().trim();
+      return { timestamp, message: row[1], author: row[2], endDate, to, personal: !!to, rowNum: index + 2 };
     })
-    .filter(item => item.message && (forTeacher || !item.endDate || item.endDate >= now))
+    .filter(item => {
+      if (!item.message) return false;
+      if (forTeacher) return true;
+      if (item.to && item.to !== target) return false;   // 他の児童あてのひとことは見せません
+      return !item.endDate || item.endDate >= now;
+    })
     .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
     .map(item => ({
       ...item,
@@ -712,10 +852,8 @@ function getAnnouncements_(forTeacher) {
 
 /** 最近の活動ログを子ども向けメッセージに整形して返します */
 function getRecentLogs_(ss, email) {
-  const sheet = ss.getSheetByName(SHEETS.LOG);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const allLogs = sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
-  const userLogs = allLogs.filter(row => String(row[1]).toLowerCase().trim() === email);
+  const userLogs = getAllLogRows_(ss).filter(row => String(row[1]).toLowerCase().trim() === email);
+  if (userLogs.length === 0) return [];
 
   return userLogs.slice(-LIMITS.RECENT_LOGS).reverse().map(row => {
     const [timestamp, , action, details] = row;
@@ -761,7 +899,19 @@ function getRecentLogs_(ss, email) {
       case LOG_ACTIONS.BONUS_POINT: message = `🎁 ${detailStr}`; break;
       case LOG_ACTIONS.RECORD_STUDY_APP: message = `🎮 ${detailStr}`; break;
       case LOG_ACTIONS.SEND_STUDY_LOG: message = `📨 ${detailStr}`; break;
-      case LOG_ACTIONS.ACHIEVE_GOAL: message = `🏆 タイピングの目標をたっせいしました！`; break;
+      // 「めあて達成: ○○ (+100EXP)」の形。全種目に広げたので、種類名をそのまま見せます
+      case LOG_ACTIONS.ACHIEVE_GOAL: {
+        const what = (detailStr.match(/めあて達成:\s*(.+?)(?:\s*\(|$)/) || [])[1];
+        message = what ? `🏆 めあて「${what}」をたっせいしました！` : '🏆 めあてをたっせいしました！';
+        break;
+      }
+      case LOG_ACTIONS.SET_GOAL: message = `🎯 ${detailStr}`; break;
+      case LOG_ACTIONS.NEW_RECORD: message = `🌟 ${detailStr}`; break;
+      case LOG_ACTIONS.RECORD_STREAK: message = `🔥 ${detailStr.split(':')[0]}！`; break;
+      case LOG_ACTIONS.WEEKLY_REFLECTION: message = '📔 今週のふり返りを書きました！'; break;
+      case LOG_ACTIONS.SEND_CHEER: message = `👏 ${detailStr}`; break;
+      case LOG_ACTIONS.RECEIVE_CHEER: message = `💖 ${detailStr}`; break;
+      case LOG_ACTIONS.TEACHER_PRAISE: message = `🌟 先生からひとことがとどきました！`; break;
       case LOG_ACTIONS.SAVE_AVATAR: message = 'アバターの見た目をほぞんしました。'; break;
       case LOG_ACTIONS.EXCHANGE_ITEM:
         message = `${detailStr.replace(/\(コスト:.*\)/, '')}をこうかんしました！`;

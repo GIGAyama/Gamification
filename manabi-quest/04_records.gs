@@ -25,20 +25,22 @@ function saveRecord(payload) {
         throw new Error(`${typeDef.label}は学習アプリのきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
       }
 
+      // 1回の保存で複数回 addExp_ が走るため、開始時のレベルを覚えておいて最後に比べます
+      const levelBefore = calculateLevel(getUserTotalExp_(ss, email), config).level;
       let gainedExp = 0;
-      let goalAchieved = false;
       let reflectionBonus = 0;
+      let aiCoach = '';
+      // 自己ベスト更新の判定に使う「今回の値」（種目ごとに詰めます）
+      let bestContext = null;
+      // タイピングの目標判定で使う「今回の記録そのもの」
+      let goalContext = null;
 
       switch (type) {
         case 'typing': {
           const r = saveTypingRecord_(ss, email, formData, config);
           gainedExp = r.gainedExp;
-          goalAchieved = r.goalAchieved;
-          if (goalAchieved) {
-            const bonus = getConfigNumber_(config, '目標達成ボーナス経験値', 100);
-            gainedExp += bonus;
-            writeLog_(ss, email, LOG_ACTIONS.ACHIEVE_GOAL, `タイピング目標達成ボーナス: +${bonus}EXP`);
-          }
+          bestContext = { kind: 'typingSpeed', value: r.speed, previous: r.previousBestSpeed };
+          goalContext = { typingSpeed: r.speed, typingAccuracy: r.accuracy };
           break;
         }
         case 'reading': gainedExp = saveReadingRecord_(ss, email, formData, config); break;
@@ -48,33 +50,55 @@ function saveRecord(payload) {
           const r = saveLessonRecord_(ss, email, formData, config);
           gainedExp = r.gainedExp;
           reflectionBonus = r.reflectionBonus;
+          aiCoach = r.aiCoach || '';
           break;
         }
         case 'test': {
           const r = saveTestRecord_(ss, email, formData, config);
           gainedExp = r.gainedExp;
           reflectionBonus = r.reflectionBonus;
+          aiCoach = r.aiCoach || '';
+          bestContext = { kind: 'testScore', value: r.bestScore, previous: r.previousBestScore };
           break;
         }
         case 'moral': gainedExp = saveMoralRecord_(ss, email, formData, config); break;
       }
 
       writeLog_(ss, email, typeDef.log, `${typeDef.label}を記録`);
-      let expResult = addExp_(ss, email, gainedExp, typeDef.label);
-      if (reflectionBonus > 0) {
-        const bonusResult = addExp_(ss, email, reflectionBonus, 'ふり返り質ボーナス');
-        if (bonusResult) {
-          const leveledUp = (expResult && expResult.leveledUp) || bonusResult.leveledUp;
-          expResult = Object.assign({}, bonusResult, { leveledUp });
-        }
+      addExp_(ss, email, gainedExp, typeDef.label);
+      addExp_(ss, email, reflectionBonus, 'ふり返り質ボーナス');
+
+      // 記録シートが変わったので、集計のキャッシュを捨ててから判定を回します
+      clearRecordStoreCache_();
+      clearInsightsCache_(email);
+
+      // A-2 じこベスト更新（ボーナスとログは applyPersonalBest_ の中で付きます）
+      let personalBest = null;
+      if (bestContext) {
+        const best = applyPersonalBest_(ss, email, config, bestContext.kind, bestContext.value, bestContext.previous);
+        if (best.updated) personalBest = best;
       }
+
+      // A-1 その日はじめてのきろくに連続ボーナス
+      const streakBonus = applyRecordStreakBonus_(ss, email, config);
+
+      // B-1/B-3 立てためあての達成判定（全種目）
+      const achieved = checkGoalsAfterRecord_(ss, email, config, goalContext);
+
+      const expResult = readExpState_(ss, email, levelBefore);
+      clearInsightsCache_(email);
 
       return {
         success: true,
         message: `${typeDef.label}をきろくしました！`,
         gainedExp: gainedExp,
         reflectionBonus: reflectionBonus,
-        goalAchieved: goalAchieved,
+        aiCoach: aiCoach,
+        personalBest: personalBest,
+        streakBonus: streakBonus.exp > 0 ? streakBonus : null,
+        achievedGoals: achieved,
+        // 旧クライアント互換（タイピング目標の達成をひとつでも含むか）
+        goalAchieved: achieved.length > 0,
         leveledUp: expResult ? expResult.leveledUp : false,
         newLevel: expResult ? expResult.level : null,
         newExp: expResult ? expResult.exp : null,
@@ -102,23 +126,17 @@ function saveTypingRecord_(ss, email, data, config) {
   }
   const speed = total / time;
   const accuracy = (correct / total) * 100;
+
+  // 自己ベストは「今回を含めない」これまでの最高記録と比べます（追記の前に読みます）
+  const previous = getBestTypingRecord_(ss, email);
+  const previousBestSpeed = previous ? Number(previous.bestSpeed) : null;
+
   ss.getSheetByName(SHEETS.TYPING).appendRow([new Date(), email, correct, total, accuracy, 100 - accuracy, speed]);
 
   const coefficient = getConfigNumber_(config, 'タイピング経験値係数', 1);
   const gainedExp = Math.floor(speed * (accuracy / 100) * coefficient);
 
-  // 挑戦中の目標があれば達成判定
-  let goalAchieved = false;
-  const { currentGoal } = getGoalData_(ss, email);
-  if (currentGoal) {
-    const speedMet = !currentGoal.speedGoal || speed >= currentGoal.speedGoal;
-    const accuracyMet = !currentGoal.accuracyGoal || accuracy >= currentGoal.accuracyGoal;
-    if (speedMet && accuracyMet) {
-      achieveCurrentGoal_(ss, email);
-      goalAchieved = true;
-    }
-  }
-  return { gainedExp, goalAchieved };
+  return { gainedExp, speed, accuracy, previousBestSpeed };
 }
 
 // ※ 100マス計算は自己申告の手入力を廃止し、100マス計算アプリ（study.v1）から届いた
@@ -153,38 +171,93 @@ function saveLessonRecord_(ss, email, data, config) {
   sheet.appendRow([
     new Date(), email, data.subject,
     data.q1 || '', data.q2 || '', data.selfEval || '',
-    parseInt(data.handRaises, 10) || 0, data.reflection, ''
+    parseInt(data.handRaises, 10) || 0, data.reflection, '', ''
   ]);
   const base = getConfigNumber_(config, '授業ふり返り経験値', 20);
   const ai = autoExtractShokenMaterial_(ss, config, 'lesson', sheet.getLastRow());
-  return applyReflectionBonus_(ss, email, config, base, ai.depth);
+  return applyReflectionBonus_(ss, email, config, base, ai.depth, ai.studentComment);
+}
+
+/**
+ * テストのふり返りの経験値。
+ * 二乗式は 100点×2観点で 2000EXP となり、日々の記録（20〜50EXP）と桁が2つ違ってしまうため、
+ * 既定は「線形（点数 × 係数、上限つき）」です。従来どおりにしたい場合は
+ * 「初期設定」の `テストふり返り経験値方式` を `二乗` にします。
+ */
+function calcTestExp_(config, score) {
+  const value = Number(score);
+  if (!value || isNaN(value) || value <= 0) return 0;
+  if (String(config['テストふり返り経験値方式'] || '線形').trim() === '二乗') {
+    return Math.floor(getConfigNumber_(config, 'テストふり返り経験値係数', 0.1) * value * value);
+  }
+  const coefficient = getConfigNumber_(config, 'テストふり返り経験値_線形係数', 1);
+  const cap = getConfigNumber_(config, 'テストふり返り経験値上限', 120);
+  const exp = Math.floor(value * coefficient);
+  return cap > 0 ? Math.min(exp, Math.floor(cap)) : exp;
 }
 
 function saveTestRecord_(ss, email, data, config) {
   if (!data.subject || !data.unit) throw new Error('「教科」と「単元」を入力してください。');
   const score1 = data.score1 === '' ? '' : Number(data.score1);
   const score2 = data.score2 === '' ? '' : Number(data.score2);
+
+  // 自己ベスト（教科ごとではなく「テストの点数」全体の最高点）は追記の前に読みます
+  const previousBestScore = getBestTestScore_(ss, email);
+
   const sheet = ss.getSheetByName(SHEETS.TEST);
   sheet.appendRow([
     new Date(), email, data.subject, data.unit,
     data.expected1 || '', data.expected2 || '',
-    score1, score2, data.reflection || '', ''
+    score1, score2, data.reflection || '', '', ''
   ]);
   const ai = autoExtractShokenMaterial_(ss, config, 'test', sheet.getLastRow());
-  const coefficient = getConfigNumber_(config, 'テストふり返り経験値係数', 0.1);
-  let base = 0;
-  if (Number(score1) > 0) base += Math.floor(coefficient * score1 * score1);
-  if (Number(score2) > 0) base += Math.floor(coefficient * score2 * score2);
-  return applyReflectionBonus_(ss, email, config, base, ai.depth);
+  const base = calcTestExp_(config, score1) + calcTestExp_(config, score2);
+  const result = applyReflectionBonus_(ss, email, config, base, ai.depth, ai.studentComment);
+
+  const scores = [score1, score2].map(Number).filter(n => !isNaN(n) && n > 0);
+  result.bestScore = scores.length > 0 ? Math.max.apply(null, scores) : null;
+  result.previousBestScore = previousBestScore;
+  return result;
+}
+
+/** これまでのテストの最高点（知識・思考のどちらも対象）。1件もなければ null */
+function getBestTestScore_(ss, email) {
+  let best = null;
+  getUserRows_(ss, SHEETS.TEST, String(email).toLowerCase().trim(), 8, 0).forEach(row => {
+    [row[6], row[7]].forEach(score => {
+      const n = Number(score);
+      if (score !== '' && score !== null && !isNaN(n) && n > 0 && (best === null || n > best)) best = n;
+    });
+  });
+  return best;
 }
 
 /**
  * 基本経験値とふり返り質ボーナスを分けて返します（付与は saveRecord 側で別々に行い、
  * 経験値ログ・MVP集計・最近のできごとで基本分とボーナス分がそれぞれ明確に表示されます）。
- * @returns {{gainedExp:number, reflectionBonus:number}}
+ * AIコーチのコメントは、所見材料抽出と同じ1回のAI応答から取り出したものです。
+ * @returns {{gainedExp:number, reflectionBonus:number, aiCoach:string}}
  */
-function applyReflectionBonus_(ss, email, config, baseExp, depth) {
-  return { gainedExp: baseExp, reflectionBonus: calcReflectionBonus_(config, depth) };
+function applyReflectionBonus_(ss, email, config, baseExp, depth, studentComment) {
+  return {
+    gainedExp: baseExp,
+    reflectionBonus: calcReflectionBonus_(config, depth),
+    aiCoach: String(studentComment || '')
+  };
+}
+
+/**
+ * 児童マスタから今の経験値・レベルを読み直します。
+ * 1回の保存で「基本EXP＋ふり返り質ボーナス＋じこベスト＋連続きろく＋めあて達成」と
+ * 複数回 addExp_ が走るため、最後にまとめて読み直して levelBefore と比べます。
+ */
+function readExpState_(ss, email, levelBefore) {
+  const found = findUserRow_(ss, email);
+  if (!found.data) return null;
+  const totalExp = Number(found.data['累計経験値'] || 0);
+  const exp = Number(found.data['経験値'] || 0);
+  const level = calculateLevel(totalExp, getConfig_()).level;
+  return { totalExp, exp, level, leveledUp: level > levelBefore };
 }
 
 function saveMoralRecord_(ss, email, data, config) {
@@ -204,68 +277,244 @@ function saveMoralRecord_(ss, email, data, config) {
 }
 
 // ---------------------------------------------------------------------
-// タイピング目標
+// めあて（目標） — 全種目・期間つき
 // ---------------------------------------------------------------------
+//
+// 「目標記録」シートの A〜F は旧タイピング専用フォーマットです（GOAL_COLS 参照）。
+// G 以降が全種目対応で足した列で、「種類」が空の行は typing の旧データとして読みます。
 
 /**
- * 新しいタイピング目標をセットします。
+ * 新しいめあてをセットします。
+ * 種類ごとに1つまで挑戦できます（以前はアプリ全体で1つだけでした）。
  */
 function saveGoal(formData) {
   return withLock_(() => {
     try {
       const email = getCurrentEmail_();
       const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const speedGoal = formData.speedGoal !== '' && formData.speedGoal != null ? parseFloat(formData.speedGoal) : null;
-      const accuracyGoal = formData.accuracyGoal !== '' && formData.accuracyGoal != null ? parseFloat(formData.accuracyGoal) : null;
-      if (speedGoal === null && accuracyGoal === null) throw new Error('目標をどちらか入力してください。');
-      if ((speedGoal !== null && (isNaN(speedGoal) || speedGoal < 0)) ||
-          (accuracyGoal !== null && (isNaN(accuracyGoal) || accuracyGoal < 0 || accuracyGoal > 100))) {
-        throw new Error('入力された数値が正しくありません。');
+      const config = getConfig_();
+      const kind = String((formData && formData.kind) || 'typing').trim();
+      if (!GOAL_KINDS[kind]) throw new Error('めあての種類が正しくありません。');
+
+      const period = String((formData && formData.period) || GOAL_PERIODS.WEEK).trim();
+      if (period !== GOAL_PERIODS.WEEK && period !== GOAL_PERIODS.MONTH) {
+        throw new Error('めあての期間は「週」か「月」をえらんでください。');
       }
-      if (getGoalData_(ss, email).currentGoal) {
-        throw new Error('挑戦中の目標があります。達成してから新しい目標をセットしましょう。');
+
+      const existing = getGoalData_(ss, email);
+      if (existing.activeGoals.some(goal => goal.kind === kind)) {
+        throw new Error(`「${GOAL_KINDS[kind].label}」のめあてはもう挑戦中です。たっせいしてから新しいめあてを立てましょう。`);
       }
-      ss.getSheetByName(SHEETS.GOAL).appendRow([email, speedGoal, accuracyGoal, GOAL_STATUS.ACTIVE, new Date(), '']);
-      return { success: true, message: '新しい目標をセットしました！', goalData: getGoalData_(ss, email) };
+
+      let speedGoal = '', accuracyGoal = '', target = '', memo = '';
+
+      if (kind === 'free') {
+        memo = String((formData && formData.memo) || '').trim();
+        if (!memo) throw new Error('めあてを書いてください。');
+        if (memo.length > 100) throw new Error('めあては100文字までにしてください。');
+      } else if (kind === 'typing') {
+        // タイピングだけは従来どおり「速さ」と「正答率」の両方を指定できます
+        speedGoal = (formData.speedGoal !== '' && formData.speedGoal != null) ? parseFloat(formData.speedGoal) : '';
+        accuracyGoal = (formData.accuracyGoal !== '' && formData.accuracyGoal != null) ? parseFloat(formData.accuracyGoal) : '';
+        if (speedGoal === '' && accuracyGoal === '') throw new Error('目標をどちらか入力してください。');
+        if ((speedGoal !== '' && (isNaN(speedGoal) || speedGoal <= 0)) ||
+            (accuracyGoal !== '' && (isNaN(accuracyGoal) || accuracyGoal < 0 || accuracyGoal > 100))) {
+          throw new Error('入力された数値が正しくありません。');
+        }
+        target = speedGoal !== '' ? speedGoal : '';
+      } else {
+        target = parseFloat(formData.target);
+        if (isNaN(target) || target <= 0) throw new Error('めあての数を入力してください。');
+        if (target > 100000) throw new Error('めあての数が大きすぎます。');
+      }
+
+      ss.getSheetByName(SHEETS.GOAL).appendRow([
+        email, speedGoal, accuracyGoal, GOAL_STATUS.ACTIVE, new Date(), '',
+        kind, period, target, memo
+      ]);
+      writeLog_(ss, email, LOG_ACTIONS.SET_GOAL, `めあてをセット: ${GOAL_KINDS[kind].label}`);
+      clearInsightsCache_(email);
+
+      return {
+        success: true,
+        message: '新しいめあてをセットしました！',
+        goalData: getGoalData_(ss, email, config),
+        missions: getMissionStatus_(ss, email)
+      };
     } catch (e) {
       return { success: false, message: e.message };
     }
   });
 }
 
-/** 指定ユーザーの目標データ（挑戦中・達成済み）を取得します */
-function getGoalData_(ss, email) {
-  const sheet = ss.getSheetByName(SHEETS.GOAL);
-  let currentGoal = null;
-  const achievedGoals = [];
-  if (!sheet || sheet.getLastRow() < 2) return { currentGoal, achievedGoals };
-  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues();
-  data.forEach(row => {
-    if (String(row[0]).toLowerCase().trim() !== email) return;
-    const goal = {
-      speedGoal: row[1] !== '' ? Number(row[1]) : null,
-      accuracyGoal: row[2] !== '' ? Number(row[2]) : null,
-      status: row[3],
-      achievedDate: row[5] ? Utilities.formatDate(parseTimestamp_(row[5]), 'JST', 'yyyy/MM/dd') : null
-    };
-    if (goal.status === GOAL_STATUS.ACTIVE) currentGoal = goal;
-    else if (goal.status === GOAL_STATUS.ACHIEVED) achievedGoals.push(goal);
-  });
-  return { currentGoal, achievedGoals: achievedGoals.reverse() };
+/**
+ * 週次ふり返りの「来週のめあて」を自由記述のめあてとして登録します。
+ * すでに自由記述のめあてに挑戦中なら何もしません（上書きしません）。
+ * @returns {boolean} 登録したか
+ */
+function registerFreeGoal_(ss, email, text) {
+  const memo = String(text || '').trim().slice(0, 100);
+  if (!memo) return false;
+  const existing = getGoalData_(ss, email);
+  if (existing.activeGoals.some(goal => goal.kind === 'free')) return false;
+  ss.getSheetByName(SHEETS.GOAL).appendRow([
+    email, '', '', GOAL_STATUS.ACTIVE, new Date(), '',
+    'free', GOAL_PERIODS.WEEK, '', memo
+  ]);
+  writeLog_(ss, email, LOG_ACTIONS.SET_GOAL, '来週のめあてをセット');
+  return true;
 }
 
-/** 挑戦中の目標を達成済みに更新します */
-function achieveCurrentGoal_(ss, email) {
+/**
+ * 指定ユーザーのめあて（挑戦中・達成済み）を取得します。
+ * 挑戦中のものには、いまの実績から計算した進捗（current / percent）が入ります。
+ */
+function getGoalData_(ss, email, config) {
+  const target = String(email).toLowerCase().trim();
   const sheet = ss.getSheetByName(SHEETS.GOAL);
-  if (!sheet || sheet.getLastRow() < 2) return;
-  const data = sheet.getDataRange().getValues();
-  for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][0]).toLowerCase().trim() === email && data[i][3] === GOAL_STATUS.ACTIVE) {
-      sheet.getRange(i + 1, 4).setValue(GOAL_STATUS.ACHIEVED);
-      sheet.getRange(i + 1, 6).setValue(new Date());
-      break;
-    }
+  const activeGoals = [];
+  const achievedGoals = [];
+  const empty = { currentGoal: null, activeGoals, achievedGoals, achievement: { achieved: 0, active: 0, total: 0, rate: 0 } };
+  if (!sheet || sheet.getLastRow() < 2) return empty;
+
+  // 「初期セットアップ」未実行で列が足りないシートでも落ちないように丸めます
+  const numCols = Math.min(Math.max(GOAL_COLS.MEMO, sheet.getLastColumn()), sheet.getMaxColumns());
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, numCols).getValues().forEach((row, index) => {
+    if (String(row[GOAL_COLS.EMAIL - 1]).toLowerCase().trim() !== target) return;
+    // 「種類」が空の行は、全種目対応より前に作られたタイピングのめあてです
+    const kind = String(row[GOAL_COLS.KIND - 1] || 'typing').trim() || 'typing';
+    if (!GOAL_KINDS[kind]) return;
+    const def = GOAL_KINDS[kind];
+    const goal = {
+      row: index + 2,
+      kind,
+      kindLabel: def.label,
+      unit: def.unit,
+      period: String(row[GOAL_COLS.PERIOD - 1] || GOAL_PERIODS.WEEK).trim() || GOAL_PERIODS.WEEK,
+      target: row[GOAL_COLS.TARGET - 1] !== '' ? Number(row[GOAL_COLS.TARGET - 1]) : null,
+      memo: String(row[GOAL_COLS.MEMO - 1] || ''),
+      speedGoal: row[GOAL_COLS.SPEED - 1] !== '' ? Number(row[GOAL_COLS.SPEED - 1]) : null,
+      accuracyGoal: row[GOAL_COLS.ACCURACY - 1] !== '' ? Number(row[GOAL_COLS.ACCURACY - 1]) : null,
+      status: row[GOAL_COLS.STATUS - 1],
+      createdDate: formatDate_(row[GOAL_COLS.CREATED - 1]),
+      achievedDate: row[GOAL_COLS.ACHIEVED - 1] ? formatDate_(row[GOAL_COLS.ACHIEVED - 1]) : null
+    };
+    if (goal.status === GOAL_STATUS.ACTIVE) activeGoals.push(goal);
+    else if (goal.status === GOAL_STATUS.ACHIEVED) achievedGoals.push(goal);
+  });
+
+  // 挑戦中のめあてに、いまの実績から進捗をつけます
+  if (activeGoals.length > 0) {
+    const metrics = getGoalMetrics_(ss, target);
+    activeGoals.forEach(goal => attachGoalProgress_(goal, metrics));
   }
+
+  const result = {
+    // 旧クライアント互換: タイピングの挑戦中めあて
+    currentGoal: activeGoals.filter(goal => goal.kind === 'typing')[0] || null,
+    activeGoals,
+    achievedGoals: achievedGoals.reverse()
+  };
+  result.achievement = getGoalAchievementRate_(result);
+  return result;
+}
+
+/** めあてに、いまの実績（current）と達成率（percent）を付けます */
+function attachGoalProgress_(goal, metrics) {
+  const def = GOAL_KINDS[goal.kind];
+  if (!def || !def.metric) {
+    // 自由記述のめあては自動では測れないので、児童が自分で「できた」を押します
+    goal.current = null;
+    goal.percent = null;
+    goal.manual = true;
+    return goal;
+  }
+  const table = metrics[goal.period] || metrics[GOAL_PERIODS.WEEK] || {};
+  const current = Number(table[def.metric] || 0);
+  const target = goal.kind === 'typing' ? goal.speedGoal : goal.target;
+  goal.current = def.metric === 'typingSpeed' ? Number(current.toFixed(2)) : current;
+  goal.percent = (target && target > 0) ? Math.min(100, Math.round((current / target) * 100)) : null;
+  goal.manual = false;
+  return goal;
+}
+
+/** めあての行を達成済みに更新します */
+function markGoalAchieved_(ss, row) {
+  const sheet = ss.getSheetByName(SHEETS.GOAL);
+  if (!sheet || row < 2 || row > sheet.getLastRow()) return;
+  sheet.getRange(row, GOAL_COLS.STATUS).setValue(GOAL_STATUS.ACHIEVED);
+  sheet.getRange(row, GOAL_COLS.ACHIEVED).setValue(new Date());
+}
+
+/**
+ * 記録の保存後に、挑戦中のめあてが達成できたかを判定します。
+ * @param {Object|null} context - タイピングの場合は今回の記録 { typingSpeed, typingAccuracy }
+ * @returns {Array<{kindLabel:string, memo:string, exp:number}>} 達成しためあて
+ */
+function checkGoalsAfterRecord_(ss, email, config, context) {
+  const goalData = getGoalData_(ss, email, config);
+  if (goalData.activeGoals.length === 0) return [];
+
+  const bonus = Math.max(0, Math.floor(getConfigNumber_(config, '目標達成ボーナス経験値', 100)));
+  const achieved = [];
+
+  goalData.activeGoals.forEach(goal => {
+    if (goal.manual) return;   // 自由記述のめあては児童が自分で達成にします
+    let met = false;
+
+    if (goal.kind === 'typing' && context && context.typingSpeed !== undefined) {
+      // タイピングは「今回の記録が目標を満たしたか」で判定します（従来どおり）
+      const speedMet = !goal.speedGoal || context.typingSpeed >= goal.speedGoal;
+      const accuracyMet = !goal.accuracyGoal || context.typingAccuracy >= goal.accuracyGoal;
+      met = speedMet && accuracyMet;
+    } else if (goal.percent !== null) {
+      met = goal.percent >= 100;
+    }
+    if (!met) return;
+
+    markGoalAchieved_(ss, goal.row);
+    writeLog_(ss, email, LOG_ACTIONS.ACHIEVE_GOAL, `めあて達成: ${goal.kindLabel}${bonus > 0 ? ` (+${bonus}EXP)` : ''}`);
+    addExp_(ss, email, bonus, 'めあて達成');
+    achieved.push({ kindLabel: goal.kindLabel, memo: goal.memo, exp: bonus });
+  });
+
+  return achieved;
+}
+
+/**
+ * 自由記述のめあてを、児童が自分で「できた！」にします。
+ * 数値で測れないめあてのための手動達成です。
+ */
+function completeManualGoal(goalRow) {
+  return withLock_(() => {
+    try {
+      const email = getCurrentEmail_();
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const config = getConfig_();
+      const row = parseInt(goalRow, 10);
+      const goalData = getGoalData_(ss, email, config);
+      const goal = goalData.activeGoals.filter(g => g.row === row)[0];
+      // 行番号は他人のめあても指せてしまうため、必ず本人の挑戦中めあての中から探します
+      if (!goal) throw new Error('そのめあては見つかりませんでした。');
+      if (!goal.manual) throw new Error('このめあては、きろくから自動でたっせいになります。');
+
+      markGoalAchieved_(ss, goal.row);
+      const bonus = Math.max(0, Math.floor(getConfigNumber_(config, '目標達成ボーナス経験値', 100)));
+      writeLog_(ss, email, LOG_ACTIONS.ACHIEVE_GOAL, `めあて達成: ${goal.memo || goal.kindLabel}${bonus > 0 ? ` (+${bonus}EXP)` : ''}`);
+      addExp_(ss, email, bonus, 'めあて達成');
+      clearInsightsCache_(email);
+
+      return {
+        success: true,
+        message: 'めあてたっせい！おめでとう🎉',
+        gainedExp: bonus,
+        goalData: getGoalData_(ss, email, config),
+        missions: getMissionStatus_(ss, email)
+      };
+    } catch (e) {
+      return { success: false, message: e.message };
+    }
+  });
 }
 
 // ---------------------------------------------------------------------
@@ -295,11 +544,16 @@ function getMyRecords(email) {
   };
 }
 
-/** シートからユーザーの行を新しい順に最大limit件取り出す共通処理 */
+/**
+ * シートからユーザーの行を新しい順に最大limit件取り出す共通処理。
+ * 列を増やしたあとに「初期セットアップ」を実行していないシートでも落ちないよう、
+ * 読み取る列数はシートの実際の列数までに丸めます（足りない列は undefined になります）。
+ */
 function getUserRows_(ss, sheetName, email, numCols, limit) {
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  const all = sheet.getRange(2, 1, sheet.getLastRow() - 1, numCols).getValues();
+  const cols = Math.min(numCols, sheet.getMaxColumns());
+  const all = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues();
   const rows = [];
   for (let i = all.length - 1; i >= 0; i--) {
     if (String(all[i][1]).toLowerCase().trim() === email) {
@@ -420,18 +674,20 @@ function getStudyRecords_(ss, email) {
 }
 
 function getLessonRecords_(ss, email) {
-  return getUserRows_(ss, SHEETS.LESSON, email, 8, LIMITS.RECORDS_DISPLAY).map(row => ({
+  return getUserRows_(ss, SHEETS.LESSON, email, AI_COACH_COLS.lesson, LIMITS.RECORDS_DISPLAY).map(row => ({
     date: formatDate_(row[0]), subject: row[2],
     q1: row[3], q2: row[4], selfEval: row[5],
-    handRaises: row[6], reflection: row[7]
+    handRaises: row[6], reflection: row[7],
+    aiCoach: String(row[AI_COACH_COLS.lesson - 1] || '')
   }));
 }
 
 function getTestRecords_(ss, email) {
-  return getUserRows_(ss, SHEETS.TEST, email, 9, LIMITS.RECORDS_DISPLAY).map(row => ({
+  return getUserRows_(ss, SHEETS.TEST, email, AI_COACH_COLS.test, LIMITS.RECORDS_DISPLAY).map(row => ({
     date: formatDate_(row[0]), subject: row[2], unit: row[3],
     expected1: row[4], expected2: row[5],
-    score1: row[6], score2: row[7], reflection: row[8]
+    score1: row[6], score2: row[7], reflection: row[8],
+    aiCoach: String(row[AI_COACH_COLS.test - 1] || '')
   }));
 }
 

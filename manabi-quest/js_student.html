@@ -63,6 +63,403 @@ function renderHome(data) {
   renderAnnouncements('home-announcements', data.announcements, false);
   renderActivity(data.recentActivity);
   renderBadges(data.badges, data.allBadges);
+
+  // 成長の可視化・めあて・ふり返りの循環
+  renderStreak();
+  renderCalendar();
+  renderGoals();
+  renderWeeklyCard();
+  renderGrowthCard();
+  renderTotals();
+  renderFlashback();
+}
+
+/* ---------------- 成長の可視化 ---------------- */
+
+/** ホームのデータのうち、集計まわりをまとめて取り出します */
+function insights() {
+  return (App.data && App.data.insights) || {};
+}
+
+/**
+ * 連続きろく日数。毎日の積み重ねが一番見えるところなので、ホームの上のほうに出します。
+ */
+function renderStreak() {
+  const el = document.getElementById('home-streak');
+  if (!el) return;
+  const cal = insights().calendar || {};
+  const streak = cal.streak || 0;
+  if (streak <= 0) {
+    el.innerHTML = `<div class="streak-badge cold"><span>今日、何か1つきろくしてみよう！</span></div>`;
+    return;
+  }
+  const best = (cal.longestStreak || 0) > streak
+    ? `<div class="small text-muted text-center mt-1">さいちょう記録は ${cal.longestStreak}日</div>` : '';
+  el.innerHTML = `
+    <div class="streak-badge"><span>🔥</span><span>${streak}日れんぞくきろく中！</span></div>${best}`;
+}
+
+/**
+ * がんばりカレンダー（学習ヒートマップ）。
+ * 1列が1週間で、上から日〜土。色が濃いほどその日のきろくが多いことを表します。
+ */
+function renderCalendar() {
+  const el = document.getElementById('home-calendar');
+  if (!el) return;
+  const cal = insights().calendar;
+  if (!cal || !cal.weeks || cal.weeks.length === 0) {
+    el.innerHTML = emptyMessage('まだきろくがありません');
+    return;
+  }
+  const cells = cal.weeks.map(week => `
+    <div class="heatmap-week">
+      ${week.map(day => {
+        if (day.count < 0) return `<div class="heatmap-day future"></div>`;
+        const title = day.count > 0 ? `${day.label} きろく${day.count}件` : `${day.label} きろくなし`;
+        return `<div class="heatmap-day lv${day.level}" title="${esc(title)}"></div>`;
+      }).join('')}
+    </div>`).join('');
+
+  el.innerHTML = `
+    <div class="heatmap mb-2 no-furigana">${cells}</div>
+    <div class="d-flex flex-wrap align-items-center gap-3">
+      <div class="small text-muted">
+        きろくした日 <b class="text-success">${cal.activeDays}日</b> ／ ぜんぶで <b class="text-success">${cal.totalRecords}件</b>
+      </div>
+      <div class="heatmap-legend ms-auto no-furigana">
+        <span>すくない</span>
+        <div class="heatmap-day lv1"></div><div class="heatmap-day lv2"></div>
+        <div class="heatmap-day lv3"></div><div class="heatmap-day lv4"></div>
+        <span>おおい</span>
+      </div>
+    </div>`;
+}
+
+/** わたしの成長カード（今月 vs 先月） */
+function renderGrowthCard() {
+  const el = document.getElementById('home-growth-card');
+  if (!el) return;
+  const card = insights().growthCard;
+  if (!card) { el.innerHTML = emptyMessage('まだきろくがありません'); return; }
+
+  const arrow = row => row.trend === 'up' ? '▲' : (row.trend === 'down' ? '▼' : '－');
+  const diffText = row => {
+    if (row.trend === 'same') return 'おなじ';
+    const sign = row.diff > 0 ? '+' : '';
+    return `${sign}${row.diff}${row.unit}`;
+  };
+  el.innerHTML = `
+    <div class="alert alert-info py-2 mb-3">${esc(card.headline)}</div>
+    <div class="d-flex small text-muted fw-bold mb-1">
+      <div class="flex-fill"></div>
+      <div style="width:5.5rem;" class="text-end">${esc(card.prevLabel)}</div>
+      <div style="width:5.5rem;" class="text-end">${esc(card.thisLabel)}</div>
+      <div style="width:5.5rem;" class="text-end">かわった分</div>
+    </div>
+    ${card.rows.map(row => `
+      <div class="growth-row">
+        <div class="growth-label">${esc(row.label)}</div>
+        <div style="width:5.5rem;" class="text-end text-muted small">${row.prev}${esc(row.unit)}</div>
+        <div style="width:5.5rem;" class="text-end growth-value">${row.now}${esc(row.unit)}</div>
+        <div style="width:5.5rem;" class="text-end growth-diff ${row.trend} no-furigana">${arrow(row)} ${esc(diffText(row))}</div>
+      </div>`).join('')}`;
+}
+
+/** 学びの総量メーター（実感しやすい単位に置きかえて見せます） */
+function renderTotals() {
+  const el = document.getElementById('home-totals');
+  if (!el) return;
+  const totals = insights().totals;
+  if (!totals || totals.length === 0) { el.innerHTML = emptyMessage('まだきろくがありません'); return; }
+  el.innerHTML = totals.map(item => `
+    <div class="total-item">
+      <span class="total-icon no-furigana">${item.icon}</span>
+      <div class="flex-grow-1">
+        <div class="small text-muted">${esc(item.label)}</div>
+        ${item.note ? `<div class="small text-secondary">${esc(item.note)}</div>` : ''}
+      </div>
+      <div class="total-value text-primary">${item.value}<span class="small fw-normal text-muted">${esc(item.unit)}</span></div>
+    </div>`).join('');
+}
+
+/** ホームに1枚だけ出す「むかしの自分」のふり返り */
+function renderFlashback() {
+  const el = document.getElementById('home-flashback');
+  if (!el) return;
+  const entry = insights().flashback;
+  if (!entry) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <div class="card shadow-sm border-0 rounded-4 flashback-card">
+      <div class="card-body">
+        <div class="small fw-bold text-warning-emphasis mb-1">
+          <i class="bi bi-hourglass-split"></i> ${esc(entry.agoLabel)}のあなた（${esc(entry.date)} ${esc(entry.source)}）
+        </div>
+        <div>${esc(entry.text)}</div>
+        <div class="small text-muted mt-2">あのころとくらべて、できるようになったことはあるかな？</div>
+      </div>
+    </div>`;
+}
+
+/* ---------------- めあて（目標）とふり返りの循環 ---------------- */
+
+function goalData() {
+  return (App.data && App.data.records && App.data.records.goalData) || { activeGoals: [], achievedGoals: [] };
+}
+
+/**
+ * 「わたしのめあて」。進捗はきろくから自動で計算されるので、児童は入力しません。
+ * 自由記述のめあてだけは自分で「できた！」を押します。
+ */
+function renderGoals() {
+  const el = document.getElementById('home-goals');
+  if (!el) return;
+  const data = goalData();
+  const active = data.activeGoals || [];
+  const rate = data.achievement || { achieved: 0, rate: 0 };
+
+  const summary = `
+    <div class="small text-muted mb-2">
+      たっせいしためあて <b class="text-danger">${rate.achieved}こ</b>
+      ${rate.total > 0 ? `／ たっせい率 <b class="text-danger">${rate.rate}%</b>` : ''}
+    </div>`;
+
+  if (active.length === 0) {
+    el.innerHTML = summary + emptyMessage('いま挑戦中のめあてはありません。「めあてを立てる」から決めてみよう！');
+    return;
+  }
+
+  el.innerHTML = summary + active.map(goal => {
+    if (goal.manual) {
+      return `
+        <div class="border rounded-3 p-2 mb-2">
+          <div class="d-flex align-items-center gap-2">
+            <div class="flex-grow-1">
+              <div class="small text-muted">${esc(goal.period)}のめあて</div>
+              <div class="fw-bold">${esc(goal.memo || goal.kindLabel)}</div>
+            </div>
+            <button class="btn btn-sm btn-danger" data-goal-done="${goal.row}">できた！</button>
+          </div>
+        </div>`;
+    }
+    const target = goal.kind === 'typing' ? goal.speedGoal : goal.target;
+    const percent = goal.percent === null ? 0 : goal.percent;
+    return `
+      <div class="border rounded-3 p-2 mb-2">
+        <div class="d-flex align-items-center small mb-1">
+          <span class="fw-bold">${esc(goal.kindLabel)}</span>
+          <span class="text-muted ms-2">（${esc(goal.period)}）</span>
+          <span class="ms-auto fw-bold ${percent >= 100 ? 'text-success' : 'text-danger'}">
+            ${goal.current}${esc(goal.unit)} / ${target}${esc(goal.unit)}
+          </span>
+        </div>
+        <div class="progress" style="height:10px;">
+          <div class="progress-bar ${percent >= 100 ? 'bg-success' : 'bg-danger'}" style="width:${percent}%"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  el.querySelectorAll('[data-goal-done]').forEach(btn => {
+    btn.addEventListener('click', () => completeGoal(Number(btn.dataset.goalDone)));
+  });
+}
+
+/** 自由記述のめあてを「できた！」にします */
+async function completeGoal(row) {
+  const confirmed = await Swal.fire({
+    icon: 'question', title: 'めあて たっせい？',
+    text: 'このめあては できましたか？',
+    showCancelButton: true, confirmButtonText: 'できた！', cancelButtonText: 'まだ'
+  });
+  if (!confirmed.isConfirmed) return;
+  const res = await apiWithLoading('ほぞん中...', 'completeManualGoal', row);
+  if (!res.success) { Swal.fire('できません', esc(res.message), 'warning'); return; }
+  App.data.records.goalData = res.goalData;
+  App.data.missions = res.missions;
+  renderGoals();
+  renderMissions(res.missions);
+  Swal.fire({ icon: 'success', title: 'やったね！', html: `めあてたっせい！<br><b class="text-primary">+${res.gainedExp} EXP</b>` });
+}
+
+/**
+ * めあてを立てるダイアログ。種類をえらぶと入力欄が切りかわります。
+ */
+function openGoalDialog(presetKind) {
+  const kinds = (App.data && App.data.goalKinds) || [{ key: 'typing', label: 'タイピングの速さ', unit: '打/秒', manual: false }];
+  const options = kinds.map(k => `<option value="${esc(k.key)}">${esc(k.label)}</option>`).join('');
+
+  Swal.fire({
+    title: '🎯 めあてを立てよう',
+    html: `
+      <div class="text-start">
+        <label class="form-label small fw-bold">なにをがんばる？</label>
+        <select id="goal-kind" class="form-select mb-2">${options}</select>
+        <label class="form-label small fw-bold">いつまで？</label>
+        <select id="goal-period" class="form-select mb-2">
+          <option value="週">今週</option>
+          <option value="月">今月</option>
+        </select>
+        <div id="goal-fields"></div>
+      </div>`,
+    showCancelButton: true, confirmButtonText: 'セットする', cancelButtonText: 'やめる',
+    didOpen: () => {
+      const kindSelect = document.getElementById('goal-kind');
+      if (presetKind) kindSelect.value = presetKind;
+      const fields = document.getElementById('goal-fields');
+      const update = () => {
+        const kind = kindSelect.value;
+        const def = kinds.filter(k => k.key === kind)[0] || {};
+        if (kind === 'free') {
+          fields.innerHTML = `
+            <label class="form-label small fw-bold">めあて（じぶんのことばで）</label>
+            <input type="text" id="goal-memo" class="form-control" maxlength="100" placeholder="例: 音読を毎日つづける">`;
+        } else if (kind === 'typing') {
+          fields.innerHTML = `
+            <label class="form-label small fw-bold">速さの目標（打/秒）</label>
+            <input type="number" id="goal-speed" class="form-control mb-2" min="0" step="0.1" placeholder="例: 2.5">
+            <label class="form-label small fw-bold">正答率の目標（%）</label>
+            <input type="number" id="goal-accuracy" class="form-control" min="0" max="100" placeholder="例: 95">`;
+        } else {
+          fields.innerHTML = `
+            <label class="form-label small fw-bold">いくつ？（${esc(def.unit || '')}）</label>
+            <input type="number" id="goal-target" class="form-control" min="1" step="1" placeholder="例: 5">`;
+        }
+      };
+      kindSelect.addEventListener('change', update);
+      update();
+    },
+    preConfirm: () => {
+      const value = el => { const node = document.getElementById(el); return node ? node.value : ''; };
+      return {
+        kind: value('goal-kind'),
+        period: value('goal-period'),
+        memo: value('goal-memo'),
+        target: value('goal-target'),
+        speedGoal: value('goal-speed'),
+        accuracyGoal: value('goal-accuracy')
+      };
+    }
+  }).then(async result => {
+    if (!result.isConfirmed) return;
+    const res = await apiWithLoading('セット中...', 'saveGoal', result.value);
+    if (!res.success) { Swal.fire('セットできません', esc(res.message), 'warning'); return; }
+    App.data.records.goalData = res.goalData;
+    App.data.missions = res.missions;
+    toast(res.message);
+    renderGoals();
+    renderMissions(res.missions);
+    renderTypingTab(App.data.records);
+  });
+}
+
+/**
+ * 今週のふり返りカード。書いていない週の後半（木曜以降）に目立たせます。
+ */
+function renderWeeklyCard() {
+  const el = document.getElementById('home-weekly-card');
+  if (!el) return;
+  const weekly = insights().weekly;
+  if (!weekly) { el.innerHTML = ''; return; }
+
+  if (weekly.done) {
+    el.innerHTML = `
+      <div class="alert alert-success mb-0 d-flex align-items-center gap-2">
+        <span class="no-furigana">✅</span>
+        <div class="flex-grow-1">今週のふり返りは書けています。えらい！</div>
+        <button class="btn btn-sm btn-outline-success" id="weekly-history-btn">これまでのふり返り</button>
+      </div>`;
+  } else {
+    const s = weekly.summary || {};
+    el.innerHTML = `
+      <div class="card shadow-sm border-0 rounded-4 ${weekly.due ? 'border-start border-4 border-warning' : ''}">
+        <div class="card-body">
+          <h5 class="fw-bold text-warning-emphasis mb-2"><i class="bi bi-journal-check"></i> 今週のふり返り</h5>
+          <div class="small text-muted mb-2">
+            今週は きろく <b>${s.records || 0}件</b>／きろくした日 <b>${s.activeDays || 0}日</b>
+            ${s.newRecords > 0 ? `／じこベスト更新 <b class="text-danger">${s.newRecords}回</b>` : ''}
+            ${s.achievedGoals > 0 ? `／めあてたっせい <b class="text-danger">${s.achievedGoals}こ</b>` : ''}
+          </div>
+          <button class="btn btn-warning fw-bold" id="weekly-write-btn">
+            <i class="bi bi-pencil"></i> 今週をふり返る
+          </button>
+          <button class="btn btn-outline-secondary ms-2" id="weekly-history-btn">これまでのふり返り</button>
+        </div>
+      </div>`;
+    const writeBtn = document.getElementById('weekly-write-btn');
+    if (writeBtn) writeBtn.addEventListener('click', openWeeklyReflectionDialog);
+  }
+  const historyBtn = document.getElementById('weekly-history-btn');
+  if (historyBtn) historyBtn.addEventListener('click', showWeeklyHistory);
+}
+
+/** 週のまとめを見せたうえで、3つの質問に答えてもらいます */
+function openWeeklyReflectionDialog() {
+  const weekly = insights().weekly || {};
+  const s = weekly.summary || {};
+  Swal.fire({
+    title: '今週のふり返り',
+    width: 640,
+    html: `
+      <div class="text-start">
+        <div class="alert alert-light border small mb-3">
+          今週のあなた: きろく <b>${s.records || 0}件</b>（${s.activeDays || 0}日）
+          ／ 読んだページ <b>${s.readingPages || 0}</b>
+          ／ 学習アプリ <b>${s.appMinutes || 0}分</b>
+          ${s.streak > 0 ? `<br>🔥 いま <b>${s.streak}日</b> れんぞくきろく中！` : ''}
+        </div>
+        <label class="form-label small fw-bold">① 今週できるようになったことは？</label>
+        <textarea id="weekly-learned" class="form-control mb-2" rows="2" maxlength="300"></textarea>
+        <label class="form-label small fw-bold">② むずかしかったことは？</label>
+        <textarea id="weekly-hard" class="form-control mb-2" rows="2" maxlength="300"></textarea>
+        <label class="form-label small fw-bold">③ 来週のめあては？（そのまま「めあて」になります）</label>
+        <input type="text" id="weekly-next" class="form-control" maxlength="100">
+      </div>`,
+    showCancelButton: true, confirmButtonText: 'かきおわった', cancelButtonText: 'あとで',
+    preConfirm: () => ({
+      learned: document.getElementById('weekly-learned').value,
+      hard: document.getElementById('weekly-hard').value,
+      nextGoal: document.getElementById('weekly-next').value
+    })
+  }).then(async result => {
+    if (!result.isConfirmed) return;
+    const res = await apiWithLoading('ほぞん中...', 'saveWeeklyReflection', result.value);
+    if (!res.success) { Swal.fire('ほぞんできません', esc(res.message), 'warning'); return; }
+
+    App.data.insights = App.data.insights || {};
+    App.data.insights.weekly = res.weekly;
+    App.data.records.goalData = res.goalData;
+    App.data.missions = res.missions;
+    renderWeeklyCard();
+    renderGoals();
+    renderMissions(res.missions);
+
+    let html = `今週のふり返りを書きました！<br><b class="text-primary">+${res.gainedExp} EXP</b>`;
+    if (res.goalRegistered) html += `<br>🎯 来週のめあてをセットしました`;
+    Swal.fire({ icon: 'success', title: 'よくがんばりました！', html }).then(() => {
+      if (res.leveledUp) {
+        Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${res.newLevel}</b> になりました！` });
+      }
+    });
+  });
+}
+
+/** これまでの週次ふり返りを一覧で見せます */
+function showWeeklyHistory() {
+  const weekly = insights().weekly || {};
+  const history = weekly.history || [];
+  Swal.fire({
+    title: 'これまでのふり返り',
+    width: 640,
+    html: history.length === 0
+      ? '<p class="text-muted">まだありません。</p>'
+      : `<div class="text-start">${history.map(h => `
+          <div class="card album-card shadow-sm mb-2"><div class="card-body p-3">
+            <div class="small text-muted">${esc(h.date)} の週</div>
+            ${h.learned ? `<div><b>できたこと:</b> ${esc(h.learned)}</div>` : ''}
+            ${h.hard ? `<div><b>むずかしかったこと:</b> ${esc(h.hard)}</div>` : ''}
+            ${h.nextGoal ? `<div><b>次のめあて:</b> ${esc(h.nextGoal)}</div>` : ''}
+          </div></div>`).join('')}</div>`,
+    confirmButtonText: 'とじる'
+  });
 }
 
 /* ---------------- 学習アプリのきろくを おくる ---------------- */
@@ -186,11 +583,17 @@ function handlePortalSendResult(msg) {
   if (r.calcExp > 0) detail.push(`100マスの点数 +${r.calcExp}`);
   if (r.sendExp > 0) detail.push(`そうしんボーナス +${r.sendExp}`);
   if (r.streakExp > 0) detail.push(`れんぞく${r.streak}日目 +${r.streakExp}`);
+  if (r.personalBestExp > 0) detail.push(`じこベスト +${r.personalBestExp}`);
+  if (r.recordStreakExp > 0) detail.push(`${r.recordStreak}日れんぞくきろく +${r.recordStreakExp}`);
   if (detail.length > 0) lines.push(`<span class="small text-muted">（${detail.join(' / ')}）</span>`);
   if (r.exchangePoints > 0) lines.push(`🎁 交換ポイント <b>+${r.exchangePoints}</b>`);
   if (msg.duplicate > 0) lines.push(`<span class="small text-muted">${msg.duplicate}件は おくりずみでした</span>`);
+  if (msg.personalBest) {
+    const b = msg.personalBest;
+    lines.unshift(`🌟 <b class="text-danger">じこベスト更新！</b> ${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）`);
+  }
 
-  Swal.fire({ icon: 'success', title: 'やったね！', html: lines.join('<br>') }).then(() => {
+  Swal.fire({ icon: 'success', title: msg.personalBest ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
     if (msg.leveledUp) {
       Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${msg.level}</b> になりました！` })
         .then(refreshStudentData);
@@ -285,9 +688,13 @@ function renderAnnouncements(containerId, announcements, forTeacher) {
     container.innerHTML = emptyMessage('おしらせはありません');
     return;
   }
+  // 「宛先」の入った行は先生から自分だけへのひとことなので、目立つ形にします
   container.innerHTML = announcements.map(a => `
-    <div class="border-bottom pb-2 mb-2">
-      <div class="small text-muted">${fmtDate(a.timestamp)} ${esc(a.author || '')}</div>
+    <div class="${a.personal ? 'personal-note rounded-3 p-2' : 'border-bottom pb-2'} mb-2">
+      <div class="small text-muted">
+        ${fmtDate(a.timestamp)} ${esc(a.author || '')}
+        ${a.personal ? `<span class="badge bg-danger ms-1">あなたへ</span>` : ''}
+      </div>
       <div>${esc(a.message)}</div>
       ${forTeacher ? `<button class="btn btn-sm btn-outline-danger mt-1 del-announce-btn" data-row="${a.rowNum}"><i class="bi bi-trash"></i> 削除</button>` : ''}
     </div>`).join('');
@@ -365,6 +772,102 @@ function showRecordTab(tabId, options) {
   if (tabId === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
   if (tabId === 'rtab-lesson') drawTestChart(App.data.records.test);
   if (tabId === 'rtab-apps') loadStudyAppTab();
+  if (tabId === 'rtab-album') loadAlbumTab();
+}
+
+/* ---------------- ことばアルバム・まなびレーダー ---------------- */
+
+let albumLoaded = false;
+
+/**
+ * 自分が書いてきたふり返りを読み返すタブ。
+ * 件数が多く重いので、タブを開いたときにだけ読み込みます。
+ */
+async function loadAlbumTab() {
+  if (albumLoaded) return;
+  const area = document.getElementById('rtab-album');
+  area.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getMyReflectionAlbum');
+    if (!result.success) {
+      area.innerHTML = emptyMessage(result.message || 'よみこめませんでした');
+      return;
+    }
+    albumLoaded = true;
+    renderAlbumTab(result);
+  } catch (e) {
+    area.innerHTML = emptyMessage('よみこめませんでした。もういちどためしてね。');
+  }
+}
+
+function renderAlbumTab(result) {
+  const area = document.getElementById('rtab-album');
+  const entries = result.entries || [];
+  const radar = result.radar || { axes: [] };
+
+  const radarHtml = radar.axes.length >= 3 ? `
+    <div class="card record-form-card shadow-sm mb-3">
+      <div class="card-header text-primary"><i class="bi bi-pentagon"></i> まなびレーダー（教科ごとのとりくみ）</div>
+      <div class="card-body">
+        <div class="radar-wrap" id="album-radar"></div>
+        <div class="small text-muted mt-2 text-center">
+          ふり返りの数とテストの点数から作っています。手うすな教科が見つかったら、そこをめあてにしてみよう。
+        </div>
+      </div>
+    </div>` : '';
+
+  area.innerHTML = radarHtml + (entries.length === 0
+    ? emptyMessage('まだふり返りがありません。じゅぎょうのふり返りを書くと、ここにたまっていきます。')
+    : `<div class="small text-muted mb-2">これまでに書いたふり返り ${entries.length}件（新しい順）</div>` +
+      entries.map(e => `
+        <div class="card album-card shadow-sm mb-2"><div class="card-body p-3">
+          <div class="small text-muted">
+            ${esc(e.date)} ・ ${esc(e.source)}${e.extra ? ` ・ ${esc(e.extra)}` : ''}
+          </div>
+          <div class="mt-1">${esc(e.text)}</div>
+        </div></div>`).join(''));
+
+  if (radar.axes.length >= 3) drawRadarChart('album-radar', radar.axes);
+}
+
+/**
+ * 教科ごとのとりくみを表すレーダーチャート。
+ * Google Charts にレーダーがないため、SVG を自前で組み立てています。
+ */
+function drawRadarChart(containerId, axes) {
+  const container = document.getElementById(containerId);
+  if (!container || axes.length < 3) return;
+
+  const size = 320, center = size / 2, radius = size / 2 - 46;
+  const angleFor = i => (Math.PI * 2 * i / axes.length) - Math.PI / 2;
+  const pointAt = (i, ratio) => {
+    const angle = angleFor(i);
+    return [center + Math.cos(angle) * radius * ratio, center + Math.sin(angle) * radius * ratio];
+  };
+
+  // 外枠のグリッド（4段階）
+  const grids = [0.25, 0.5, 0.75, 1].map(ratio => {
+    const points = axes.map((a, i) => pointAt(i, ratio).join(',')).join(' ');
+    return `<polygon class="radar-grid" points="${points}"></polygon>`;
+  }).join('');
+
+  const spokes = axes.map((a, i) => {
+    const [x, y] = pointAt(i, 1);
+    return `<line class="radar-axis" x1="${center}" y1="${center}" x2="${x}" y2="${y}"></line>`;
+  }).join('');
+
+  const area = `<polygon class="radar-area" points="${
+    axes.map((a, i) => pointAt(i, Math.max(0.02, a.value / 100)).join(',')).join(' ')
+  }"></polygon>`;
+
+  const labels = axes.map((a, i) => {
+    const [x, y] = pointAt(i, 1.18);
+    const anchor = Math.abs(x - center) < 8 ? 'middle' : (x > center ? 'start' : 'end');
+    return `<text class="radar-label" x="${x}" y="${y}" text-anchor="${anchor}" dominant-baseline="middle">${esc(a.subject)}</text>`;
+  }).join('');
+
+  container.innerHTML =
+    `<svg viewBox="0 0 ${size} ${size}" role="img" aria-label="教科ごとのとりくみ">${grids}${spokes}${area}${labels}</svg>`;
 }
 
 /* ---------------- 学習アプリ（study.v1 共通学習ログ）のきろく ---------------- */
@@ -647,7 +1150,7 @@ function openRecordForm(type) {
     } else {
       goalInfo.innerHTML = `🎯 目標がまだありません。 <button class="btn btn-sm btn-outline-primary" id="set-goal-btn">目標をセットする</button>`;
       const btn = document.getElementById('set-goal-btn');
-      if (btn) btn.addEventListener('click', openGoalDialog);
+      if (btn) btn.addEventListener('click', () => openGoalDialog('typing'));
     }
   }
 
@@ -696,6 +1199,7 @@ function openRecordForm(type) {
     renderNotesTab(result.records);
     renderLessonTab(result.records);
     renderMissions(result.missions);
+    renderGoals();
     if (result.newExp !== null && result.newExp !== undefined) {
       App.data.profile.exp = result.newExp;
       App.data.profile.totalExp = result.newTotalExp;
@@ -705,8 +1209,22 @@ function openRecordForm(type) {
     let html = `きろくしました！`;
     if (result.gainedExp > 0) html += `<br><b class="text-primary">+${result.gainedExp} EXP</b> ゲット！`;
     if (result.reflectionBonus > 0) html += `<br>✨ <b class="text-success">ふり返りがすばらしい！</b><br>（深く考えて書けたので +${result.reflectionBonus} EXP のボーナス）`;
-    if (result.goalAchieved) html = `🏆 <b>目標たっせい！</b><br>` + html;
-    Swal.fire({ icon: 'success', title: 'やったね！', html }).then(() => {
+    if (result.streakBonus) {
+      html += `<br>🔥 <b class="text-warning-emphasis">${result.streakBonus.streak}日れんぞくきろく！</b>（+${result.streakBonus.exp} EXP）`;
+    }
+    (result.achievedGoals || []).forEach(goal => {
+      html = `🏆 <b>めあてたっせい！</b>（${esc(goal.kindLabel)}）<br>` + html;
+    });
+    if (result.personalBest) {
+      const b = result.personalBest;
+      html = `🌟 <b class="text-danger">じこベスト更新！</b><br>${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）<br>` + html;
+      if (b.exp > 0) html += `<br>（じこベストボーナス +${b.exp} EXP）`;
+    }
+    if (result.aiCoach) {
+      html += `<hr class="my-2"><div class="text-start small"><b>🤖 AIコーチから</b><br>${esc(result.aiCoach)}</div>`;
+    }
+
+    Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html }).then(() => {
       if (result.leveledUp) {
         Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
           .then(() => refreshMissions());
@@ -714,34 +1232,6 @@ function openRecordForm(type) {
         refreshMissions();
       }
     });
-  });
-}
-
-function openGoalDialog() {
-  Swal.fire({
-    title: '🎯 タイピングの目標',
-    html: `
-      <div class="text-start">
-        <label class="form-label small fw-bold">速さの目標（打/秒）</label>
-        <input type="number" id="goal-speed" class="form-control mb-2" min="0" step="0.1" placeholder="例: 2.5">
-        <label class="form-label small fw-bold">正答率の目標（%）</label>
-        <input type="number" id="goal-accuracy" class="form-control" min="0" max="100" placeholder="例: 95">
-      </div>`,
-    showCancelButton: true, confirmButtonText: 'セットする', cancelButtonText: 'やめる',
-    preConfirm: () => ({
-      speedGoal: document.getElementById('goal-speed').value,
-      accuracyGoal: document.getElementById('goal-accuracy').value
-    })
-  }).then(async result => {
-    if (!result.isConfirmed) return;
-    const res = await apiWithLoading('セット中...', 'saveGoal', result.value);
-    if (res.success) {
-      App.data.records.goalData = res.goalData;
-      toast(res.message);
-      renderTypingTab(App.data.records);
-    } else {
-      Swal.fire('セットできません', esc(res.message), 'warning');
-    }
   });
 }
 
@@ -768,7 +1258,7 @@ function renderTypingTab(records) {
       ['日付', '速さ(打/秒)', '正答率(%)'],
       records.typing.map(r => [r.date, r.speed, r.accuracy]))}</div></div>`;
   const goalBtn = document.getElementById('typing-tab-goal-btn');
-  if (goalBtn) goalBtn.addEventListener('click', openGoalDialog);
+  if (goalBtn) goalBtn.addEventListener('click', () => openGoalDialog('typing'));
   if (!document.getElementById('rtab-typing').classList.contains('d-none')) drawTypingChart(records.typingChart);
 }
 
@@ -841,6 +1331,7 @@ function renderLessonTab(records) {
       <div class="d-flex justify-content-between"><b>✍️ ${esc(r.subject)}</b><span class="small text-muted">${r.date}</span></div>
       <div class="small">${esc(r.reflection)}</div>
       <div class="small text-muted">めあて: ${esc(r.q1 || '-')} ／ 主体性: ${esc(r.selfEval || '-')} ／ 挙手: ${esc(String(r.handRaises || 0))}回</div>
+      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">🤖 AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const goalDiffBadge = (score, expected) => {
     if (score === '' || score === null || expected === '' || expected === null) return '';
@@ -854,6 +1345,7 @@ function renderLessonTab(records) {
       <div class="d-flex justify-content-between"><b>📝 ${esc(r.subject)} / ${esc(r.unit)}</b><span class="small text-muted">${r.date}</span></div>
       <div class="small">点数: <b>${esc(String(r.score1 ?? ''))}</b>${goalDiffBadge(r.score1, r.expected1)}${r.score2 !== '' && r.score2 !== null ? ` ・ <b>${esc(String(r.score2))}</b>${goalDiffBadge(r.score2, r.expected2)}` : ''}</div>
       ${r.reflection ? `<div class="small">${esc(r.reflection)}</div>` : ''}
+      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">🤖 AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const moralHtml = records.moral.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
@@ -1126,6 +1618,155 @@ function renderPlazaView(data) {
     });
   }
   renderRankings('rankings-container', data.rankings);
+  renderClassGoals();
+  renderCheerBoard();
+  renderBookshelf();
+}
+
+/* ---------------- 仲間とのつながり ---------------- */
+
+function social() {
+  return (App.data && App.data.social) || {};
+}
+
+/** クラスみんなの共同目標ゲージ（協力ミッションを大きく見せます） */
+function renderClassGoals() {
+  const el = document.getElementById('class-goals-container');
+  if (!el) return;
+  const goals = social().classGoals || [];
+  if (goals.length === 0) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="card shadow-sm border-0 rounded-4">
+      <div class="card-header bg-transparent border-0 pt-3 pb-0">
+        <h5 class="fw-bold text-success mb-0"><i class="bi bi-people-fill"></i> クラスみんなの目標（今週）</h5>
+      </div>
+      <div class="card-body">
+        ${goals.map(goal => `
+          <div class="mb-3">
+            <div class="d-flex align-items-center small mb-1">
+              <span class="fw-bold">${esc(goal.content)}</span>
+              <span class="ms-auto fw-bold ${goal.isComplete ? 'text-success' : 'text-secondary'}">
+                ${goal.rawProgress} / ${goal.target}
+              </span>
+            </div>
+            <div class="progress class-gauge">
+              <div class="progress-bar ${goal.isComplete ? 'bg-success' : 'bg-info'} progress-bar-striped ${goal.isComplete ? '' : 'progress-bar-animated'}"
+                   style="width:${goal.percent}%">${goal.percent}%</div>
+            </div>
+            ${goal.isComplete
+              ? `<div class="small text-success mt-1">たっせい！ホームのミッションからほうしゅうを受け取ろう 🎉</div>`
+              : `<div class="small text-muted mt-1">あなたの1件が、クラスのゲージを動かします</div>`}
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+/** 今週がんばっている友だちに応援スタンプを送るボード */
+function renderCheerBoard() {
+  const el = document.getElementById('cheer-board-container');
+  if (!el) return;
+  const board = social().cheerBoard;
+  const stamps = social().cheerStamps || [];
+  const mine = social().myCheers || {};
+  if (!board) { el.innerHTML = ''; return; }
+
+  const received = mine.received > 0
+    ? `<div class="small mb-2">もらった応援 <b class="text-danger">${mine.received}</b>（今週 ${mine.receivedThisWeek}）
+         ${(mine.byStamp || []).map(s => `<span class="badge bg-light text-dark border ms-1 no-furigana">${s.emoji} ${s.count}</span>`).join('')}</div>`
+    : '';
+
+  el.innerHTML = `
+    <div class="card shadow-sm border-0 rounded-4">
+      <div class="card-header bg-transparent border-0 pt-3 pb-0">
+        <h5 class="fw-bold text-danger mb-0"><i class="bi bi-hand-thumbs-up-fill"></i> 今週がんばっている友だち</h5>
+      </div>
+      <div class="card-body">
+        ${received}
+        <div class="small text-muted mb-2">今日あと <b>${board.remainingToday}</b> 回おくれます（1日${board.dailyLimit}回まで）</div>
+        ${board.highlights.length === 0
+          ? emptyMessage('今週はまだだれもきろくしていません')
+          : board.highlights.slice(0, 12).map(item => `
+            <div class="cheer-target d-flex align-items-center gap-2 mb-2">
+              <div class="flex-grow-1">
+                <div class="fw-bold">${esc(item.nickname)}</div>
+                <div class="small text-muted">今週 ${item.weekRecords}件のきろく ・ 応援 ${item.cheersReceived}</div>
+              </div>
+              ${item.alreadyCheered
+                ? `<span class="badge bg-light text-secondary border">今日おくりました</span>`
+                : `<button class="btn btn-sm btn-outline-danger" data-cheer-to="${esc(item.email)}" data-cheer-name="${esc(item.nickname)}">
+                     おうえんする
+                   </button>`}
+            </div>`).join('')}
+      </div>
+    </div>`;
+
+  el.querySelectorAll('[data-cheer-to]').forEach(btn => {
+    btn.addEventListener('click', () => openCheerDialog(btn.dataset.cheerTo, btn.dataset.cheerName, stamps));
+  });
+}
+
+/** スタンプをえらんで送ります（自由記述はありません） */
+function openCheerDialog(toEmail, nickname, stamps) {
+  Swal.fire({
+    title: `${nickname}さんをおうえん`,
+    html: `<div class="d-flex flex-wrap justify-content-center gap-2">
+      ${stamps.map(s => `
+        <button class="btn btn-outline-secondary cheer-stamp no-furigana" data-stamp="${esc(s.key)}" title="${esc(s.label)}">
+          ${s.emoji}
+        </button>`).join('')}
+    </div>
+    <div class="small text-muted mt-2">スタンプをえらぶと、そのままおくられます</div>`,
+    showConfirmButton: false, showCancelButton: true, cancelButtonText: 'やめる',
+    didOpen: () => {
+      document.querySelectorAll('[data-stamp]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          Swal.close();
+          const res = await apiWithLoading('おくっています...', 'sendCheer', { to: toEmail, stamp: btn.dataset.stamp });
+          if (!res.success) { Swal.fire('おくれません', esc(res.message), 'warning'); return; }
+          App.data.social = res.social;
+          App.data.missions = res.missions;
+          renderCheerBoard();
+          renderMissions(res.missions);
+          toast(res.message);
+        });
+      });
+    }
+  });
+}
+
+/** みんなの本だな（クラスの読書記録の共有） */
+function renderBookshelf() {
+  const el = document.getElementById('bookshelf-container');
+  if (!el) return;
+  const books = social().bookshelf || [];
+  if (books.length === 0) { el.innerHTML = ''; return; }
+
+  el.innerHTML = `
+    <div class="card shadow-sm border-0 rounded-4">
+      <div class="card-header bg-transparent border-0 pt-3 pb-0">
+        <h5 class="fw-bold text-primary mb-0"><i class="bi bi-book-half"></i> みんなの本だな</h5>
+      </div>
+      <div class="card-body custom-scrollbar" style="max-height:420px;overflow-y:auto;">
+        <div class="small text-muted mb-2">クラスのみんなが読んだ本です。次に読む本をさがしてみよう。</div>
+        ${books.map(book => `
+          <div class="border rounded-3 p-2 mb-2">
+            <div class="d-flex align-items-center gap-2">
+              <div class="flex-grow-1">
+                <div class="fw-bold">${esc(book.title)}</div>
+                <div class="small text-muted">
+                  ${esc(book.genre)} ・ ${book.readers}人が読んだ
+                  ${book.avgRating ? ` ・ <span class="no-furigana">⭐</span> ${book.avgRating}` : ''}
+                </div>
+              </div>
+            </div>
+            ${(book.comments || []).map(c => `
+              <div class="small mt-1 ps-2 border-start">
+                「${esc(c.comment)}」<span class="text-muted">— ${esc(c.nickname)}さん</span>
+              </div>`).join('')}
+          </div>`).join('')}
+      </div>
+    </div>`;
 }
 
 function renderRankings(containerId, rankings) {
@@ -1144,26 +1785,33 @@ function renderRankings(containerId, rankings) {
       list(rankings.calc[mode], i => `${i.value}秒`);
   });
 
-  container.innerHTML = `
+  const card = (title, icon, cls, body, note) => `
     <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
-      <h6 class="fw-bold text-warning-emphasis"><i class="bi bi-trophy-fill"></i> けいけんちトップ5</h6>
-      ${list((rankings.top5 || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `Lv.${i.level} (${i.totalExp}EXP)`)}
-    </div></div>
-    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
-      <h6 class="fw-bold text-danger"><i class="bi bi-fire"></i> 今日のMVP</h6>
-      ${list((rankings.mvp || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `+${i.gainedExp}EXP`)}
-    </div></div>
-    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
-      <h6 class="fw-bold text-primary"><i class="bi bi-keyboard"></i> タイピングはやさ</h6>
-      ${list(rankings.typing || [], i => `${i.value}打/秒`)}
-    </div></div>
-    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
-      <h6 class="fw-bold text-info"><i class="bi bi-joystick"></i> 今週の学習アプリ時間</h6>
-      ${list(rankings.studyApp || [], i => `${i.value}分`)}
-    </div></div>
-    ${calcHtml ? `<div class="card shadow-sm border-0 rounded-4"><div class="card-body">
-      <h6 class="fw-bold text-success"><i class="bi bi-calculator"></i> 100マスタイム</h6>${calcHtml}
-    </div></div>` : ''}`;
+      <h6 class="fw-bold ${cls}"><i class="bi ${icon}"></i> ${title}</h6>
+      ${note ? `<div class="small text-muted mb-1">${note}</div>` : ''}
+      ${body}
+    </div></div>`;
+
+  // 「今週の伸び」「けいぞく」「今週のがんばり」は、上位が固定されがちな絶対値の
+  // ランキングとちがって、誰でも1位になれる軸です。上のほうに置いています。
+  container.innerHTML =
+    card('今週ののび', 'bi-graph-up-arrow', 'text-danger',
+      list(rankings.growth || [], i => `+${i.value}件`), '先週よりふえたきろくの数') +
+    card('けいぞくチャンピオン', 'bi-fire', 'text-warning-emphasis',
+      list(rankings.streak || [], i => `${i.value}日`), '何日れんぞくできろくしたか') +
+    card('今週のがんばり', 'bi-lightning-charge-fill', 'text-primary',
+      list(rankings.effort || [], i => `${i.value}件`), '今週きろくした数') +
+    card('どくしょ王', 'bi-book', 'text-success',
+      list(rankings.reading || [], i => `${i.value}ページ`)) +
+    card('今日のMVP', 'bi-star-fill', 'text-danger',
+      list((rankings.mvp || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `+${i.gainedExp}EXP`)) +
+    card('けいけんちトップ5', 'bi-trophy-fill', 'text-warning-emphasis',
+      list((rankings.top5 || []).map((r, i) => ({ ...r, rank: i + 1 })), i => `Lv.${i.level} (${i.totalExp}EXP)`)) +
+    card('タイピングはやさ', 'bi-keyboard', 'text-primary',
+      list(rankings.typing || [], i => `${i.value}打/秒`)) +
+    card('今週の学習アプリ時間', 'bi-joystick', 'text-info',
+      list(rankings.studyApp || [], i => `${i.value}分`)) +
+    (calcHtml ? card('100マスタイム', 'bi-calculator', 'text-success', calcHtml) : '');
 }
 
 /* ---------------- イベント ---------------- */
@@ -1171,6 +1819,9 @@ function renderRankings(containerId, rankings) {
 function bindStudentEvents() {
   document.getElementById('btn-gacha-1').addEventListener('click', () => runGacha(1));
   document.getElementById('btn-gacha-10').addEventListener('click', () => runGacha(10));
+
+  const addGoalBtn = document.getElementById('home-add-goal-btn');
+  if (addGoalBtn) addGoalBtn.addEventListener('click', () => openGoalDialog());
 
   document.getElementById('btn-save-avatar').addEventListener('click', async () => {
     const result = await apiWithLoading('ほぞん中...', 'saveAvatar', App.pendingAvatar);

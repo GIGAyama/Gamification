@@ -38,6 +38,8 @@ function getTeacherData() {
       rankings: getRankings_(ss, config),
       classStats: getClassStats_(ss, students),
       alerts: getStudentAlerts_(ss, students, config),
+      // 「先生からのひとこと」で使う定型スタンプ
+      praiseStamps: getPraiseStamps_(),
       aiEnabled: !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')
     };
   } catch (e) {
@@ -90,15 +92,12 @@ function getStudentAlerts_(ss, students, config) {
 
   // 各児童の最終記録日
   const lastRecord = {};
-  const logSheet = ss.getSheetByName(SHEETS.LOG);
-  if (logSheet && logSheet.getLastRow() >= 2) {
-    logSheet.getRange(2, 1, logSheet.getLastRow() - 1, 3).getValues().forEach(row => {
-      if (!recordActions.has(row[2])) return;
-      const email = String(row[1]).toLowerCase().trim();
-      const d = parseTimestamp_(row[0]);
-      if (d && (!lastRecord[email] || d > lastRecord[email])) lastRecord[email] = d;
-    });
-  }
+  getAllLogRows_(ss).forEach(row => {
+    if (!recordActions.has(row[2])) return;
+    const email = String(row[1]).toLowerCase().trim();
+    const d = parseTimestamp_(row[0]);
+    if (d && (!lastRecord[email] || d > lastRecord[email])) lastRecord[email] = d;
+  });
 
   // 授業のめあて達成「△」の直近連続回数
   const lessonRows = {};
@@ -250,6 +249,9 @@ function grantPoints(data) {
         range.setValues(values);
         const logSheet = ss.getSheetByName(SHEETS.LOG);
         logSheet.getRange(logSheet.getLastRow() + 1, 1, logsToAdd.length, 4).setValues(logsToAdd);
+        // writeLog_ を通さない一括追記なので、読み込みキャッシュはここで捨てます
+        clearLogRowsCache_();
+        clearClassLogStatsCache_();
       }
       return { success: true, message: `${processed}人の児童にポイントを配布しました。` };
     } catch (e) {

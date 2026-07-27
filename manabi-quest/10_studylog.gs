@@ -155,6 +155,9 @@ function receiveStudyRecords_(payload) {
       return { success: true, saved, duplicate, rejected, gainedExp: 0, reward: emptyStudyReward_() };
     }
 
+    // 100マスの自己ベスト判定は、今回の記録を追記する「前」の最速タイムと比べます
+    const previousCalcBest = getBestCalcTime_(ss, student.email);
+
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
     logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
     appendCalcRecords_(ss, student, calcRows);
@@ -173,17 +176,66 @@ function receiveStudyRecords_(payload) {
     applyExp(appExp, '学習アプリ');
     applyExp(calcExp, '100マス計算');
     applyExp(reward.sendExp, '学習きろくのそうしんボーナス');
-    const last = applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
+    applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
 
-    const gainedExp = appExp + calcExp + reward.sendExp + reward.streakExp;
-    const level = last ? last.level : calculateLevel(getUserTotalExp_(ss, student.email), config).level;
-    return { success: true, saved, duplicate, rejected, gainedExp, reward, level, leveledUp };
+    // A-2 じこベスト更新（100マス計算のタイム。同じ問題数どうしで比べます）
+    let personalBest = null;
+    const fastest = calcRows
+      .filter(c => c.row[3] === 100)
+      .map(c => c.row[5])
+      .sort((a, b) => a - b)[0];
+    if (fastest !== undefined) {
+      const best = applyPersonalBest_(ss, student.email, config, 'calcTime', fastest, previousCalcBest);
+      if (best.updated) {
+        personalBest = best;
+        reward.personalBestExp = best.exp;
+      }
+    }
+
+    // A-1 その日はじめてのきろくに連続ボーナス（アプリからの送信でも積み上がります）
+    const streakBonus = applyRecordStreakBonus_(ss, student.email, config);
+    reward.recordStreakExp = streakBonus.exp;
+    reward.recordStreak = streakBonus.streak;
+
+    clearInsightsCache_(student.email);
+    clearRecordStoreCache_();
+    clearClassLogStatsCache_();
+
+    const gainedExp = appExp + calcExp + reward.sendExp + reward.streakExp
+      + (reward.personalBestExp || 0) + (reward.recordStreakExp || 0);
+    const levelInfo = calculateLevel(getUserTotalExp_(ss, student.email), config);
+    return {
+      success: true, saved, duplicate, rejected, gainedExp, reward,
+      level: levelInfo.level, leveledUp, personalBest
+    };
   });
+}
+
+/**
+ * これまでの100マス計算（100問）の最速タイム。1件もなければ null。
+ * 問題数がちがう記録はタイムを同じ土俵で比べられないため、100問だけを対象にします。
+ */
+function getBestCalcTime_(ss, email) {
+  const sheet = ss.getSheetByName(SHEETS.CALC);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const target = String(email).toLowerCase().trim();
+  let best = null;
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues().forEach(row => {
+    if (String(row[1]).toLowerCase().trim() !== target) return;
+    if (Number(row[3]) !== 100) return;
+    const time = Number(row[5]);
+    if (!isNaN(time) && time > 0 && (best === null || time < best)) best = time;
+  });
+  return best;
 }
 
 /** ボーナスなしの初期値 */
 function emptyStudyReward_() {
-  return { appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, streak: 0, calcRecords: 0, records: 0 };
+  return {
+    appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
+    streak: 0, calcRecords: 0, records: 0,
+    personalBestExp: 0, recordStreakExp: 0, recordStreak: 0
+  };
 }
 
 /**
@@ -225,11 +277,7 @@ function grantStudySendReward_(ss, student, config, now, recordCount, calcCount)
 /** 「ログ」シートから、その児童が学習ログを送信した日（yyyy-MM-dd）の集合を返します */
 function getStudySendDays_(ss, email) {
   const days = new Set();
-  const sheet = ss.getSheetByName(SHEETS.LOG);
-  if (!sheet || sheet.getLastRow() < 2) return days;
-  const lastRow = sheet.getLastRow();
-  const startRow = Math.max(2, lastRow - LIMITS.SEND_LOG_SCAN_ROWS + 1);
-  sheet.getRange(startRow, 1, lastRow - startRow + 1, 3).getValues().forEach(row => {
+  readRecentLogRows_(ss, LIMITS.SEND_LOG_SCAN_ROWS).forEach(row => {
     if (row[2] !== LOG_ACTIONS.SEND_STUDY_LOG) return;
     if (String(row[1]).toLowerCase().trim() !== email) return;
     const d = parseTimestamp_(row[0]);

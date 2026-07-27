@@ -132,30 +132,34 @@ function findTeachingPoint_(teachingPoints, subject, date, unit) {
  * ふり返り保存直後に呼ばれる自動抽出フック。
  * 設定OFF・APIキー未設定なら何もせず、失敗しても保存処理には影響しません
  * （フラグが空のまま残るので、後の一括抽出が再処理します）。
- * @returns {{stocked:boolean, depth:number}} 抽出結果（保存側のボーナス計算に使用）
+ * @returns {{stocked:boolean, depth:number, studentComment:string}} 抽出結果
+ *   （depth は保存側のボーナス計算、studentComment は児童へ返すAIコーチの一言に使用）
  */
 function autoExtractShokenMaterial_(ss, config, type, rowNum) {
+  const empty = { stocked: false, depth: 0, studentComment: '' };
   try {
-    if (String(config['AI所見材料の自動抽出']).toUpperCase() !== 'ON') return { stocked: false, depth: 0 };
-    if (!isAiEnabled_()) return { stocked: false, depth: 0 };
+    if (String(config['AI所見材料の自動抽出']).toUpperCase() !== 'ON') return empty;
+    if (!isAiEnabled_()) return empty;
     return processReflectionRow_(ss, type, rowNum, null);
   } catch (e) {
     console.error(`所見材料の自動抽出エラー(${type} 行${rowNum}): ${e.message}`);
-    return { stocked: false, depth: 0 };
+    return empty;
   }
 }
 
 /**
  * ふり返り1行をAIで分析し、採用なら「所見材料」へストックして
  * 「所見抽出」フラグを「済」にします。
- * @returns {{stocked:boolean, depth:number}} 材料をストックしたか・記述の深さ(0〜3)
+ * @returns {{stocked:boolean, depth:number, studentComment:string}}
+ *   材料をストックしたか・記述の深さ(0〜3)・児童へ返す応援コメント
  */
 function processReflectionRow_(ss, type, rowNum, context) {
   const sheetName = type === 'test' ? SHEETS.TEST : SHEETS.LESSON;
   const flagCol = SHOKEN_FLAG_COLS[type];
+  const coachCol = AI_COACH_COLS[type];
   const sheet = ss.getSheetByName(sheetName);
   const row = sheet.getRange(rowNum, 1, 1, flagCol).getValues()[0];
-  if (row[flagCol - 1] === '済') return { stocked: false, depth: 0 };
+  if (row[flagCol - 1] === '済') return { stocked: false, depth: 0, studentComment: '' };
 
   const source = buildReflectionSource_(type, row);
   const ctx = context || { userMap: getUserNumberMap_(ss), teachingPoints: getTeachingPoints_(ss) };
@@ -177,8 +181,27 @@ function processReflectionRow_(ss, type, rowNum, context) {
   if (type === 'lesson' && studentNumber) {
     recordAttitudeScore_(ss, source, depth);
   }
+
+  // 児童へ返すAIコーチの一言。同じ1回の応答に相乗りしているのでAPI呼び出しは増えません
+  const studentComment = buildCoachComment_(ai);
   sheet.getRange(rowNum, flagCol).setValue('済');
-  return { stocked, depth };
+  if (studentComment) sheet.getRange(rowNum, coachCol).setValue(studentComment);
+  return { stocked, depth, studentComment };
+}
+
+/**
+ * AIの応答から、児童に見せる応援コメントを組み立てます。
+ * 児童が読むものなので、長さを切りつめ、改行や記号は落とします。
+ */
+function buildCoachComment_(ai) {
+  if (!ai) return '';
+  const clean = value => String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  const praise = clean(ai.studentComment).slice(0, 60);
+  const hint = clean(ai.nextGoalHint).slice(0, 40);
+  if (!praise && !hint) return '';
+  if (!hint) return praise;
+  if (!praise) return `つぎは: ${hint}`;
+  return `${praise} つぎは: ${hint}`;
 }
 
 /** ふり返りの深さ(0〜3)からボーナス経験値を計算します（設定でON/OFF・係数調整） */
@@ -217,7 +240,14 @@ function buildExtractionPrompt_(source, tp) {
   const lines = [];
   lines.push('あなたは経験豊富な小学校の教師です。児童が書いた学習のふり返りを分析し、通知表の所見に使える材料かどうかを判定してください。');
   lines.push('回答は次のJSON形式のみで出力してください（前置き・説明・コードブロックは不要）:');
-  lines.push('{"adopt": trueまたはfalse, "episode": "所見に使えるエピソード(1〜2文)", "viewpoint": "' + SHOKEN_VIEWPOINTS.join(' / ') + ' のいずれか1つ", "quality": 1〜3の整数, "depth": 0〜3の整数}');
+  lines.push('{"adopt": trueまたはfalse, "episode": "所見に使えるエピソード(1〜2文)", "viewpoint": "' + SHOKEN_VIEWPOINTS.join(' / ') + ' のいずれか1つ", "quality": 1〜3の整数, "depth": 0〜3の整数, "studentComment": "児童本人へのみとめの言葉(40字以内)", "nextGoalHint": "次にやってみるとよいことの提案(25字以内)"}');
+  lines.push('');
+  lines.push('# 児童へ返す言葉のルール（studentComment / nextGoalHint）');
+  lines.push('- この2つは先生ではなく「ふり返りを書いた小学生本人」が読みます。やさしい言葉で、小学生が読める語彙で書いてください。');
+  lines.push('- studentComment は、その子が実際に書いた内容の中の良いところを1つ具体的に取り上げてみとめる言葉にしてください。「すごいね」だけの中身のないほめ方や、成績・他人との比較はしないでください。');
+  lines.push('- nextGoalHint は、次の学習でその子がすぐ試せる小さな一歩を提案してください。責める言い方・できていないことの指摘にはしないでください。');
+  lines.push('- adopt が false のときも、この2つは必ず書いてください（記述が短くても、書いたこと自体をみとめる言葉にしてください）。');
+  lines.push('- 児童名は書かないでください。敬体（です・ます）で書いてください。');
   lines.push('');
   lines.push('# 判定・要約のルール');
   lines.push('- depth は、記述から読み取れる学びの深さです（3=深い考察・具体的な自己分析・次への明確な意欲 / 2=気づきや課題を自分の言葉で表現 / 1=学習に触れているが表面的 / 0=内容が乏しい・学習と無関係）。adopt が false の場合も必ず採点してください。');
