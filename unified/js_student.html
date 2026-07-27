@@ -189,8 +189,82 @@ function renderRecordsView(data) {
       if (btn.dataset.rtab === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
       if (btn.dataset.rtab === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
       if (btn.dataset.rtab === 'rtab-lesson') drawTestChart(App.data.records.test);
+      if (btn.dataset.rtab === 'rtab-apps') loadStudyAppTab();
     });
   });
+}
+
+/* ---------------- 学習アプリ（study.v1 共通学習ログ）のきろく ---------------- */
+
+let studyAppLoaded = false;
+
+/** 「きろく → 学習アプリ」タブを開いたときに自分のログを読み込みます */
+async function loadStudyAppTab() {
+  if (studyAppLoaded) return;
+  const area = document.getElementById('rtab-apps');
+  area.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getMyStudyLog');
+    if (!result.success) {
+      area.innerHTML = emptyMessage(result.message || 'よみこめませんでした');
+      return;
+    }
+    studyAppLoaded = true;
+    renderStudyAppTab(result.data);
+  } catch (e) {
+    area.innerHTML = emptyMessage('よみこめませんでした。もういちどためしてね。');
+  }
+}
+
+function renderStudyAppTab(d) {
+  const area = document.getElementById('rtab-apps');
+  const s = d.summary || {};
+  if (!s.records) {
+    area.innerHTML = `
+      <div class="card record-form-card shadow-sm"><div class="card-body text-center py-4">
+        <div style="font-size:2rem;">🎮</div>
+        <p class="fw-bold mb-1">学習アプリのきろくは、まだとどいていません</p>
+        <p class="small text-muted mb-0">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算であそんだら、<br>先生からもらった「そうしんページ」できろくを送ると、ここに表示されるよ。</p>
+      </div></div>`;
+    return;
+  }
+  const min = m => (!m || m <= 0) ? '0分' : (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 > 0 ? `${m % 60}分` : ''}` : `${m}分`);
+  const statCard = (label, value, cls) => `
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body p-2">
+        <div class="small text-muted fw-bold">${label}</div>
+        <div class="fs-5 fw-bold ${cls}">${value}</div>
+      </div></div>
+    </div>`;
+  const apps = Object.keys(d.apps || {}).map(label =>
+    `<span class="badge bg-light text-dark border me-1 mb-1">${esc(label)}: ${d.apps[label]}回</span>`).join('');
+  area.innerHTML = `
+    <div class="row g-2 mb-3">
+      ${statCard('今週', `${d.week.records}回`, 'text-primary')}
+      ${statCard('今週の時間', min(d.week.minutes), 'text-info')}
+      ${statCard('ぜんぶで', `${s.records}回・${min(s.minutes)}`, 'text-success')}
+      ${statCard('はじめの1回でせいかい', s.rate === null ? '-' : `${s.rate}%`, 'text-warning-emphasis')}
+    </div>
+    <div class="mb-3">${apps}</div>
+    <div class="card record-form-card shadow-sm">
+      <div class="card-header text-primary"><i class="bi bi-clock-history"></i> さいきんの学習</div>
+      <div class="card-body p-0 custom-scrollbar" style="max-height:340px;overflow-y:auto;">
+        <table class="table table-sm table-striped mb-0 align-middle">
+          <thead class="table-light sticky-top"><tr><th>日にち</th><th>アプリ</th><th>ないよう</th><th class="text-center">せいかい</th><th>じかん</th></tr></thead>
+          <tbody>
+            ${(d.recent || []).map(r => `
+              <tr>
+                <td class="small">${esc(r.day)}</td>
+                <td class="small">${esc(r.app)}</td>
+                <td class="small">${esc(r.unit)}${r.status === 'aborted' ? ' <span class="badge bg-light text-secondary border">とちゅう</span>' : ''}</td>
+                <td class="small text-center">${r.firstTry}/${r.attempted}</td>
+                <td class="small">${min(r.minutes)}</td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div class="card-footer small text-muted">「せいかい」は、はじめの1回でとけた数だよ。まちがえてもチャレンジしたことが大切！</div>
+    </div>`;
 }
 
 function renderRecordInputMenu(data) {

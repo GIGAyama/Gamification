@@ -12,6 +12,7 @@ function initTeacherApp(data) {
   bindAnnouncementDeletes();
   bindShokenStudioEvents();
   bindGradesEvents();
+  bindStudyLogEvents();
 }
 
 /* ---------------- ダッシュボード ---------------- */
@@ -197,6 +198,7 @@ async function loadStudentDetail(email) {
             <h6 class="fw-bold text-warning-emphasis">📖 読書のきろく</h6>
             ${r.reading.records.slice(0, 6).map(b => `<div class="border-bottom py-1 small">${b.date} <b>${esc(b.title)}</b>（${b.pages}p）</div>`).join('') || emptyMessage('記録なし')}
           </div></div>
+          ${studentStudyLogCard(d.studyLog)}
           <div class="card shadow-sm border-0 rounded-4"><div class="card-body">
             <h6 class="fw-bold text-info">🕐 最近のアプリ内活動</h6>
             <div class="custom-scrollbar" style="max-height:220px;overflow-y:auto;">
@@ -650,6 +652,161 @@ async function copyTextarea(id) {
     document.execCommand('copy');
   }
   toast('コピーしました');
+}
+
+/* ---------------- 学習アプリ（study.v1 共通学習ログ） ---------------- */
+
+let tlLoaded = false;
+
+/** 分 → 表示用の時間文字列 */
+function fmtStudyMinutes(min) {
+  if (!min || min <= 0) return '0分';
+  return min >= 60 ? `${Math.floor(min / 60)}時間${min % 60 > 0 ? `${min % 60}分` : ''}` : `${min}分`;
+}
+
+/** レコードの注意フラグ（比較に注意が必要な条件）をバッジ列にします */
+function studyFlagBadges(r) {
+  const badges = [];
+  if (r.multiplayer) badges.push('<span class="badge bg-danger-subtle text-danger border border-danger">対戦</span>');
+  if (r.grading === 'selfReport') badges.push('<span class="badge bg-info-subtle text-info-emphasis border border-info">自己評価</span>');
+  if (r.grading === 'mixed') badges.push('<span class="badge bg-info-subtle text-info-emphasis border border-info">混合採点</span>');
+  if (r.source === 'weak') badges.push('<span class="badge bg-warning-subtle text-warning-emphasis border border-warning">にがて</span>');
+  if (r.source === 'review') badges.push('<span class="badge bg-secondary-subtle text-secondary border">復習</span>');
+  if (r.source === 'custom') badges.push('<span class="badge bg-secondary-subtle text-secondary border">じさく</span>');
+  if (r.status === 'aborted') badges.push('<span class="badge bg-light text-secondary border">中断</span>');
+  return badges.join(' ');
+}
+
+async function loadStudyLog(force) {
+  if (tlLoaded && !force) return;
+  const cards = document.getElementById('tl-stats-cards');
+  cards.innerHTML = `<div class="text-center py-4 w-100"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getStudyLogDashboard', document.getElementById('tl-period').value);
+    if (!result.success) {
+      cards.innerHTML = `<div class="col-12"><div class="alert alert-warning mb-0">${esc(result.message)}</div></div>`;
+      return;
+    }
+    tlLoaded = true;
+    renderStudyLog(result);
+  } catch (e) {
+    cards.innerHTML = `<div class="col-12"><div class="alert alert-danger mb-0">${esc(e.message)}</div></div>`;
+  }
+}
+
+function renderStudyLog(d) {
+  // 受信設定の案内
+  const note = document.getElementById('tl-setup-note');
+  if (!d.enabled) {
+    note.classList.remove('d-none');
+    note.innerHTML = `
+      <div class="alert alert-warning mb-0 small">
+        <b><i class="bi bi-exclamation-circle"></i> 学習ログの受信は停止中です。</b><br>
+        「初期設定」シートの <b>学習ログ送信キー</b> に合言葉を設定し、送信ページ（study-log-sender）に
+        このWebアプリのURLと同じ合言葉を設定すると受信が始まります。詳しくは README を参照してください。
+      </div>`;
+  } else {
+    note.classList.add('d-none');
+    note.innerHTML = '';
+  }
+
+  // サマリカード
+  const t = d.totals || {};
+  const card = (label, value, cls) => `
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">${label}</div>
+        <div class="fs-4 fw-bold ${cls}">${value}</div>
+      </div></div>
+    </div>`;
+  document.getElementById('tl-stats-cards').innerHTML =
+    card('学習の回数', `${t.records ?? 0}<span class="fs-6 text-muted">回</span>`, 'text-primary') +
+    card('とりくんだ児童', `${t.students ?? 0}<span class="fs-6 text-muted">人</span>`, 'text-success') +
+    card('合計学習時間', fmtStudyMinutes(t.minutes), 'text-info') +
+    card('中断', `${t.aborted ?? 0}<span class="fs-6 text-muted">回</span>`, t.aborted > 0 ? 'text-warning' : 'text-secondary');
+
+  // 児童別
+  document.getElementById('tl-student-rows').innerHTML = (d.students || []).map(s => {
+    const rate = s.rate === null
+      ? '<span class="text-muted">-</span>'
+      : `<b class="${s.rate < 60 ? 'text-danger' : 'text-success'}">${s.rate}%</b> <span class="text-muted" style="font-size:.7rem;">(${s.firstTry}/${s.attempted})</span>`;
+    return `<tr class="${s.records === 0 ? 'text-muted' : ''}">
+      <td>${esc(String(s.number))}</td>
+      <td class="fw-bold">${esc(s.name)}</td>
+      <td>${s.records}回</td>
+      <td>${fmtStudyMinutes(s.minutes)}</td>
+      <td>${rate}</td>
+      <td>${s.aborted > 0 ? `${s.aborted}回` : '-'}</td>
+      <td class="small text-muted">${esc(s.lastDay || '-')}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7">${emptyMessage('児童マスタが空です')}</td></tr>`;
+
+  // アプリ別
+  document.getElementById('tl-app-list').innerHTML = (d.apps || []).map(a => `
+    <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+      <div>
+        <div class="fw-bold">${esc(a.label)}</div>
+        <div class="small text-muted">${a.records}回 / ${a.students}人 / ${fmtStudyMinutes(a.minutes)}</div>
+      </div>
+      <div class="text-end">${a.rate === null ? '<span class="text-muted small">-</span>' : `<b>${a.rate}%</b><div class="text-muted" style="font-size:.7rem;">初回正答率</div>`}</div>
+    </div>`).join('') || emptyMessage('この期間の記録はまだありません');
+
+  // つまずき問題
+  document.getElementById('tl-stumbles').innerHTML = (d.stumbles || []).map(sb => `
+    <div class="border-bottom py-2 small">
+      <b class="fs-6">${esc(sb.q)}</b>
+      <span class="text-muted">｜${esc(sb.unit)}（${esc(sb.app)}）</span>
+      <div><span class="badge bg-danger">${sb.students}人</span> がはじめの1回でまちがえました（のべ${sb.misses}回）</div>
+    </div>`).join('') || emptyMessage('つまずきの多い問題はまだ検出されていません');
+
+  // 最近の学習
+  document.getElementById('tl-recent-rows').innerHTML = (d.recent || []).map(r => `
+    <tr>
+      <td class="small">${esc(r.day)}</td>
+      <td class="small text-muted">${esc(r.slot)}</td>
+      <td class="small fw-bold">${esc(String(r.number))} ${esc(r.name)}</td>
+      <td class="small">${esc(r.app)}</td>
+      <td class="small">${esc(r.unit)}<span class="text-muted">（${esc(r.mode)}）</span></td>
+      <td class="small text-center">${r.firstTry}/${r.attempted}<span class="text-muted">（${r.count}問中）</span></td>
+      <td class="small">${fmtStudyMinutes(r.minutes)}</td>
+      <td class="small">${studyFlagBadges(r)}</td>
+    </tr>`).join('') || `<tr><td colspan="8">${emptyMessage('この期間の記録はまだありません')}</td></tr>`;
+}
+
+/** 児童詳細画面に出す「学習アプリのきろく」カード */
+function studentStudyLogCard(sl) {
+  if (!sl || !sl.summary) return '';
+  const s = sl.summary;
+  const rate = s.rate === null ? '-' : `${s.rate}%`;
+  const apps = Object.keys(sl.apps || {}).map(label =>
+    `<span class="badge bg-light text-dark border">${esc(label)}: ${sl.apps[label]}回</span>`).join(' ');
+  return `
+    <div class="card shadow-sm border-0 rounded-4 mb-3"><div class="card-body">
+      <h6 class="fw-bold text-primary">🎮 学習アプリのきろく</h6>
+      ${s.records === 0 ? emptyMessage('学習アプリの記録はまだ届いていません') : `
+        <div class="d-flex gap-3 small mb-2 flex-wrap">
+          <span>回数: <b>${s.records}回</b></span>
+          <span>学習時間: <b>${fmtStudyMinutes(s.minutes)}</b></span>
+          <span>初回正答率: <b>${rate}</b>${s.attempted > 0 ? `<span class="text-muted">（${s.firstTry}/${s.attempted}）</span>` : ''}</span>
+          ${s.aborted > 0 ? `<span class="text-warning-emphasis">中断: ${s.aborted}回</span>` : ''}
+        </div>
+        <div class="mb-2">${apps}</div>
+        <div class="custom-scrollbar" style="max-height:180px;overflow-y:auto;">
+          ${(sl.recent || []).map(r => `
+            <div class="border-bottom py-1 small d-flex justify-content-between gap-2">
+              <span><span class="text-muted">${esc(r.day)} ${esc(r.slot)}</span> ${esc(r.app)}「${esc(r.unit)}」</span>
+              <span class="text-nowrap">${r.firstTry}/${r.attempted} ${studyFlagBadges(r)}</span>
+            </div>`).join('')}
+        </div>`}
+    </div></div>`;
+}
+
+function bindStudyLogEvents() {
+  document.querySelectorAll('[data-view="view-t-studylog"]').forEach(tab => {
+    tab.addEventListener('click', () => loadStudyLog(false));
+  });
+  document.getElementById('tl-reload-btn').addEventListener('click', () => loadStudyLog(true));
+  document.getElementById('tl-period').addEventListener('change', () => loadStudyLog(true));
 }
 
 /* ---------------- 成績・評価タブ ---------------- */

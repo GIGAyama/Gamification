@@ -86,6 +86,7 @@ function getStudentAlerts_(ss, students, config) {
   const streakThreshold = getConfigNumber_(config, '声かけアラート_連続未達回数', 3);
   const now = new Date();
   const recordActions = new Set(Object.values(RECORD_TYPES).map(t => t.log));
+  recordActions.add(LOG_ACTIONS.RECORD_STUDY_APP);   // 学習アプリでの学習も「記録あり」とみなす
 
   // 各児童の最終記録日
   const lastRecord = {};
@@ -190,6 +191,7 @@ function getStudentDetails(email) {
           exchangePoints: Number(found.data['交換ポイント'] || 0)
         },
         records: getMyRecords(target),
+        studyLog: getStudyLogForUser_(ss, target, 12),
         missions: getMissionStatus_(ss, target),
         recentActivity: getRecentLogs_(ss, target),
         badges: getEarnedBadges_(ss, target)

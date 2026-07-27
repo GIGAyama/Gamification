@@ -743,6 +743,7 @@ function getRecentLogs_(ss, email) {
         break;
       }
       case LOG_ACTIONS.GRANT_POINT: message = `先生から ${detailStr} もらいました！`; break;
+      case LOG_ACTIONS.RECORD_STUDY_APP: message = `🎮 ${detailStr}`; break;
       case LOG_ACTIONS.ACHIEVE_GOAL: message = `🏆 タイピングの目標をたっせいしました！`; break;
       case LOG_ACTIONS.SAVE_AVATAR: message = 'アバターの見た目をほぞんしました。'; break;
       case LOG_ACTIONS.EXCHANGE_ITEM:

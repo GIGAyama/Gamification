@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>がくしゅうきろく そうしんページ</title>
+  <!--
+    study.v1 共通学習ログ 送信ページ
+    =====================================================================
+    gigayama.github.io（学習アプリと同一オリジン）に配置して使います。
+    各学習アプリが localStorage（study.records.v1）に保存した学習ログを読み、
+    まなびクエスト（GAS Webアプリ）の受信エンドポイントへ送信します。
+
+    - 児童の識別子（出席番号）はこのページが付与します（アプリ層は匿名のまま）
+    - 送信に成功したレコード（受理済み・重複・形式エラー）は localStorage から削除します
+    - 学習アプリ側は保存のみを行い、送信はこのページだけが行います（仕様 §0-1）
+
+    設定方法（先生向け）:
+      このページのURLに ?endpoint=GASのWebアプリURL&key=送信キー を付けて一度開くと、
+      設定が端末に保存されます。以後はパラメータなしで開けます。
+      例) https://gigayama.github.io/study-log-sender/?endpoint=https://script.google.com/macros/s/XXXX/exec&key=aikotoba
+  -->
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
+      background: #f0f6ff; margin: 0; padding: 16px; color: #333;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .card { background: #fff; border-radius: 16px; box-shadow: 0 2px 8px rgba(0,0,0,.08); padding: 20px; margin-bottom: 16px; }
+    h1 { font-size: 1.3rem; text-align: center; margin: 8px 0 16px; }
+    h2 { font-size: 1rem; margin: 0 0 8px; }
+    .muted { color: #777; font-size: .82rem; }
+    .big-btn {
+      display: block; width: 100%; padding: 16px; font-size: 1.2rem; font-weight: bold;
+      color: #fff; background: #2b7de9; border: none; border-radius: 12px; cursor: pointer;
+    }
+    .big-btn:disabled { background: #aac6ea; cursor: not-allowed; }
+    .sub-btn { padding: 8px 14px; font-size: .85rem; border: 1px solid #bbb; background: #fff; border-radius: 8px; cursor: pointer; }
+    input[type=number], input[type=text], input[type=url] {
+      width: 100%; padding: 10px; font-size: 1.1rem; border: 2px solid #cfe0f5; border-radius: 10px;
+    }
+    label { font-weight: bold; font-size: .9rem; display: block; margin-bottom: 4px; }
+    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    th, td { padding: 6px 4px; border-bottom: 1px solid #eee; text-align: left; }
+    .ok { color: #1a7f37; font-weight: bold; }
+    .warn { color: #b35900; font-weight: bold; }
+    .err { color: #c62828; font-weight: bold; }
+    .result { border-radius: 12px; padding: 12px; margin-top: 12px; font-size: .95rem; display: none; }
+    .result.show { display: block; }
+    .result.success { background: #e7f6ec; border: 2px solid #7fce9b; }
+    .result.failure { background: #fdecea; border: 2px solid #ef9a9a; }
+    details { margin-top: 8px; }
+    summary { cursor: pointer; font-size: .85rem; color: #555; }
+    .conf-row { margin-bottom: 10px; }
+    .count-badge { font-size: 1.6rem; font-weight: bold; color: #2b7de9; }
+    footer { text-align: center; font-size: .75rem; color: #999; margin: 16px 0; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📮 がくしゅうきろく そうしんページ</h1>
+
+  <div class="card">
+    <h2>1. じぶんの しゅっせきばんごうを えらぼう</h2>
+    <input type="number" id="student-number" min="1" max="99" placeholder="しゅっせきばんごう（例: 12）">
+    <p class="muted">※ 名前は送られません。ばんごうだけで先生にとどきます。</p>
+  </div>
+
+  <div class="card">
+    <h2>2. たまっている きろく</h2>
+    <div><span class="count-badge" id="pending-count">0</span> 件</div>
+    <div id="pending-summary"></div>
+    <p class="muted" id="pending-note">アプリで学習すると、この端末にきろくがたまります。</p>
+  </div>
+
+  <div class="card">
+    <h2>3. 先生に おくろう</h2>
+    <button class="big-btn" id="send-btn">📨 きろくを おくる</button>
+    <div class="result" id="result-box"></div>
+    <p class="muted" style="margin-top:10px;">
+      おくられるのは「どのアプリで・どの単元を・どれくらい学習したか」のきろくです。
+      くわしい時こくは「午前・午後・夕方以降」までに丸めて先生につたわります。
+    </p>
+  </div>
+
+  <div class="card">
+    <details id="config-details">
+      <summary>⚙️ せってい（先生用）</summary>
+      <div style="margin-top:10px;">
+        <div class="conf-row">
+          <label>送信先URL（まなびクエストのWebアプリURL / 受信用デプロイ）</label>
+          <input type="url" id="conf-endpoint" placeholder="https://script.google.com/macros/s/…/exec">
+        </div>
+        <div class="conf-row">
+          <label>送信キー（「初期設定」シートの「学習ログ送信キー」と同じ値）</label>
+          <input type="text" id="conf-key" placeholder="合言葉">
+        </div>
+        <button class="sub-btn" id="conf-save-btn">設定を保存</button>
+        <button class="sub-btn" id="conf-test-btn">接続テスト</button>
+        <span id="conf-status" class="muted"></span>
+        <p class="muted">URLパラメータ <code>?endpoint=…&amp;key=…</code> 付きでこのページを開くと自動で保存されます。</p>
+      </div>
+    </details>
+  </div>
+
+  <footer>study.v1 共通学習ログ 送信ページ ｜ このページは学習ログの送信だけを行います</footer>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const LOG_KEY = 'study.records.v1';        // 仕様 §1: 全アプリ共通の学習ログキー
+  const CONF_KEY = 'studySender.config.v1';
+  const NUMBER_KEY = 'studySender.number.v1';
+  const CHUNK_SIZE = 100;                    // 1回のPOSTで送る最大件数
+  const APP_LABELS = {
+    'qalc': 'Qalc（計算ゲーム）',
+    'kanji-town': '漢字タウン',
+    'keisan-card': 'けいさんカード',
+    'keisan-block': 'さんすうブロック',
+    'square100': '100マス計算'
+  };
+
+  const $ = id => document.getElementById(id);
+
+  // ---------- 設定 ----------
+  function loadConfig() {
+    try {
+      const conf = JSON.parse(localStorage.getItem(CONF_KEY) || '{}');
+      return (conf && typeof conf === 'object') ? conf : {};
+    } catch (e) { return {}; }
+  }
+  function saveConfig(conf) {
+    localStorage.setItem(CONF_KEY, JSON.stringify(conf));
+  }
+  function applyUrlParams() {
+    const params = new URLSearchParams(location.search);
+    const endpoint = params.get('endpoint');
+    const key = params.get('key');
+    if (endpoint || key) {
+      const conf = loadConfig();
+      if (endpoint) conf.endpoint = endpoint;
+      if (key) conf.key = key;
+      saveConfig(conf);
+      // 送信キーがURL履歴に残らないようパラメータを消す
+      history.replaceState(null, '', location.pathname);
+    }
+  }
+
+  // ---------- 学習ログの読み出し（読み出し専用・仕様 §5.5） ----------
+  function loadRecords() {
+    try {
+      const raw = localStorage.getItem(LOG_KEY);
+      if (!raw) return [];
+      const log = JSON.parse(raw);
+      return Array.isArray(log) ? log : [];
+    } catch (e) { return []; }
+  }
+
+  /** 送信できる形か（最低限のローカル検査。本検査はサーバー側 §9 が行う） */
+  function isSendable(r) {
+    return r && typeof r === 'object' && r.schema === 'study.v1' && typeof r.id === 'string' && r.id.length >= 8;
+  }
+
+  /** 送信済み（受理・重複・形式エラー）のレコードを localStorage から削除します（仕様 §1.3） */
+  function removeRecords(ids) {
+    if (!ids || ids.size === 0) return;
+    try {
+      const rest = loadRecords().filter(r => !(r && ids.has(r.id)));
+      localStorage.setItem(LOG_KEY, JSON.stringify(rest));
+    } catch (e) { /* 削除に失敗しても次回の重複排除で守られる */ }
+  }
+
+  // ---------- 表示 ----------
+  function renderPending() {
+    const records = loadRecords();
+    const sendable = records.filter(isSendable);
+    $('pending-count').textContent = sendable.length;
+    const byApp = {};
+    sendable.forEach(r => {
+      const label = APP_LABELS[r.appId] || r.appId || '不明なアプリ';
+      byApp[label] = (byApp[label] || 0) + 1;
+    });
+    const rows = Object.keys(byApp).map(label => `<tr><td>${escapeHtml(label)}</td><td>${byApp[label]}件</td></tr>`).join('');
+    $('pending-summary').innerHTML = rows ? `<table>${rows}</table>` : '';
+    $('pending-note').textContent = sendable.length === 0
+      ? 'おくるきろくはありません。アプリで学習すると、この端末にきろくがたまります。'
+      : 'ボタンをおすと、先生におくられます。';
+    const broken = records.length - sendable.length;
+    if (broken > 0) {
+      $('pending-note').textContent += `（形式が古いきろく ${broken}件はおくれません）`;
+    }
+    $('send-btn').disabled = sendable.length === 0;
+    return sendable;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function showResult(ok, html) {
+    const box = $('result-box');
+    box.className = `result show ${ok ? 'success' : 'failure'}`;
+    box.innerHTML = html;
+  }
+
+  // ---------- 送信 ----------
+  async function post(endpoint, body) {
+    // Content-Type: text/plain にすると CORS のプリフライトが発生せず、
+    // GAS Webアプリ（アクセス: 全員）へそのまま届きます。
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  async function send() {
+    const conf = loadConfig();
+    const studentNumber = String($('student-number').value || '').trim();
+    if (!conf.endpoint || !conf.key) {
+      showResult(false, '<span class="err">せっていがまだです。</span> 先生に「せってい（先生用）」をたのんでください。');
+      return;
+    }
+    if (!studentNumber) {
+      showResult(false, '<span class="warn">しゅっせきばんごうを 入れてね。</span>');
+      return;
+    }
+    localStorage.setItem(NUMBER_KEY, studentNumber);
+
+    const sendable = renderPending();
+    if (sendable.length === 0) return;
+
+    $('send-btn').disabled = true;
+    $('send-btn').textContent = '📨 おくっています…';
+
+    let saved = 0, duplicate = 0, rejected = 0, gainedExp = 0;
+    try {
+      for (let i = 0; i < sendable.length; i += CHUNK_SIZE) {
+        const chunk = sendable.slice(i, i + CHUNK_SIZE);
+        const result = await post(conf.endpoint, {
+          api: 'study-log', token: conf.key, studentNumber, records: chunk
+        });
+        if (!result.success) {
+          showResult(false, `<span class="err">おくれませんでした。</span> ${escapeHtml(result.message || '')}`);
+          return;
+        }
+        saved += (result.saved || []).length;
+        duplicate += (result.duplicate || []).length;
+        rejected += (result.rejected || []).length;
+        gainedExp += result.gainedExp || 0;
+        // 受理・重複・形式エラーはすべて「送信済み」として端末から削除する
+        const doneIds = new Set([
+          ...(result.saved || []),
+          ...(result.duplicate || []),
+          ...(result.rejected || []).map(r => r && r.id).filter(Boolean)
+        ]);
+        removeRecords(doneIds);
+      }
+      const parts = [`<span class="ok">✅ ${saved}件 おくりました！</span>`];
+      if (gainedExp > 0) parts.push(`まなびクエストで <b>+${gainedExp} EXP</b> ゲット！`);
+      if (duplicate > 0) parts.push(`<span class="muted">${duplicate}件はおくりずみでした。</span>`);
+      if (rejected > 0) parts.push(`<span class="muted">${rejected}件は形式エラーでうけつけられませんでした。</span>`);
+      showResult(true, parts.join('<br>'));
+    } catch (e) {
+      showResult(false, `<span class="err">つうしんエラー。</span> インターネットにつながっているかたしかめて、もういちどためしてね。<br><span class="muted">${escapeHtml(e.message)}</span>`);
+    } finally {
+      $('send-btn').disabled = false;
+      $('send-btn').textContent = '📨 きろくを おくる';
+      renderPending();
+    }
+  }
+
+  // ---------- 接続テスト（先生用） ----------
+  async function testConnection() {
+    const conf = {
+      endpoint: $('conf-endpoint').value.trim(),
+      key: $('conf-key').value.trim()
+    };
+    const status = $('conf-status');
+    if (!conf.endpoint || !conf.key) { status.textContent = 'URLと送信キーを入力してください。'; return; }
+    status.textContent = 'テスト中…';
+    try {
+      const result = await post(conf.endpoint, { api: 'study-log', token: conf.key, records: [] });
+      status.textContent = result.success ? '✅ 接続できました。' : `❌ ${result.message || '接続できません'}`;
+    } catch (e) {
+      status.textContent = `❌ 接続できません（${e.message}）`;
+    }
+  }
+
+  // ---------- 初期化 ----------
+  applyUrlParams();
+  const conf = loadConfig();
+  $('conf-endpoint').value = conf.endpoint || '';
+  $('conf-key').value = conf.key || '';
+  $('student-number').value = localStorage.getItem(NUMBER_KEY) || '';
+  renderPending();
+
+  $('send-btn').addEventListener('click', send);
+  $('conf-save-btn').addEventListener('click', () => {
+    saveConfig({ endpoint: $('conf-endpoint').value.trim(), key: $('conf-key').value.trim() });
+    $('conf-status').textContent = '保存しました。';
+  });
+  $('conf-test-btn').addEventListener('click', testConnection);
+})();
+</script>
+</body>
+</html>

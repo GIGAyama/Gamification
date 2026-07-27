@@ -49,7 +49,10 @@ const SHEETS = {
   GENERAL_SHOKEN: '全体所見',
   MORAL_SHOKEN: '道徳所見',
   ATTITUDE_SCORES: '学びに向かう力スコア',   // 授業ふり返りごとの主体性スコア蓄積
-  ATTITUDE_SUMMARY: '人間性評価集計'          // 学期集計の出力先
+  ATTITUDE_SUMMARY: '人間性評価集計',         // 学期集計の出力先
+
+  // --- 学習アプリ連携 ---
+  STUDY_LOG: '学習ログ'                       // GIGA山学習アプリ群の共通学習ログ（study.v1）
 };
 
 /** ふり返りシートの「所見抽出」フラグ列（1始まり） */
@@ -82,6 +85,7 @@ const LOG_ACTIONS = {
   RECORD_LESSON: 'RECORD_LESSON',
   RECORD_TEST: 'RECORD_TEST',
   RECORD_MORAL: 'RECORD_MORAL',
+  RECORD_STUDY_APP: 'RECORD_STUDY_APP',   // 学習アプリ(study.v1)ログの受信
   ACHIEVE_GOAL: 'ACHIEVE_GOAL'
 };
 
