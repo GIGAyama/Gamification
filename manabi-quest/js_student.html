@@ -83,6 +83,21 @@ function initStudentApp(data) {
   }
 }
 
+/**
+ * レベルアップのお祝い。
+ * まず画面いっぱいの演出を見せ、それが終わってからダイアログを出します。
+ * （同時に出すと、せっかくの演出がダイアログにかくれてしまいます）
+ * @param {number|string} level - あたらしいレベル
+ * @returns {Promise} ダイアログを閉じたら解決します
+ */
+function showLevelUp(level) {
+  return levelUpBurst(level).then(() => Swal.fire({
+    icon: 'success', title: 'レベルアップ！',
+    html: `<b>レベル ${esc(String(level))}</b> になりました！`,
+    confirmButtonText: 'やったー！'
+  }));
+}
+
 function showNewBadges(badges) {
   if (!badges || badges.length === 0) return;
   const names = badges.map(b => `「${esc(b.name)}」`).join('・');
@@ -97,6 +112,24 @@ function showNewBadges(badges) {
 function renderStudentHeader(profile) {
   document.getElementById('nav-nickname').textContent = profile.nickname;
   document.getElementById('nav-level').textContent = profile.level;
+}
+
+/**
+ * つぎのレベルまでのバーをのばします。
+ * ふえたときだけ、バーの上を光がすべって「のびた！」ことを伝えます。
+ * @param {number} progress - 0〜100 のパーセント
+ */
+function setXpBar_(progress) {
+  const bar = document.getElementById('home-progress-bar');
+  if (!bar) return;
+  const before = parseFloat(bar.style.width) || 0;
+  const after = Number(progress) || 0;
+  bar.style.width = `${after}%`;
+  const wrap = bar.parentElement;
+  if (!wrap || after <= before) return;
+  wrap.classList.remove('grew');
+  void wrap.offsetWidth;   // アニメーションをやり直すためのリセット
+  wrap.classList.add('grew');
 }
 
 /**
@@ -115,7 +148,7 @@ function renderHome(data) {
   countUp(document.getElementById('home-exp'), p.exp);
   countUp(document.getElementById('home-exchange'), p.exchangePoints);
   document.getElementById('home-progress-text').textContent = `${p.currentLevelExp} / ${p.nextLevelExp}`;
-  document.getElementById('home-progress-bar').style.width = `${p.progress}%`;
+  setXpBar_(p.progress);
   const motto = data.userProfile && data.userProfile.motto;
   document.getElementById('home-motto').textContent = motto ? `「${motto}」` : '';
 
@@ -222,10 +255,16 @@ function recordedToday_() {
   return false;
 }
 
+/** 「きょう やること」が、さっきまで やることだったか（演出を出す判定に使います） */
+let todayWasPending = false;
+
 function renderTodayCard() {
   const el = document.getElementById('home-today');
   if (!el) return;
   const task = pickTodayTask();
+  // やることが「できた」に変わったしゅんかんだけ、カードがうなずいてお祝いします
+  const justDone = task.done && todayWasPending;
+  todayWasPending = !task.done;
   el.innerHTML = `
     <button type="button" class="mq-today${task.done ? ' done' : ''}"${task.done ? ' disabled' : ''}>
       <span class="today-label">${esc(task.label)}</span>
@@ -235,7 +274,9 @@ function renderTodayCard() {
       </span>
       <span class="today-note">${esc(task.note)}</span>
     </button>`;
-  if (task.go) el.querySelector('.mq-today').addEventListener('click', task.go);
+  const card = el.querySelector('.mq-today');
+  if (justDone) card.classList.add('just-done');
+  if (task.go) card.addEventListener('click', () => { popElement(card); setTimeout(task.go, 90); });
 }
 
 /** 「ミッション・めあて」のとびらに出す、気づいてほしい件数のバッジ */
@@ -639,9 +680,7 @@ function openWeeklyReflectionDialog() {
     let html = `今週のふり返りを書きました！<br><b class="text-primary">+${res.gainedExp} EXP</b>`;
     if (res.goalRegistered) html += `<br>${icon('target')} 来週のめあてをセットしました`;
     Swal.fire({ icon: 'success', title: 'よくがんばりました！', html }).then(() => {
-      if (res.leveledUp) {
-        Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${res.newLevel}</b> になりました！` });
-      }
+      if (res.leveledUp) showLevelUp(res.newLevel);
     });
   });
 }
@@ -804,8 +843,7 @@ function handlePortalSendResult(msg) {
 
   Swal.fire({ icon: 'success', title: msg.personalBest ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
     if (msg.leveledUp) {
-      Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${msg.level}</b> になりました！` })
-        .then(refreshStudentData);
+      showLevelUp(msg.level).then(refreshStudentData);
     } else {
       refreshStudentData();
     }
@@ -834,6 +872,8 @@ function renderMissions(missions) {
     return;
   }
   const typeBadge = { 'デイリー': 'bg-info', 'ウィークリー': 'bg-primary', '協力': 'bg-danger' };
+  // 上から順にふわっと出てくると、一気に出るよりも目線が迷いません
+  container.classList.add('mq-stagger');
   container.innerHTML = missions.map(m => {
     const pct = m.target > 0 ? Math.floor((m.progress / m.target) * 100) : 0;
     let action = '';
@@ -865,6 +905,7 @@ function renderMissions(missions) {
     btn.addEventListener('click', async () => {
       const result = await apiWithLoading('うけとり中...', 'claimMissionReward', btn.dataset.mission);
       if (result.success) {
+        starBurst(btn, 14);   // 押したボタンから星がはじけます
         celebrate(45);
         toast(result.message);
         if (result.newExp !== undefined) {
@@ -1485,6 +1526,7 @@ function openRecordForm(type) {
   const panel = document.getElementById('p-rec-form');
   panel.innerHTML = panelHeader(style.icon, RECORD_LABELS[type], 'p-rec-group') + `
     <div class="mq-dots no-furigana" aria-hidden="true">${steps.map(() => '<i></i>').join('')}</div>
+    <div class="mq-progress no-furigana" aria-hidden="true"><span id="step-progress"></span></div>
     <div class="mq-card ${style.accent}">
       <div class="mq-card-body">
         <div class="mq-steps">
@@ -1537,13 +1579,23 @@ function showStep(index, back) {
       el.classList.add('on', back ? 'anim-back' : 'anim-fwd');
     }
   });
+  const previous = RecordForm.index;
   RecordForm.index = index;
 
-  // 進み具合の点
+  // 進み具合の点。いま答えおわった点だけは「ぽん」とはじけさせます
   panel.querySelectorAll('.mq-dots i').forEach((dot, i) => {
-    dot.classList.toggle('done', i < index);
+    const done = i < index;
+    const justAnswered = done && !back && i === previous;
+    dot.classList.remove('just-done');
+    if (justAnswered) void dot.offsetWidth;   // アニメーションをやり直すためのリセット
+    dot.classList.toggle('done', done);
     dot.classList.toggle('now', i === index);
+    if (justAnswered) dot.classList.add('just-done');
   });
+
+  // のびていくバー。あと何問なのかが、数えなくても分かります
+  const bar = document.getElementById('step-progress');
+  if (bar) bar.style.width = `${Math.round((index / RecordForm.steps.length) * 100)}%`;
 
   const isLast = index === RecordForm.steps.length - 1;
   const next = document.getElementById('step-next');
@@ -1692,9 +1744,7 @@ async function submitRecordForm(type) {
 
   Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html }).then(() => {
     if (result.leveledUp) {
-      celebrate(160);
-      Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
-        .then(() => refreshMissions());
+      showLevelUp(result.newLevel).then(() => refreshMissions());
     } else {
       refreshMissions();
     }
@@ -2052,6 +2102,7 @@ async function runGacha(count) {
   // レアなアイテムが出たときは、はでにおいわいします
   const bestRarity = result.results.some(i => i['レアリティー'] === 'SR') ? 'SR'
     : result.results.some(i => i['レアリティー'] === 'R') ? 'R' : 'N';
+  if (machine) starBurst(machine, bestRarity === 'SR' ? 20 : 12);   // ガチャの絵から星がとび出します
   celebrate(bestRarity === 'SR' ? 150 : bestRarity === 'R' ? 70 : 35);
   result.results.forEach(item => {
     if (!item.isDuplicate) App.data.inventory.push(item['アイテムID']);
@@ -2265,12 +2316,13 @@ function renderRankings(containerId, rankings) {
   const medal = rank => rank <= 3
     ? `<span class="rank-badge rank-${rank}">${rank}</span>`
     : `<span class="rank-plain">${rank}</span>`;
+  // 1位から順にすべりこんでくるので、発表を見ているような楽しさになります
   const list = (items, valueFormatter) => items.length === 0 ? emptyMessage('まだきろくがありません') :
-    items.map(item => `<div class="ranking-item">
+    `<div class="mq-stagger">` + items.map(item => `<div class="ranking-item">
       <span class="rank-medal">${medal(item.rank || items.indexOf(item) + 1)}</span>
       <span class="flex-grow-1 fw-bold">${esc(item.nickname || item.name)}</span>
       <span class="text-primary fw-bold small">${valueFormatter(item)}</span>
-    </div>`).join('');
+    </div>`).join('') + `</div>`;
 
   let calcHtml = '';
   Object.keys(rankings.calc || {}).forEach(mode => {
@@ -2318,7 +2370,7 @@ function bindStudentEvents() {
 
   // ホームからいちばん押されるボタン。「きろく」タブへ連れていきます
   const cta = document.getElementById('home-record-cta');
-  if (cta) cta.addEventListener('click', () => showView('view-records', { push: true }));
+  if (cta) cta.addEventListener('click', () => tapDoorThen(cta, () => showView('view-records', { push: true })));
 
   document.getElementById('btn-save-avatar').addEventListener('click', async () => {
     const result = await apiWithLoading('ほぞん中...', 'saveAvatar', App.pendingAvatar);

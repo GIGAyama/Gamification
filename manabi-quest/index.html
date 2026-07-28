@@ -73,7 +73,10 @@
 
     <!-- 初期ロード -->
     <div id="initial-loading-view" class="text-center py-5">
-      <div class="spinner-grow text-primary mb-3" style="width:3rem;height:3rem;" role="status"></div>
+      <!-- 待っているあいだも楽しく。まるがじゅんばんにぴょんぴょんはねます -->
+      <div class="mq-loading-dots mb-3 no-furigana" role="status" aria-label="読み込み中">
+        <i></i><i></i><i></i>
+      </div>
       <h4 class="fw-bold text-secondary">データをじゅんびしています...</h4>
     </div>
 
