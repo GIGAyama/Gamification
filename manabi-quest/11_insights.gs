@@ -423,7 +423,7 @@ function getRecordStore_(ss, email) {
   if (RECORD_STORE_CACHE_ && RECORD_STORE_CACHE_.email === target) return RECORD_STORE_CACHE_;
   RECORD_STORE_CACHE_ = {
     email: target,
-    reading: getUserRows_(ss, SHEETS.READING, target, 7, 0),
+    reading: getUserRows_(ss, SHEETS.READING, target, READING_COLS.NUM, 0),
     typing: getUserRows_(ss, SHEETS.TYPING, target, 7, 0),
     calc: getUserRows_(ss, SHEETS.CALC, target, 6, 0),
     study: getUserRows_(ss, SHEETS.STUDY, target, 5, 0),
@@ -521,9 +521,12 @@ function getLearningTotals_(ss, email, insights) {
   store.typing.forEach(row => {
     keys += Number(row[3]) || 0;
   });
+  // 「◯回ぶん」は下の分数と釣り合わせたいので、時間を計測しているアプリだけを数えます
+  // （読書アプリは記録操作の時間しか持たず 0分になるため。仕様 §3.8.2）
   store.studyLog.forEach(r => {
-    appRecords++;
-    ms += studyLearnMs_(r);
+    const learnMs = studyLearnMs_(r);
+    if (learnMs > 0) appRecords++;
+    ms += learnMs;
   });
 
   const minutes = Math.round(ms / 60000);
@@ -534,7 +537,7 @@ function getLearningTotals_(ss, email, insights) {
   return [
     {
       icon: '📖', label: '読んだページ', value: pages, unit: 'ページ',
-      note: pages > 0 ? `本 やく${Math.max(1, Math.round(pages / 100))}さつ分` : 'よんだ本をきろくしてみよう'
+      note: pages > 0 ? `本 やく${Math.max(1, Math.round(pages / 100))}さつ分` : 'どくしょ ちょきんばこ で きろくしてみよう'
     },
     {
       icon: '⌨️', label: '打った文字', value: keys, unit: '文字',

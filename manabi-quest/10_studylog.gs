@@ -19,6 +19,12 @@
  * - 受信のたびに活動時間に応じた経験値を付与し、ゲーミフィケーションへ接続する
  * - 100マス計算アプリのレコードは「100マス計算記録」シートへも自動転記する
  *   （手入力の自己申告を廃止し、アプリの実測値をランキング・バッジ・グラフの土台にする）
+ * - どくしょ ちょきんばこのレコードは「読書記録」シートへも自動転記する
+ *   （読書の手入力フォームを廃止し、記録は読書アプリに一本化した。冊数・ページ数は
+ *     従来どおりランキング・バッジ・ミッション・ポートフォリオPDFに反映される）
+ * - 読書アプリの elapsedMs は「記録する操作」の時間であり読書時間ではないため、
+ *   学習時間の合計・ランキング・時間あたりの経験値からは除外する（§3.8.2）。
+ *   読書の取り組み量は冊数とページ数で数える
  * - 送信そのものにも「そうしんボーナス」「れんぞくボーナス」を用意し、
  *   きろくを送ることが児童にとってはっきり得になるようにする
  *
@@ -47,7 +53,8 @@ const STUDY_APPS = {
   'keisan-card': 'けいさんカード',
   'keisan-block': 'さんすうブロック',
   'square100': '100マス計算',
-  'kuku-card': '九九カード'
+  'kuku-card': '九九カード',
+  'reading-books': 'どくしょ ちょきんばこ'
 };
 
 /**
@@ -68,6 +75,20 @@ const STUDY_RETRYABLE_REASONS = {
 
 /** 「100マス計算記録」シートへ自動転記する対象アプリ */
 const SQUARE100_APP_ID = 'square100';
+
+/** 「読書記録」シートへ自動転記する対象アプリ（どくしょ ちょきんばこ） */
+const READING_APP_ID = 'reading-books';
+
+/**
+ * 学習時間（elapsedMs / activeMs）を合計に加えないアプリ（仕様 §3.8.2）。
+ *
+ * どくしょ ちょきんばこが計測しているのは「本を1冊きろくする操作」にかかった時間で、
+ * 読書そのものの時間ではありません（1冊あたり数十秒）。これを他アプリの実測値と
+ * 足し合わせると、読書を「ほとんど学習していない活動」として見せてしまいます。
+ * 読書は時間ではなく**冊数とページ数**で見ます。
+ */
+const STUDY_NO_TIME_APPS = {};
+STUDY_NO_TIME_APPS[READING_APP_ID] = true;
 
 /** study.v1 の mode → 「100マス計算記録」の「モード」表示名 */
 const SQUARE100_MODE_LABELS = {
@@ -207,10 +228,11 @@ function receiveStudyRecords_(payload, options) {
     const coeff = getConfigNumber_(config, '学習アプリ経験値係数', 1);
     const expCap = getConfigNumber_(config, '学習アプリ経験値上限', 30);
     const calcCoeff = getConfigNumber_(config, '100マス計算アプリ経験値係数', 0.5);
+    const readingCoeff = getConfigNumber_(config, '読書記録経験値係数', 1);
     const now = new Date();
 
-    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [], calcRows = [];
-    let appExp = 0, calcExp = 0;
+    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [], calcRows = [], readingRows = [];
+    let appExp = 0, calcExp = 0, readingExp = 0;
 
     records.forEach(rec => {
       const v = validateStudyRecord_(rec, now);
@@ -231,7 +253,10 @@ function receiveStudyRecords_(payload, options) {
       existingIds.add(v.rec.id);
       rows.push(buildStudyLogRow_(v, student, now, precision));
       logMessages.push(`${v.rec.appLabel}で「${v.rec.unitTitle}」にとりくんだ`);
-      if (coeff > 0) {
+      // 時間あたりの経験値は、学習時間を計測しているアプリだけに付けます。
+      // 読書アプリの経過時間は「記録する操作」の時間なので（§3.8.2）、
+      // 代わりに下の読書記録転記でページ数ぶんの経験値を付けます。
+      if (coeff > 0 && !STUDY_NO_TIME_APPS[v.rec.appId]) {
         const minutes = (v.rec.activeMs !== null ? v.rec.activeMs : v.rec.elapsedMs) / 60000;
         appExp += Math.min(expCap, Math.floor(minutes * coeff));
       }
@@ -240,6 +265,13 @@ function receiveStudyRecords_(payload, options) {
       if (calc) {
         calcRows.push(calc);
         if (calcCoeff > 0) calcExp += Math.floor(calc.score * calcCoeff);
+      }
+      // どくしょ ちょきんばこのレコードは「読書記録」シートへも転記し、ページ数ぶんの経験値を追加
+      // （手入力フォームだったころと同じ計算式・同じ設定項目です）
+      const book = buildReadingRecordRow_(v, student);
+      if (book) {
+        readingRows.push(book);
+        if (readingCoeff > 0) readingExp += Math.floor(book.pages * readingCoeff);
       }
       saved.push(v.rec.id);
     });
@@ -254,11 +286,13 @@ function receiveStudyRecords_(payload, options) {
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
     logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
     appendCalcRecords_(ss, student, calcRows);
+    appendReadingRecords_(ss, student, readingRows);
 
     // 送信ボーナスは「今日はじめての送信」だけに付くので、ログを書く前に判定する
-    const reward = grantStudySendReward_(ss, student, config, now, rows.length, calcRows.length);
+    const reward = grantStudySendReward_(ss, student, config, now, rows.length, calcRows.length, readingRows.length);
     reward.appExp = appExp;
     reward.calcExp = calcExp;
+    reward.readingExp = readingExp;
 
     let leveledUp = false;
     const applyExp = (amount, label) => {
@@ -268,6 +302,7 @@ function receiveStudyRecords_(payload, options) {
     };
     applyExp(appExp, '学習アプリ');
     applyExp(calcExp, '100マス計算');
+    applyExp(readingExp, RECORD_TYPES.reading.label);
     applyExp(reward.sendExp, '学習きろくのそうしんボーナス');
     applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
 
@@ -294,7 +329,7 @@ function receiveStudyRecords_(payload, options) {
     clearRecordStoreCache_();
     clearClassLogStatsCache_();
 
-    const gainedExp = appExp + calcExp + reward.sendExp + reward.streakExp
+    const gainedExp = appExp + calcExp + readingExp + reward.sendExp + reward.streakExp
       + (reward.personalBestExp || 0) + (reward.recordStreakExp || 0);
     const levelInfo = calculateLevel(getUserTotalExp_(ss, student.email), config);
     return {
@@ -325,8 +360,8 @@ function getBestCalcTime_(ss, email) {
 /** ボーナスなしの初期値 */
 function emptyStudyReward_() {
   return {
-    appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
-    streak: 0, calcRecords: 0, records: 0,
+    appExp: 0, calcExp: 0, readingExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
+    streak: 0, calcRecords: 0, readingRecords: 0, records: 0,
     personalBestExp: 0, recordStreakExp: 0, recordStreak: 0
   };
 }
@@ -339,10 +374,11 @@ function emptyStudyReward_() {
  * 「送るとはっきり得をする」ことで、学習アプリでの学びをまなびクエストに持ち込む動機づけにします。
  * ※ 経験値の加算は呼び出し側（他のEXPとまとめてレベルアップ判定するため）で行います。
  */
-function grantStudySendReward_(ss, student, config, now, recordCount, calcCount) {
+function grantStudySendReward_(ss, student, config, now, recordCount, calcCount, readingCount) {
   const reward = emptyStudyReward_();
   reward.records = recordCount;
   reward.calcRecords = calcCount;
+  reward.readingRecords = readingCount || 0;
 
   const days = getStudySendDays_(ss, student.email);
   const today = Utilities.formatDate(now, 'JST', 'yyyy-MM-dd');
@@ -425,6 +461,106 @@ function appendCalcRecords_(ss, student, calcRows) {
   calcRows.forEach(c => {
     writeLog_(ss, student.email, LOG_ACTIONS.RECORD_CALC,
       `${RECORD_TYPES.calc.label}（${c.mode}）を記録: ${c.score}点`);
+  });
+}
+
+// ---------------------------------------------------------------------
+// 読書記録への自動転記
+// ---------------------------------------------------------------------
+
+/**
+ * どくしょ ちょきんばこ（reading-books）のレコードを「読書記録」シートの1行に変換します。
+ *
+ * 読書の記録はまなびクエスト側の手入力フォームを廃止し、この転記に一本化しました。
+ * 冊数・ページ数はランキング（どくしょ王）・バッジ・ミッション・ポートフォリオPDFの
+ * 土台になるため、学習ログに残すだけでなく従来どおり「読書記録」シートにも並べます。
+ *
+ * 1レコード＝1冊です（仕様 §3.8）。100マス計算と違って `source` / `grading` では
+ * 絞り込みません。手入力の本は `source: "custom"`、採点がないため `grading` は
+ * 常に `"selfReport"` であり、どちらも「読んだ事実」としては同じだからです。
+ * 中断レコード（`status: "aborted"`）だけは、読み終えた1冊とは言えないので除きます。
+ *
+ * D列「ジャンル」は手入力フォーム専用の項目だったため空にします（§READING_COLS）。
+ * @returns {{row: Array, pages: number, title: string}|null}
+ */
+function buildReadingRecordRow_(v, student) {
+  const r = v.rec;
+  if (r.appId !== READING_APP_ID) return null;
+  if (r.status !== 'completed' || r.multiplayer) return null;
+
+  const ext = r.extJson ? safeParseJson_(r.extJson) : null;
+  const pages = Number(ext && ext.pages);
+  const rating = Number(ext && ext.rating);
+  const day = new Date(Utilities.formatDate(v.started, 'JST', 'yyyy/MM/dd') + ' 00:00:00');
+  return {
+    row: [
+      day,
+      student.email,
+      r.unitTitle,                                                   // 題名（unit.title）
+      '',                                                            // ジャンル（旧・手入力専用）
+      (isFinite(pages) && pages > 0) ? Math.round(pages) : 0,
+      (isFinite(rating) && rating >= 0 && rating <= 5) ? Math.round(rating) : 0,
+      readingComment_(ext),
+      readingIsbn_(ext)
+    ],
+    pages: (isFinite(pages) && pages > 0) ? Math.round(pages) : 0,
+    title: r.unitTitle
+  };
+}
+
+/**
+ * ext.memo（児童が書いたかんそう）を「感想」列の値にします。
+ * 自由入力なので、シートを壊さないよう改行・タブをつぶして200文字で切ります。
+ * ここは「みんなの本だな」のおすすめコメントとして児童に見えるところです。
+ */
+function readingComment_(ext) {
+  const memo = ext && ext.memo;
+  if (typeof memo !== 'string') return '';
+  return memo.replace(/[\r\n\t]+/g, ' ').trim().slice(0, 200);
+}
+
+/** ext.isbn（ISBN13）。数字13桁でなければ空にします（同じ本をまとめる鍵に使うため） */
+function readingIsbn_(ext) {
+  const isbn = ext && ext.isbn;
+  return (typeof isbn === 'string' && /^\d{13}$/.test(isbn)) ? isbn : '';
+}
+
+/** JSON文字列を安全に解析します（壊れていれば null） */
+function safeParseJson_(json) {
+  try { return JSON.parse(json); } catch (e) { return null; }
+}
+
+/**
+ * 「読書記録」シートに ISBN 列（H）があることを確かめ、無ければ足します。
+ *
+ * ISBN は連携で追加した列です。スクリプトを更新しただけで
+ * メニューの「初期セットアップ」を再実行していない状態でも記録を落とさないよう、
+ * 受信のたびに列と見出しの有無だけを確認します（既存のデータには触れません）。
+ * @returns {Sheet|null} 追記してよいシート。シート自体が無ければ null
+ */
+function ensureReadingSheet_(ss) {
+  const sheet = ss.getSheetByName(SHEETS.READING);
+  if (!sheet) return null;
+  if (sheet.getMaxColumns() < READING_COLS.NUM) {
+    sheet.insertColumnsAfter(sheet.getMaxColumns(), READING_COLS.NUM - sheet.getMaxColumns());
+  }
+  const header = sheet.getRange(1, READING_COLS.ISBN);
+  if (String(header.getValue()).trim() === '') {
+    header.setValue(getSheetDefinitions_()[SHEETS.READING][READING_COLS.ISBN - 1]).setFontWeight('bold');
+  }
+  return sheet;
+}
+
+/** 変換した読書記録をまとめて追記し、ミッション・バッジ判定用のログも残します */
+function appendReadingRecords_(ss, student, readingRows) {
+  if (!readingRows || readingRows.length === 0) return;
+  const sheet = ensureReadingSheet_(ss);
+  if (!sheet) return;
+  sheet.getRange(sheet.getLastRow() + 1, 1, readingRows.length, READING_COLS.NUM)
+    .setValues(readingRows.map(b => b.row));
+  readingRows.forEach(b => {
+    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_READING,
+      `${RECORD_TYPES.reading.label}を記録: 「${b.title}」${b.pages > 0 ? ` ${b.pages}ページ` : ''}`);
   });
 }
 
@@ -705,9 +841,33 @@ function studyFirstTry_(r) {
   return truncated ? truncated.firstTryCorrect : r.firstTryCorrect;
 }
 
-/** 学習時間として使う値（activeMs 優先・なければ elapsedMs） */
+/**
+ * 学習時間として使う値（activeMs 優先・なければ elapsedMs）。
+ * 記録操作の時間しか持たないアプリは 0 を返し、学習時間の合計に混ぜません（§3.8.2）。
+ * この関数を通す集計（合計時間・ランキング・成長カード・週次メール）はすべて
+ * その扱いに揃います。読書の取り組み量は冊数とページ数で数えます。
+ */
 function studyLearnMs_(r) {
+  if (STUDY_NO_TIME_APPS[r.appId]) return 0;
   return (r.activeMs !== null && !isNaN(r.activeMs)) ? r.activeMs : r.elapsedMs;
+}
+
+/**
+ * 学習ログ1件を「読んだ冊数・ページ数」として数えます（§3.8.1）。
+ * 読書アプリ以外は 0 を返すので、どの集計にもそのまま足せます。
+ * @returns {{books: number, pages: number}}
+ */
+function studyReadingAmount_(r) {
+  if (r.appId !== READING_APP_ID || r.status !== 'completed') return { books: 0, pages: 0 };
+  const ext = parseStudyExt_(r);
+  const pages = Number(ext && ext.pages);
+  return { books: r.count || 0, pages: (isFinite(pages) && pages > 0) ? Math.round(pages) : 0 };
+}
+
+/** ext（拡張層）のJSONをレコードごとに1回だけ解析します。壊れていれば null */
+function parseStudyExt_(r) {
+  if (r._ext === undefined) r._ext = r.extJson ? safeParseJson_(r.extJson) : null;
+  return r._ext;
 }
 
 /**
@@ -759,32 +919,43 @@ function getStudyLogDashboard(period) {
     roster.forEach(s => { nameByEmail[s.email] = s; });
 
     // 全体・アプリ別・児童別
-    const totals = { records: records.length, ms: 0, aborted: 0 };
+    const totals = { records: records.length, ms: 0, aborted: 0, books: 0, pages: 0 };
     const activeStudents = new Set();
     const apps = {};
     const perStudent = {};
     roster.forEach(s => {
-      perStudent[s.email] = { number: s.number, name: s.name, records: 0, ms: 0, attempted: 0, firstTry: 0, aborted: 0, lastDay: null };
+      perStudent[s.email] = {
+        number: s.number, name: s.name, records: 0, ms: 0,
+        attempted: 0, firstTry: 0, aborted: 0, books: 0, pages: 0, lastDay: null
+      };
     });
 
     records.forEach(r => {
       const ms = studyLearnMs_(r);
+      // 読書は時間ではなく冊数・ページ数で数えます（§3.8.2）
+      const read = studyReadingAmount_(r);
       totals.ms += ms;
+      totals.books += read.books;
+      totals.pages += read.pages;
       if (r.status === 'aborted') totals.aborted++;
       activeStudents.add(r.email);
 
       const app = apps[r.appId] = apps[r.appId] || {
         appId: r.appId, label: r.appLabel || STUDY_APPS[r.appId] || r.appId,
-        records: 0, ms: 0, attempted: 0, firstTry: 0, students: new Set()
+        records: 0, ms: 0, attempted: 0, firstTry: 0, books: 0, pages: 0, students: new Set()
       };
       app.records++;
       app.ms += ms;
+      app.books += read.books;
+      app.pages += read.pages;
       app.students.add(r.email);
 
       const st = perStudent[r.email];
       if (st) {
         st.records++;
         st.ms += ms;
+        st.books += read.books;
+        st.pages += read.pages;
         if (r.status === 'aborted') st.aborted++;
         if (!st.lastDay || (r.day && r.day > st.lastDay)) st.lastDay = r.day;
       }
@@ -826,12 +997,14 @@ function getStudyLogDashboard(period) {
       .slice(0, 40)
       .map(r => {
         const st = nameByEmail[r.email];
+        const read = studyReadingAmount_(r);
         return {
           day: formatDate_(r.day, 'M/d'), slot: r.slot,
           number: st ? st.number : '', name: st ? st.name : '（名簿外）',
           app: r.appLabel, mode: r.mode, unit: r.unitTitle, status: r.status,
           count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
           minutes: studyMinutes_(studyLearnMs_(r)),
+          timed: !STUDY_NO_TIME_APPS[r.appId], pages: read.pages,
           multiplayer: r.multiplayer, grading: r.grading, source: r.source
         };
       });
@@ -849,14 +1022,20 @@ function getStudyLogDashboard(period) {
         records: totals.records,
         students: activeStudents.size,
         minutes: Math.round(totals.ms / 60000),
-        aborted: totals.aborted
+        aborted: totals.aborted,
+        // 読書は学習時間に含めず、冊数とページ数で見せます（§3.8.2）
+        books: totals.books,
+        pages: totals.pages
       },
       apps: Object.keys(apps).map(id => {
         const a = apps[id];
         return {
           appId: a.appId, label: a.label, records: a.records,
           students: a.students.size, minutes: Math.round(a.ms / 60000),
-          rate: a.attempted > 0 ? Math.round(100 * a.firstTry / a.attempted) : null
+          rate: a.attempted > 0 ? Math.round(100 * a.firstTry / a.attempted) : null,
+          books: a.books, pages: a.pages,
+          // 時間を計測していないアプリは、画面で時間を出さないための目印
+          timed: !STUDY_NO_TIME_APPS[a.appId]
         };
       }).sort((a, b) => b.records - a.records),
       students: roster.map(s => {
@@ -867,6 +1046,7 @@ function getStudyLogDashboard(period) {
           attempted: st.attempted, firstTry: st.firstTry,
           rate: st.attempted > 0 ? Math.round(100 * st.firstTry / st.attempted) : null,
           aborted: st.aborted,
+          books: st.books, pages: st.pages,
           lastDay: st.lastDay ? formatDate_(st.lastDay, 'M/d') : ''
         };
       }),
@@ -892,12 +1072,15 @@ function getStudyLogForUser_(ss, email, recentLimit) {
   const rows = readStudyLog_(ss).filter(r => r.email === target);
   const { startOfWeek } = getWeekRange_();
 
-  const sum = { records: rows.length, ms: 0, attempted: 0, firstTry: 0, aborted: 0 };
+  const sum = { records: rows.length, ms: 0, attempted: 0, firstTry: 0, aborted: 0, books: 0, pages: 0 };
   const week = { records: 0, ms: 0 };
   const apps = {};
   rows.forEach(r => {
     const ms = studyLearnMs_(r);
+    const read = studyReadingAmount_(r);
     sum.ms += ms;
+    sum.books += read.books;
+    sum.pages += read.pages;
     if (r.status === 'aborted') sum.aborted++;
     if (isStudyRateEligible_(r)) {
       sum.attempted += studyAttempted_(r);
@@ -916,6 +1099,7 @@ function getStudyLogForUser_(ss, email, recentLimit) {
       app: r.appLabel, mode: r.mode, unit: r.unitTitle, status: r.status,
       count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
       minutes: studyMinutes_(studyLearnMs_(r)),
+      timed: !STUDY_NO_TIME_APPS[r.appId], pages: studyReadingAmount_(r).pages,
       multiplayer: r.multiplayer, grading: r.grading, source: r.source
     }));
 
@@ -926,7 +1110,10 @@ function getStudyLogForUser_(ss, email, recentLimit) {
       attempted: sum.attempted,
       firstTry: sum.firstTry,
       rate: sum.attempted > 0 ? Math.round(100 * sum.firstTry / sum.attempted) : null,
-      aborted: sum.aborted
+      aborted: sum.aborted,
+      // 読書は時間ではなく冊数・ページ数（§3.8.2）
+      books: sum.books,
+      pages: sum.pages
     },
     week: { records: week.records, minutes: Math.round(week.ms / 60000) },
     apps,
@@ -995,6 +1182,8 @@ function getStudyAppBadgeStats_(ss, email, userLogs) {
     sheet.getRange(2, 2, sheet.getLastRow() - 1, 18).getValues().forEach(row => {
       if (String(row[0]).toLowerCase().trim() !== email) return;
       stats.records++;
+      // 記録操作の時間しか持たないアプリ（読書）は学習時間に足しません（§3.8.2）
+      if (STUDY_NO_TIME_APPS[String(row[5] || '')]) return;   // row[5] = G列 appId
       const active = (row[17] === '' || row[17] === null) ? null : Number(row[17]);
       ms += (active !== null && !isNaN(active)) ? active : (Number(row[16]) || 0);
     });
@@ -1024,7 +1213,7 @@ function getStudyAppRanking_(ss, nicknameMap) {
   const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
   if (!sheet || sheet.getLastRow() < 2) return [];
   const numRows = sheet.getLastRow() - 1;
-  const heads = sheet.getRange(2, 2, numRows, 3).getValues();     // メールアドレス / 出席番号 / 学習日
+  const heads = sheet.getRange(2, 2, numRows, 6).getValues();     // メールアドレス〜appId（B〜G列）
   const times = sheet.getRange(2, 18, numRows, 2).getValues();    // elapsedMs / activeMs
   const { startOfWeek } = getWeekRange_();
 
@@ -1034,6 +1223,9 @@ function getStudyAppRanking_(ss, nicknameMap) {
     if (!nicknameMap[email]) return;
     const day = parseTimestamp_(row[2]);
     if (!day || day < startOfWeek) return;
+    // 記録操作の時間しか持たないアプリ（読書）は学習時間ランキングに入れません（§3.8.2）。
+    // 読書は「どくしょ王」（ページ数のランキング）で別に見ます
+    if (STUDY_NO_TIME_APPS[String(row[5] || '')]) return;
     const active = (times[i][1] === '' || times[i][1] === null) ? null : Number(times[i][1]);
     const ms = (active !== null && !isNaN(active)) ? active : (Number(times[i][0]) || 0);
     msByEmail[email] = (msByEmail[email] || 0) + ms;

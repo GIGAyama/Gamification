@@ -76,6 +76,27 @@ const USER_COLS = {
   LAST_LOGIN: 8   // 最終ログイン日
 };
 
+/**
+ * 「読書記録」シートの列番号（1始まり）。
+ * A〜G は手入力フォームがあった時代の並びで、H「ISBN」が
+ * どくしょ ちょきんばこ（study.v1）連携で追加した列です。
+ *
+ * D「ジャンル」は手入力フォーム専用の項目でした。読書の記録はアプリからの
+ * 自動転記に一本化され、アプリはジャンルを持たないため**新しい行では空**になります。
+ * 過去データを壊さないよう列そのものは残しています。
+ */
+const READING_COLS = {
+  DATE: 1,
+  EMAIL: 2,
+  TITLE: 3,
+  GENRE: 4,      // 旧・手入力フォーム専用（現在は書き込まない）
+  PAGES: 5,
+  RATING: 6,
+  COMMENT: 7,
+  ISBN: 8,
+  NUM: 8         // 読み出すときの列数
+};
+
 /** ふり返りシートの「所見抽出」フラグ列（1始まり） */
 const SHOKEN_FLAG_COLS = { lesson: 9, test: 10 };
 
@@ -192,11 +213,12 @@ const PRAISE_STAMPS = [
  * 記録種別 → 表示名・ログ種別の対応表。
  * appOnly: true の種別は児童のアプリ内フォームでは入力できません
  * （学習アプリ〔study.v1〕から届いたログをもとに自動でシートへ記録されます）。
+ * app には、その記録を作る学習アプリの名前を入れます（案内メッセージに使います）。
  */
 const RECORD_TYPES = {
   typing: { label: 'タイピング', log: LOG_ACTIONS.RECORD_TYPING },
-  calc: { label: '100マス計算', log: LOG_ACTIONS.RECORD_CALC, appOnly: true },
-  reading: { label: '読書', log: LOG_ACTIONS.RECORD_READING },
+  calc: { label: '100マス計算', log: LOG_ACTIONS.RECORD_CALC, appOnly: true, app: '100マス計算アプリ' },
+  reading: { label: '読書', log: LOG_ACTIONS.RECORD_READING, appOnly: true, app: 'どくしょ ちょきんばこ' },
   growth: { label: '成長のきろく', log: LOG_ACTIONS.RECORD_GROWTH },
   study: { label: '自主学習', log: LOG_ACTIONS.RECORD_STUDY },
   lesson: { label: '授業のふり返り', log: LOG_ACTIONS.RECORD_LESSON },

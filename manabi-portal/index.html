@@ -1017,8 +1017,8 @@
     total.kept += split.kept;
     total.gainedExp += result.gainedExp || 0;
     const r = result.reward || {};
-    ['appExp', 'calcExp', 'sendExp', 'streakExp', 'exchangePoints', 'calcRecords',
-     'personalBestExp', 'recordStreakExp'].forEach(k => {
+    ['appExp', 'calcExp', 'readingExp', 'sendExp', 'streakExp', 'exchangePoints',
+     'calcRecords', 'readingRecords', 'personalBestExp', 'recordStreakExp'].forEach(k => {
       total.reward[k] = (total.reward[k] || 0) + (r[k] || 0);
     });
     total.reward.streak = Math.max(total.reward.streak, r.streak || 0);
@@ -1080,7 +1080,8 @@
       gainedExp: 0, level: null, leveledUp: false,
       personalBest: null,
       reward: {
-        appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, calcRecords: 0, streak: 0,
+        appExp: 0, calcExp: 0, readingExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
+        calcRecords: 0, readingRecords: 0, streak: 0,
         personalBestExp: 0, recordStreakExp: 0, recordStreak: 0
       }
     };
@@ -1117,6 +1118,7 @@
     if (total.gainedExp > 0) parts.push(`<b>+${total.gainedExp} EXP</b>`);
     if (total.reward.exchangePoints > 0) parts.push(`交換Pt +${total.reward.exchangePoints}`);
     if (total.reward.calcRecords > 0) parts.push(`100マス計算 ${total.reward.calcRecords}回分をきろく`);
+    if (total.reward.readingRecords > 0) parts.push(`どくしょ ${total.reward.readingRecords}さつ分をきろく`);
     if (total.reward.streak > 1) parts.push(`🔥 ${total.reward.streak}日れんぞく`);
     if (total.duplicate > 0) parts.push(`<span class="muted">${total.duplicate}件はおくりずみ</span>`);
     if (total.rejected > 0) parts.push(`<span class="muted">${total.rejected}件は形式エラー</span>`);

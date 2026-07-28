@@ -772,37 +772,55 @@ function renderStudyLog(d) {
         <div class="fs-4 fw-bold ${cls}">${value}</div>
       </div></div>
     </div>`;
+  // 読書は「記録する操作」の時間しか計測できないため、合計学習時間には入れず
+  // 冊数・ページ数で見せます（仕様 §3.8.2）。1冊でも届いていれば専用のカードを出します。
   document.getElementById('tl-stats-cards').innerHTML =
     card('学習の回数', `${t.records ?? 0}<span class="fs-6 text-muted">回</span>`, 'text-primary') +
     card('とりくんだ児童', `${t.students ?? 0}<span class="fs-6 text-muted">人</span>`, 'text-success') +
-    card('合計学習時間', fmtStudyMinutes(t.minutes), 'text-info') +
-    card('中断', `${t.aborted ?? 0}<span class="fs-6 text-muted">回</span>`, t.aborted > 0 ? 'text-warning' : 'text-secondary');
+    card(`合計学習時間${t.books > 0 ? '<span class="fw-normal">（読書のぞく）</span>' : ''}`, fmtStudyMinutes(t.minutes), 'text-info') +
+    card('中断', `${t.aborted ?? 0}<span class="fs-6 text-muted">回</span>`, t.aborted > 0 ? 'text-warning' : 'text-secondary') +
+    (t.books > 0
+      ? card('読書', `${t.books}<span class="fs-6 text-muted">さつ / ${t.pages}ページ</span>`, 'text-warning-emphasis')
+      : '');
 
   // 児童別
   document.getElementById('tl-student-rows').innerHTML = (d.students || []).map(s => {
     const rate = s.rate === null
       ? '<span class="text-muted">-</span>'
       : `<b class="${s.rate < 60 ? 'text-danger' : 'text-success'}">${s.rate}%</b> <span class="text-muted" style="font-size:.7rem;">(${s.firstTry}/${s.attempted})</span>`;
+    // 読書は学習時間に入らないため、冊数・ページ数を別の列で見せます（仕様 §3.8.2）
+    const books = s.books > 0
+      ? `${s.books}さつ <span class="text-muted" style="font-size:.7rem;">(${s.pages}p)</span>`
+      : '<span class="text-muted">-</span>';
     return `<tr class="${s.records === 0 ? 'text-muted' : ''}">
       <td>${esc(String(s.number))}</td>
       <td class="fw-bold">${esc(s.name)}</td>
       <td>${s.records}回</td>
       <td>${fmtStudyMinutes(s.minutes)}</td>
+      <td>${books}</td>
       <td>${rate}</td>
       <td>${s.aborted > 0 ? `${s.aborted}回` : '-'}</td>
       <td class="small text-muted">${esc(s.lastDay || '-')}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="7">${emptyMessage('児童マスタが空です')}</td></tr>`;
+  }).join('') || `<tr><td colspan="8">${emptyMessage('児童マスタが空です')}</td></tr>`;
 
   // アプリ別
-  document.getElementById('tl-app-list').innerHTML = (d.apps || []).map(a => `
+  // 読書アプリ（timed: false）は学習時間を計測していないので、時間のかわりにページ数を出します。
+  // 初回正答率も採点をともなわない活動には無いため、冊数を右側に置きます（仕様 §3.8）。
+  document.getElementById('tl-app-list').innerHTML = (d.apps || []).map(a => {
+    const amount = a.timed === false ? `${a.pages}ページ` : fmtStudyMinutes(a.minutes);
+    const right = a.timed === false
+      ? `<b>${a.books}さつ</b><div class="text-muted" style="font-size:.7rem;">読んだ冊数</div>`
+      : (a.rate === null ? '<span class="text-muted small">-</span>' : `<b>${a.rate}%</b><div class="text-muted" style="font-size:.7rem;">初回正答率</div>`);
+    return `
     <div class="d-flex justify-content-between align-items-center border-bottom py-2">
       <div>
         <div class="fw-bold">${esc(a.label)}</div>
-        <div class="small text-muted">${a.records}回 / ${a.students}人 / ${fmtStudyMinutes(a.minutes)}</div>
+        <div class="small text-muted">${a.records}回 / ${a.students}人 / ${amount}</div>
       </div>
-      <div class="text-end">${a.rate === null ? '<span class="text-muted small">-</span>' : `<b>${a.rate}%</b><div class="text-muted" style="font-size:.7rem;">初回正答率</div>`}</div>
-    </div>`).join('') || emptyMessage('この期間の記録はまだありません');
+      <div class="text-end">${right}</div>
+    </div>`;
+  }).join('') || emptyMessage('この期間の記録はまだありません');
 
   // つまずき問題
   document.getElementById('tl-stumbles').innerHTML = (d.stumbles || []).map(sb => `
@@ -820,8 +838,10 @@ function renderStudyLog(d) {
       <td class="small fw-bold">${esc(String(r.number))} ${esc(r.name)}</td>
       <td class="small">${esc(r.app)}</td>
       <td class="small">${esc(r.unit)}<span class="text-muted">（${esc(r.mode)}）</span></td>
-      <td class="small text-center">${r.firstTry}/${r.attempted}<span class="text-muted">（${r.count}問中）</span></td>
-      <td class="small">${fmtStudyMinutes(r.minutes)}</td>
+      <td class="small text-center">${r.timed === false
+        ? `<span class="text-muted">-</span>`
+        : `${r.firstTry}/${r.attempted}<span class="text-muted">（${r.count}問中）</span>`}</td>
+      <td class="small">${r.timed === false ? `${r.pages}ページ` : fmtStudyMinutes(r.minutes)}</td>
       <td class="small">${studyFlagBadges(r)}</td>
     </tr>`).join('') || `<tr><td colspan="8">${emptyMessage('この期間の記録はまだありません')}</td></tr>`;
 }
@@ -840,6 +860,7 @@ function studentStudyLogCard(sl) {
         <div class="d-flex gap-3 small mb-2 flex-wrap">
           <span>回数: <b>${s.records}回</b></span>
           <span>学習時間: <b>${fmtStudyMinutes(s.minutes)}</b></span>
+          ${s.books > 0 ? `<span>読書: <b>${s.books}さつ / ${s.pages}ページ</b></span>` : ''}
           <span>初回正答率: <b>${rate}</b>${s.attempted > 0 ? `<span class="text-muted">（${s.firstTry}/${s.attempted}）</span>` : ''}</span>
           ${s.aborted > 0 ? `<span class="text-warning-emphasis">中断: ${s.aborted}回</span>` : ''}
         </div>

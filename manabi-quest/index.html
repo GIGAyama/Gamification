@@ -681,7 +681,7 @@
           <button id="tl-reload-btn" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-clockwise"></i> 更新</button>
         </div>
       </div>
-      <p class="small text-muted mb-3">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算（gigayama.github.io）の共通学習ログ（study.v1）を集計しています。児童は各アプリで学習したあと、送信ページから記録を送ります。</p>
+      <p class="small text-muted mb-3">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算・九九カード・どくしょ ちょきんばこ（gigayama.github.io）の共通学習ログ（study.v1）を集計しています。児童は各アプリで学習したあと、送信ページから記録を送ります。<br><b>読書（どくしょ ちょきんばこ）は時間ではなく冊数・ページ数で見ます。</b>アプリが計測しているのは「1冊を記録する操作」の時間で、読書そのものの時間ではないため、学習時間の合計には入れていません（仕様 §3.8.2）。</p>
       <div id="tl-setup-note" class="d-none mb-3"></div>
       <div class="row g-3 mb-4" id="tl-stats-cards"></div>
       <div class="row g-4 mb-4">
@@ -690,7 +690,7 @@
             <div class="card-header bg-transparent fw-bold"><i class="bi bi-people"></i> 児童別のとりくみ</div>
             <div class="card-body p-0 custom-scrollbar" style="max-height:420px;overflow-y:auto;">
               <table class="table table-hover table-sm mb-0 align-middle">
-                <thead class="table-light sticky-top"><tr><th>番号</th><th>名前</th><th>回数</th><th>学習時間</th><th>初回正答率</th><th>中断</th><th>最終学習日</th></tr></thead>
+                <thead class="table-light sticky-top"><tr><th>番号</th><th>名前</th><th>回数</th><th>学習時間</th><th>読書</th><th>初回正答率</th><th>中断</th><th>最終学習日</th></tr></thead>
                 <tbody id="tl-student-rows"></tbody>
               </table>
             </div>
@@ -715,7 +715,7 @@
         <div class="card-header bg-transparent fw-bold"><i class="bi bi-clock-history"></i> 最近の学習</div>
         <div class="card-body p-0 custom-scrollbar" style="max-height:360px;overflow-y:auto;">
           <table class="table table-sm table-hover mb-0 align-middle">
-            <thead class="table-light sticky-top"><tr><th>学習日</th><th>時間帯</th><th>児童</th><th>アプリ</th><th>内容</th><th class="text-center">初回正答/解答</th><th>時間</th><th></th></tr></thead>
+            <thead class="table-light sticky-top"><tr><th>学習日</th><th>時間帯</th><th>児童</th><th>アプリ</th><th>内容</th><th class="text-center">初回正答/解答</th><th>時間・ページ数</th><th></th></tr></thead>
             <tbody id="tl-recent-rows"></tbody>
           </table>
         </div>
