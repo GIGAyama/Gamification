@@ -20,6 +20,19 @@
  *   （手入力の自己申告を廃止し、アプリの実測値をランキング・バッジ・グラフの土台にする）
  * - 送信そのものにも「そうしんボーナス」「れんぞくボーナス」を用意し、
  *   きろくを送ることが児童にとってはっきり得になるようにする
+ *
+ * 受信の経路は 2 つあります（どちらも最終的に receiveStudyRecords_ に入ります）:
+ *
+ *  ① 本体経由（推奨・組織アカウントでも使えます）
+ *     ポータル → まなびクエスト本体の iframe → receiveStudyLogFromPortal()
+ *     ログイン済みのWebアプリの中から google.script.run で呼ぶので、
+ *     デプロイの「アクセスできるユーザー」が『組織内』でも動きます。
+ *     CORS も送信キーも不要です（呼び出せる時点でログイン済みのため）。
+ *
+ *  ② 直接POST（匿名エンドポイント）
+ *     ポータル → doPost()
+ *     デプロイの「アクセスできるユーザー」に『全員』を選べる場合だけ使えます。
+ *     組織のポリシーで『全員』が選べないときは ① だけで運用してください。
  */
 
 /** 仕様 §3.1 の appId 予約値と表示名 */
@@ -82,25 +95,63 @@ function studyJson_(obj) {
 }
 
 /**
+ * 学習ポータルからの送信を「まなびクエスト本体の画面ごしに」受け取ります（経路①）。
+ *
+ * ポータル(github.io) は iframe のまなびクエストへ postMessage で記録を渡し、
+ * 受け取った画面側が google.script.run でこの関数を呼びます。
+ * 呼び出しはログイン済みのWebアプリのセッションの中で起きるため、
+ * デプロイの「アクセスできるユーザー」が『組織内（DOMAIN）』のままでも通ります。
+ * ＝ 組織のポリシーで『全員』を選べない学校でも学習ログを集められます。
+ *
+ * 匿名POST（doPost）と違い、呼び出せる時点で学校アカウントでのログインが済んでいるので、
+ * 「学習ログ送信キー」の照合は行いません（キーは経路②の匿名POST専用です）。
+ * 出席番号が渡されなかったときは、ログイン中のアカウントから児童を特定します。
+ *
+ * @param {Object} payload { api:'study-log', studentNumber?: 出席番号, records: [study.v1レコード…] }
+ * @returns {Object} doPost と同じ形の結果オブジェクト
+ */
+function receiveStudyLogFromPortal(payload) {
+  try {
+    if (!payload || typeof payload !== 'object' || payload.api !== 'study-log') {
+      return { success: false, error: 'unknown-api', message: '未対応のAPIです。' };
+    }
+    return receiveStudyRecords_(payload, { trusted: true });
+  } catch (err) {
+    console.error(`receiveStudyLogFromPortal Error: ${err.message}, Stack: ${err.stack}`);
+    return { success: false, error: 'server-error', message: `サーバーエラー: ${err.message}` };
+  }
+}
+
+/**
  * study.v1 レコード群を検証して「学習ログ」シートへ保存します。
+ * @param {Object} payload 送信ページ（またはポータル）から届いた本体
+ * @param {Object} [options] { trusted: 本体経由の呼び出しで、送信キーの照合が不要なとき true }
  * @returns {Object} { success, saved: [id], duplicate: [id], rejected: [{id, reason}],
  *                     gainedExp, reward: {…}, level, leveledUp }
  */
-function receiveStudyRecords_(payload) {
+function receiveStudyRecords_(payload, options) {
+  const trusted = !!(options && options.trusted);
   const config = getConfig_();
-  const key = String(config['学習ログ送信キー'] || '').trim();
-  if (!key) {
-    return { success: false, error: 'disabled', message: '受信は停止中です。「初期設定」シートの「学習ログ送信キー」を設定してください。' };
-  }
-  if (String(payload.token || '').trim() !== key) {
-    return { success: false, error: 'unauthorized', message: '送信キーが一致しません。先生に設定を確認してもらってください。' };
+
+  // 匿名POST（経路②）だけ送信キーで守ります。
+  // 本体経由（経路①）は学校アカウントのログインそのものが認証になります。
+  if (!trusted) {
+    const key = String(config['学習ログ送信キー'] || '').trim();
+    if (!key) {
+      return { success: false, error: 'disabled', message: '受信は停止中です。「初期設定」シートの「学習ログ送信キー」を設定してください。' };
+    }
+    if (String(payload.token || '').trim() !== key) {
+      return { success: false, error: 'unauthorized', message: '送信キーが一致しません。先生に設定を確認してもらってください。' };
+    }
   }
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const records = Array.isArray(payload.records) ? payload.records.slice(0, STUDY_MAX_RECORDS_PER_POST) : [];
-  const student = (payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '')
+  let student = (payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '')
     ? findStudentByNumber_(ss, payload.studentNumber)
     : null;
+  // 本体経由なら、出席番号が未入力でもログイン中のアカウントから児童を特定できます
+  if (!student && trusted) student = findStudentBySignedInUser_(ss);
 
   // レコードなし = 送信ページの接続テスト
   if (records.length === 0) {
@@ -359,6 +410,24 @@ function findStudentByNumber_(ss, number) {
     }
   }
   return null;
+}
+
+/**
+ * ログイン中のアカウントから児童を特定します（本体経由の送信でだけ使います）。
+ * 出席番号の入力がまだでも、学校アカウントで開いていれば自分の記録として保存できます。
+ * @returns {Object|null} { number, name, email }。先生・未登録アカウントは null
+ */
+function findStudentBySignedInUser_(ss) {
+  let email = '';
+  try {
+    email = String(Session.getActiveUser().getEmail() || '').toLowerCase().trim();
+  } catch (e) {
+    return null;
+  }
+  if (!email) return null;
+  const user = findUserRow_(ss, email).data;
+  if (!user || user['出席番号'] == TEACHER_ROLE_ID) return null;
+  return { number: user['出席番号'], name: user['名前'], email: email };
 }
 
 // ---------------------------------------------------------------------
@@ -684,7 +753,12 @@ function getStudyLogDashboard(period) {
 
     return {
       success: true,
-      enabled: !!String(config['学習ログ送信キー'] || '').trim(),
+      // 学習ポータルからの送信は本体経由（ログイン済みの画面ごし）でいつでも受け取れます。
+      // 「学習ログ送信キー」は匿名POSTの受け口だけを制御します。
+      enabled: true,
+      anonymousPost: !!String(config['学習ログ送信キー'] || '').trim(),
+      portalUrl: String(config['学習ポータルURL'] || '').trim(),
+      everReceived: all.length > 0,   // 期間で0件でも、一度でも届いていれば設定案内は出しません
       timePrecision: String(config['学習ログ時刻精度'] || '時間帯'),
       totals: {
         records: totals.records,
@@ -806,7 +880,9 @@ function getStudyAppPanelData_(ss, email, config) {
   const streakCap = getConfigNumber_(config, '学習ログ連続ボーナス上限日数', 10);
 
   return {
-    enabled: !!String(config['学習ログ送信キー'] || '').trim(),
+    // 本体経由の送信は常に受け付けるので、児童の送信パネルはいつでも出します
+    // （「学習ログ送信キー」は匿名POSTの受け口だけを制御します）
+    enabled: true,
     portalUrl: String(config['学習ポータルURL'] || '').trim(),
     sentToday,
     streak: sentToday ? streakIfSent : Math.max(0, streakIfSent - 1),

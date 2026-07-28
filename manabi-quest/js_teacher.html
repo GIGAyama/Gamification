@@ -739,15 +739,24 @@ async function loadStudyLog(force) {
 }
 
 function renderStudyLog(d) {
-  // 受信設定の案内
+  // 受信設定の案内。まだ1件も届いていないときだけ、送信のしくみを出します。
+  // （学習ログは学習ポータル経由でいつでも受信できる状態です。
+  //   「学習ログ送信キー」は匿名の受信用デプロイを使うときだけ必要です）
   const note = document.getElementById('tl-setup-note');
-  if (!d.enabled) {
+  if (!d.everReceived) {
     note.classList.remove('d-none');
     note.innerHTML = `
-      <div class="alert alert-warning mb-0 small">
-        <b><i class="bi bi-exclamation-circle"></i> 学習ログの受信は停止中です。</b><br>
-        「初期設定」シートの <b>学習ログ送信キー</b> に合言葉を設定し、学習ポータル（manabi-portal）に
-        受信用WebアプリのURLと同じ合言葉を設定すると受信が始まります。詳しくは README を参照してください。
+      <div class="alert alert-info mb-0 small">
+        <b><i class="bi bi-info-circle"></i> まだ学習アプリのきろくは届いていません。</b><br>
+        きろくは<b>学習ポータル</b>から送られます。児童には
+        ${d.portalUrl
+          ? `<a href="${esc(d.portalUrl)}" target="_blank" rel="noopener">${esc(d.portalUrl)}</a>`
+          : '学習ポータル（manabi-portal）のURL'}
+        を配付し、ポータルの「⚙️ せってい」に<b>このWebアプリのURL</b>を入れてください。<br>
+        ポータルは画面に出ているまなびクエストごしに送るので、デプロイの
+        「アクセスできるユーザー」は<b>組織内</b>のままで大丈夫です
+        （組織アカウントで「全員」を選べなくても使えます）。
+        ${d.anonymousPost ? '' : '匿名の受信用デプロイ（アクセス: 全員）を併用する場合だけ、「初期設定」シートの <b>学習ログ送信キー</b> を設定してください。'}
       </div>`;
   } else {
     note.classList.add('d-none');
