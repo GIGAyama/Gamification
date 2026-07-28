@@ -17,6 +17,8 @@
 </head>
 <body class="bg-body-tertiary d-flex flex-column min-vh-100<?!= (typeof embedded !== 'undefined' && embedded) ? ' embedded' : '' ?>">
 
+  <?!= include('icons'); ?>
+
   <!-- ナビゲーションヘッダー -->
   <nav class="navbar navbar-expand navbar-dark bg-primary shadow-sm sticky-top" id="main-nav" style="display:none;">
     <div class="container-fluid">
@@ -41,16 +43,16 @@
   <div class="container-fluid p-0 d-none" id="student-tabs">
     <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
       <button data-view="view-home" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab active-tab">
-        <span class="tab-emoji no-furigana" aria-hidden="true">🏠</span><span class="tab-label">ホーム</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-home"></use></svg></span><span class="tab-label">ホーム</span>
       </button>
       <button data-view="view-records" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">✏️</span><span class="tab-label">きろく</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-pencil"></use></svg></span><span class="tab-label">きろく</span>
       </button>
       <button data-view="view-mine" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">🌟</span><span class="tab-label">マイページ</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg></span><span class="tab-label">マイページ</span>
       </button>
       <button data-view="view-plaza" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">👫</span><span class="tab-label">みんな</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg></span><span class="tab-label">みんな</span>
       </button>
     </div>
   </div>
@@ -133,23 +135,23 @@
 
         <!-- ② きろくをつけにいく -->
         <button type="button" class="mq-door door-green" id="home-record-cta">
-          <span class="door-icon no-furigana" aria-hidden="true">✏️</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-pencil"></use></svg></span>
           <span class="door-body">
             <span class="door-title">きろくをつける</span>
             <span class="door-note">きょうがんばったことを書こう</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
 
         <!-- ③ そのほか（ミッション・めあて・おしらせ） -->
         <button type="button" class="mq-door door-cyan" data-go-panel="p-more">
-          <span class="door-icon no-furigana" aria-hidden="true">📋</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ミッション・めあて</span>
             <span class="door-note">おしらせもここ</span>
           </span>
           <span class="door-count d-none" id="home-more-count">0</span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
@@ -157,30 +159,30 @@
       <div class="mq-panel" id="p-more">
         <div id="p-more-head"></div>
         <button type="button" class="mq-door door-blue" data-go-panel="p-missions">
-          <span class="door-icon no-furigana" aria-hidden="true">🎯</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ミッション</span>
             <span class="door-note" id="more-missions-note">クリアするとごほうびがもらえる</span>
           </span>
           <span class="door-count d-none" id="more-missions-count">0</span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-pink" data-go-panel="p-goals">
-          <span class="door-icon no-furigana" aria-hidden="true">🚩</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-flag"></use></svg></span>
           <span class="door-body">
             <span class="door-title">わたしのめあて</span>
             <span class="door-note" id="more-goals-note">じぶんで決めた目標</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-green" data-go-panel="p-news">
-          <span class="door-icon no-furigana" aria-hidden="true">📣</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-megaphone"></use></svg></span>
           <span class="door-body">
             <span class="door-title">おしらせ</span>
             <span class="door-note">先生からのメッセージ</span>
           </span>
           <span class="door-count d-none" id="more-news-count">0</span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
@@ -188,14 +190,14 @@
         <div id="p-news-head"></div>
         <div class="mq-card accent-green mb-3">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">📣</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-megaphone"></use></svg></span>
             <h2 class="mq-card-title">先生から</h2>
           </div>
           <div class="mq-card-body tight" id="home-announcements"></div>
         </div>
         <div class="mq-card accent-cyan">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">🕒</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clock"></use></svg></span>
             <h2 class="mq-card-title">さいきんのできごと</h2>
           </div>
           <div class="mq-card-body tight" id="home-activity"></div>
@@ -207,7 +209,7 @@
         <div id="p-missions-head"></div>
         <div class="mq-card accent-blue">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">🎯</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
             <h2 class="mq-card-title">ミッション</h2>
           </div>
           <div class="mq-card-body tight" id="home-missions"></div>
@@ -219,13 +221,13 @@
         <div id="p-goals-head"></div>
         <div class="mq-card accent-pink">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">🚩</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-flag"></use></svg></span>
             <h2 class="mq-card-title">わたしのめあて</h2>
           </div>
           <div class="mq-card-body tight" id="home-goals"></div>
         </div>
         <button type="button" class="mq-btn mq-btn-pink mq-btn-lg mq-btn-block mt-3" id="home-add-goal-btn">
-          <span class="no-furigana" aria-hidden="true">＋</span> あたらしいめあてを立てる
+          <svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-plus"></use></svg> あたらしいめあてを立てる
         </button>
       </div>
 
@@ -255,30 +257,30 @@
     <!-- ============ 児童: マイページ（見る・あそぶ） ============ -->
     <div id="view-mine" class="spa-view d-none" data-root="p-my">
       <div class="mq-panel on" id="p-my">
-        <h2 class="mq-panel-title mb-3"><span class="no-furigana" aria-hidden="true">🌟</span> マイページ</h2>
+        <h2 class="mq-panel-title mb-3"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg> マイページ</h2>
         <button type="button" class="mq-door door-green" data-go-panel="p-my-effort">
-          <span class="door-icon no-furigana" aria-hidden="true">🔥</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-fire"></use></svg></span>
           <span class="door-body">
             <span class="door-title">がんばりを見る</span>
             <span class="door-note">カレンダー・つみあげ・バッジ</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-blue" data-go-panel="p-my-records">
-          <span class="door-icon no-furigana" aria-hidden="true">📚</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-books"></use></svg></span>
           <span class="door-body">
             <span class="door-title">きろくを見かえす</span>
             <span class="door-note">これまで書いたきろくとグラフ</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-purple" data-go-panel="p-my-quest">
-          <span class="door-icon no-furigana" aria-hidden="true">🎁</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gift"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ガチャ・きせかえ</span>
             <span class="door-note">けいけんちでアイテムをゲット</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
@@ -287,7 +289,7 @@
         <div id="p-my-effort-head"></div>
         <div class="mq-card accent-green mb-3">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">📅</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-calendar"></use></svg></span>
             <h2 class="mq-card-title">がんばりカレンダー</h2>
           </div>
           <div class="mq-card-body tight">
@@ -297,21 +299,21 @@
         </div>
         <div class="mq-card accent-cyan mb-3">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">🏔️</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-mountain"></use></svg></span>
             <h2 class="mq-card-title">これまでのつみあげ</h2>
           </div>
           <div class="mq-card-body tight" id="home-totals"></div>
         </div>
         <div class="mq-card accent-purple mb-3">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">📈</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chart"></use></svg></span>
             <h2 class="mq-card-title">わたしの成長カード</h2>
           </div>
           <div class="mq-card-body tight" id="home-growth-card"></div>
         </div>
         <div class="mq-card accent-gold mb-3">
           <div class="mq-card-head">
-            <span class="mq-card-icon no-furigana" aria-hidden="true">🏅</span>
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-medal"></use></svg></span>
             <h2 class="mq-card-title">バッジ</h2>
           </div>
           <div class="mq-card-body tight" id="home-badges"></div>
@@ -323,54 +325,54 @@
       <div class="mq-panel" id="p-my-records">
         <div id="p-my-records-head"></div>
         <button type="button" class="mq-door door-blue" data-go-panel="p-rec-speed">
-          <span class="door-icon no-furigana" aria-hidden="true">⌨️</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-keyboard"></use></svg></span>
           <span class="door-body">
             <span class="door-title">スピード</span>
             <span class="door-note">タイピング・100マス・学習アプリ</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-orange" data-go-panel="p-rec-words">
-          <span class="door-icon no-furigana" aria-hidden="true">📖</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ことば</span>
             <span class="door-note">どくしょ・ことばアルバム</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-cyan" data-go-panel="p-rec-lessons">
-          <span class="door-icon no-furigana" aria-hidden="true">✍️</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-note"></use></svg></span>
           <span class="door-body">
             <span class="door-title">じゅぎょう</span>
             <span class="door-note">じゅぎょう・テスト・せいちょう</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
       <div class="mq-panel" id="p-rec-speed">
         <div id="p-rec-speed-head"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">⌨️</span> タイピング</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-keyboard"></use></svg> タイピング</h3>
         <div id="rtab-typing"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🔢</span> 100マス計算</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-calc"></use></svg> 100マス計算</h3>
         <div id="rtab-calc"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🎮</span> 学習アプリ</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gamepad"></use></svg> 学習アプリ</h3>
         <div id="rtab-apps"></div>
       </div>
 
       <div class="mq-panel" id="p-rec-words">
         <div id="p-rec-words-head"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📖</span> どくしょ</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg> どくしょ</h3>
         <div id="rtab-reading"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🗒️</span> ことばアルバム</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-comment"></use></svg> ことばアルバム</h3>
         <div id="rtab-album"></div>
       </div>
 
       <div class="mq-panel" id="p-rec-lessons">
         <div id="p-rec-lessons-head"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">✍️</span> じゅぎょう・テスト</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-note"></use></svg> じゅぎょう・テスト</h3>
         <div id="rtab-lesson"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🌱</span> せいちょう・じしゅ学習</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-sprout"></use></svg> せいちょう・じしゅ学習</h3>
         <div id="rtab-notes"></div>
       </div>
 
@@ -378,28 +380,28 @@
       <div class="mq-panel" id="p-my-quest">
         <div id="p-my-quest-head"></div>
         <button type="button" class="mq-door door-purple" data-go-panel="p-gacha">
-          <span class="door-icon no-furigana" aria-hidden="true">✨</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-sparkles"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ガチャをひく</span>
             <span class="door-note">けいけんち <span id="quest-exp-note">0</span></span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-blue" data-go-panel="p-avatar">
-          <span class="door-icon no-furigana" aria-hidden="true">🧑‍🎤</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-avatar"></use></svg></span>
           <span class="door-body">
             <span class="door-title">きせかえる</span>
             <span class="door-note">もっているアイテムでアバターを作る</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-pink" data-go-panel="p-profile">
-          <span class="door-icon no-furigana" aria-hidden="true">📇</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-idcard"></use></svg></span>
           <span class="door-body">
             <span class="door-title">プロフィール</span>
             <span class="door-note">ひとこと・すきなもの</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
@@ -407,7 +409,7 @@
         <div id="p-gacha-head"></div>
         <div class="mq-card accent-purple">
           <div class="mq-card-body text-center">
-            <div class="gacha-machine no-furigana mb-2" id="gacha-machine" aria-hidden="true">🎁</div>
+            <div class="gacha-machine mb-2" id="gacha-machine" aria-hidden="true"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gift"></use></svg></div>
             <div class="mq-hint mb-3">かさなったアイテムは交換ポイントになるよ<br>
               いまのこうかんPt: <b id="quest-exchange">0</b></div>
             <button type="button" class="mq-btn mq-btn-purple mq-btn-lg mq-btn-block mb-2" id="btn-gacha-1">
@@ -440,15 +442,15 @@
         <div class="mq-card accent-pink">
           <div class="mq-card-body">
             <div class="mq-field">
-              <label class="mq-label" for="profile-motto"><span class="mq-label-emoji no-furigana" aria-hidden="true">💬</span>ひとこと</label>
+              <label class="mq-label" for="profile-motto"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-comment"></use></svg></span>ひとこと</label>
               <input type="text" id="profile-motto" class="mq-input" maxlength="30" placeholder="まいにちコツコツ！">
             </div>
             <div class="mq-field">
-              <label class="mq-label" for="profile-favorite"><span class="mq-label-emoji no-furigana" aria-hidden="true">💖</span>すきなもの</label>
+              <label class="mq-label" for="profile-favorite"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-heart"></use></svg></span>すきなもの</label>
               <input type="text" id="profile-favorite" class="mq-input" maxlength="30" placeholder="サッカー・音楽 など">
             </div>
             <div class="mq-field">
-              <label class="mq-label" for="profile-goal"><span class="mq-label-emoji no-furigana" aria-hidden="true">🔥</span>がんばりたいこと</label>
+              <label class="mq-label" for="profile-goal"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-fire"></use></svg></span>がんばりたいこと</label>
               <input type="text" id="profile-goal" class="mq-input" maxlength="30" placeholder="かん字をおぼえる など">
             </div>
             <button type="button" class="mq-btn mq-btn-pink mq-btn-lg mq-btn-block" id="btn-save-profile">ほぞんする</button>
@@ -460,30 +462,30 @@
     <!-- ============ 児童: みんな ============ -->
     <div id="view-plaza" class="spa-view d-none" data-root="p-all">
       <div class="mq-panel on" id="p-all">
-        <h2 class="mq-panel-title mb-3"><span class="no-furigana" aria-hidden="true">👫</span> みんな</h2>
+        <h2 class="mq-panel-title mb-3"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg> みんな</h2>
         <button type="button" class="mq-door door-green" data-go-panel="p-class-goal">
-          <span class="door-icon no-furigana" aria-hidden="true">🎯</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
           <span class="door-body">
             <span class="door-title">クラスの目標</span>
             <span class="door-note">みんなで力を合わせよう</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-pink" data-go-panel="p-cheer">
-          <span class="door-icon no-furigana" aria-hidden="true">👏</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clap"></use></svg></span>
           <span class="door-body">
             <span class="door-title">おうえんする</span>
             <span class="door-note">がんばっている友だちにスタンプ</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
         <button type="button" class="mq-door door-gold" data-go-panel="p-ranking">
-          <span class="door-icon no-furigana" aria-hidden="true">🏆</span>
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-trophy"></use></svg></span>
           <span class="door-body">
             <span class="door-title">ランキング・本だな</span>
             <span class="door-note">みんなのきろくを見てみよう</span>
           </span>
-          <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
       </div>
 
@@ -500,9 +502,9 @@
       <div class="mq-panel" id="p-ranking">
         <div id="p-ranking-head"></div>
         <div id="rankings-container"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📚</span> みんなの本だな</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-books"></use></svg> みんなの本だな</h3>
         <div id="bookshelf-container"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">👫</span> みんなのアバター</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg> みんなのアバター</h3>
         <div id="plaza-container" class="row g-3"></div>
       </div>
     </div>

@@ -9,34 +9,34 @@ google.charts.setOnLoadCallback(() => { chartsReady = true; });
 
 /**
  * 奥の画面につける「もどる」つき見出しの一覧。
- * [ 見出しを入れる場所のID, 絵文字, タイトル, 戻り先のパネルID ]
+ * [ 見出しを入れる場所のID, アイコン名, タイトル, 戻り先のパネルID ]
  * どの画面からでも1タップで1つ上の階層に帰れるようにするためのものです。
  */
 const PANEL_HEADS = [
-  ['p-more-head', '📋', 'ミッション・めあて', 'p-home'],
-  ['p-news-head', '📣', 'おしらせ', 'p-more'],
-  ['p-missions-head', '🎯', 'ミッション', 'p-more'],
-  ['p-goals-head', '🚩', 'わたしのめあて', 'p-more'],
-  ['p-send-head', '📨', 'きろくを おくる', 'p-home'],
-  ['p-weekly-head', '📔', '今週のふり返り', 'p-home'],
-  ['p-my-effort-head', '🔥', 'がんばり', 'p-my'],
-  ['p-my-records-head', '📚', 'きろくを見かえす', 'p-my'],
-  ['p-rec-speed-head', '⌨️', 'スピード', 'p-my-records'],
-  ['p-rec-words-head', '📖', 'ことば', 'p-my-records'],
-  ['p-rec-lessons-head', '✍️', 'じゅぎょう', 'p-my-records'],
-  ['p-my-quest-head', '🎁', 'ガチャ・きせかえ', 'p-my'],
-  ['p-gacha-head', '✨', 'ガチャをひく', 'p-my-quest'],
-  ['p-avatar-head', '🧑‍🎤', 'きせかえ', 'p-my-quest'],
-  ['p-profile-head', '📇', 'プロフィール', 'p-my-quest'],
-  ['p-class-goal-head', '🎯', 'クラスの目標', 'p-all'],
-  ['p-cheer-head', '👏', 'おうえんする', 'p-all'],
-  ['p-ranking-head', '🏆', 'ランキング・本だな', 'p-all']
+  ['p-more-head', 'clipboard', 'ミッション・めあて', 'p-home'],
+  ['p-news-head', 'megaphone', 'おしらせ', 'p-more'],
+  ['p-missions-head', 'target', 'ミッション', 'p-more'],
+  ['p-goals-head', 'flag', 'わたしのめあて', 'p-more'],
+  ['p-send-head', 'send', 'きろくを おくる', 'p-home'],
+  ['p-weekly-head', 'journal', '今週のふり返り', 'p-home'],
+  ['p-my-effort-head', 'fire', 'がんばり', 'p-my'],
+  ['p-my-records-head', 'books', 'きろくを見かえす', 'p-my'],
+  ['p-rec-speed-head', 'keyboard', 'スピード', 'p-my-records'],
+  ['p-rec-words-head', 'book', 'ことば', 'p-my-records'],
+  ['p-rec-lessons-head', 'note', 'じゅぎょう', 'p-my-records'],
+  ['p-my-quest-head', 'gift', 'ガチャ・きせかえ', 'p-my'],
+  ['p-gacha-head', 'sparkles', 'ガチャをひく', 'p-my-quest'],
+  ['p-avatar-head', 'avatar', 'きせかえ', 'p-my-quest'],
+  ['p-profile-head', 'idcard', 'プロフィール', 'p-my-quest'],
+  ['p-class-goal-head', 'target', 'クラスの目標', 'p-all'],
+  ['p-cheer-head', 'clap', 'おうえんする', 'p-all'],
+  ['p-ranking-head', 'trophy', 'ランキング・本だな', 'p-all']
 ];
 
 function setupPanels() {
-  PANEL_HEADS.forEach(([id, emoji, title, back]) => {
+  PANEL_HEADS.forEach(([id, iconName, title, back]) => {
     const el = document.getElementById(id);
-    if (el) el.innerHTML = panelHeader(emoji, title, back);
+    if (el) el.innerHTML = panelHeader(iconName, title, back);
   });
   bindPanelLinks(document);
   // パネルが開かれたときに、重い読み込みやグラフの描画を行います
@@ -157,7 +157,7 @@ function pickTodayTask() {
   // ① 端末にたまっている学習アプリのきろく（おくるとすぐ けいけんち になる）
   if (Portal.embedded && Portal.connected && Portal.pending > 0) {
     return {
-      emoji: '📨', label: 'まず これ！',
+      icon: 'send', label: 'まず これ！',
       title: `きろくを ${Portal.pending}こ おくろう`,
       note: 'おくると けいけんちが もらえるよ',
       go: () => goPanel('p-send')
@@ -167,7 +167,7 @@ function pickTodayTask() {
   const claimable = (App.data.missions || []).filter(m => m.isComplete && !m.isClaimed).length;
   if (claimable > 0) {
     return {
-      emoji: '🎁', label: 'ごほうびが あるよ',
+      icon: 'gift', label: 'ごほうびが あるよ',
       title: `ミッションのごほうびを ${claimable}こ うけとろう`,
       note: 'タップして うけとる',
       go: () => goPanel('p-missions')
@@ -177,7 +177,7 @@ function pickTodayTask() {
   const weekly = insights().weekly;
   if (weekly && !weekly.done && weekly.due) {
     return {
-      emoji: '📔', label: 'そろそろ',
+      icon: 'journal', label: 'そろそろ',
       title: '今週を ふり返ろう',
       note: '3つの しつもんに 答えるだけ',
       go: () => goPanel('p-weekly')
@@ -186,7 +186,7 @@ function pickTodayTask() {
   // ④ 今日まだきろくを書いていないとき
   if (!recordedToday_()) {
     return {
-      emoji: '✏️', label: 'きょうの やること',
+      icon: 'pencil', label: 'きょうの やること',
       title: 'きょうのきろくを つけよう',
       note: 'ひとつ書くと けいけんちが もらえるよ',
       go: () => showView('view-records', { push: true })
@@ -195,7 +195,7 @@ function pickTodayTask() {
   // ⑤ めあてがないとき
   if ((goalData().activeGoals || []).length === 0) {
     return {
-      emoji: '🚩', label: 'つぎは これ',
+      icon: 'flag', label: 'つぎは これ',
       title: 'じぶんの めあてを 立てよう',
       note: 'できるようになりたいことを 決めよう',
       go: () => goPanel('p-goals')
@@ -204,7 +204,7 @@ function pickTodayTask() {
   // ⑥ ぜんぶ できている
   const streak = (insights().calendar || {}).streak || 0;
   return {
-    done: true, emoji: '🎉', label: 'きょうは かんぺき！',
+    done: true, icon: 'party', label: 'きょうは かんぺき！',
     title: 'やることは ぜんぶ おわったよ',
     note: streak > 0 ? `${streak}日れんぞく きろく中！ この調子！` : 'また あした がんばろう'
   };
@@ -230,7 +230,7 @@ function renderTodayCard() {
     <button type="button" class="mq-today${task.done ? ' done' : ''}"${task.done ? ' disabled' : ''}>
       <span class="today-label">${esc(task.label)}</span>
       <span class="today-title">
-        <span class="today-emoji no-furigana" aria-hidden="true">${task.emoji}</span>
+        <span class="today-emoji">${icon(task.icon)}</span>
         <span>${esc(task.title)}</span>
       </span>
       <span class="today-note">${esc(task.note)}</span>
@@ -287,7 +287,7 @@ function renderStreak() {
   const best = (cal.longestStreak || 0) > streak
     ? `<div class="small text-muted text-center mt-1">さいちょう記録は ${cal.longestStreak}日</div>` : '';
   el.innerHTML = `
-    <div class="streak-badge"><span>🔥</span><span>${streak}日れんぞくきろく中！</span></div>${best}`;
+    <div class="streak-badge">${icon('fire')}<span>${streak}日れんぞくきろく中！</span></div>${best}`;
 }
 
 /**
@@ -446,7 +446,7 @@ function renderGoals() {
             <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${percent}%;border-radius:999px;background:${done ? 'linear-gradient(90deg,#35c47e,#8fe6b7)' : 'linear-gradient(90deg,#f472a0,#ffb0cb)'};"></div>
           </div>
           <span class="fw-bold no-furigana" style="white-space:nowrap;color:${done ? 'var(--mq-green-d)' : 'var(--mq-pink-d)'};">
-            ${done ? '🎉 ' : ''}${goal.current} / ${target}${esc(goal.unit)}
+            ${done ? icon('party') + ' ' : ''}${goal.current} / ${target}${esc(goal.unit)}
           </span>
         </div>
       </div>`;
@@ -482,7 +482,7 @@ function openGoalDialog(presetKind) {
   const options = kinds.map(k => `<option value="${esc(k.key)}">${esc(k.label)}</option>`).join('');
 
   Swal.fire({
-    title: '🎯 めあてを立てよう',
+    title: 'めあてを立てよう',
     html: `
       <div class="text-start">
         <label class="form-label small fw-bold">なにをがんばる？</label>
@@ -571,7 +571,7 @@ function renderWeeklyCard() {
     el.innerHTML = `
       <div class="mq-card accent-gold">
         <div class="mq-card-head">
-          <span class="mq-card-icon no-furigana" aria-hidden="true">📔</span>
+          <span class="mq-card-icon">${icon('journal')}</span>
           <h2 class="mq-card-title">今週のふり返り</h2>
         </div>
         <div class="mq-card-body tight">
@@ -608,7 +608,7 @@ function openWeeklyReflectionDialog() {
           今週のあなた: きろく <b>${s.records || 0}件</b>（${s.activeDays || 0}日）
           ／ 読んだページ <b>${s.readingPages || 0}</b>
           ／ 学習アプリ <b>${s.appMinutes || 0}分</b>
-          ${s.streak > 0 ? `<br>🔥 いま <b>${s.streak}日</b> れんぞくきろく中！` : ''}
+          ${s.streak > 0 ? `<br>${icon('fire')} いま <b>${s.streak}日</b> れんぞくきろく中！` : ''}
         </div>
         <label class="form-label small fw-bold">① 今週できるようになったことは？</label>
         <textarea id="weekly-learned" class="form-control mb-2" rows="2" maxlength="300"></textarea>
@@ -637,10 +637,10 @@ function openWeeklyReflectionDialog() {
     renderMissions(res.missions);
 
     let html = `今週のふり返りを書きました！<br><b class="text-primary">+${res.gainedExp} EXP</b>`;
-    if (res.goalRegistered) html += `<br>🎯 来週のめあてをセットしました`;
+    if (res.goalRegistered) html += `<br>${icon('target')} 来週のめあてをセットしました`;
     Swal.fire({ icon: 'success', title: 'よくがんばりました！', html }).then(() => {
       if (res.leveledUp) {
-        Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${res.newLevel}</b> になりました！` });
+        Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${res.newLevel}</b> になりました！` });
       }
     });
   });
@@ -686,7 +686,7 @@ function studySendPanelHtml() {
     ? `<div class="mt-2">${rewards.join('')}</div>`
     : `<div class="mt-2 small text-muted">今日はもうボーナスをもらったよ。きろくぶんのEXPはこのあともふえるよ！</div>`;
   const streakHtml = s.streak > 0
-    ? `<span class="badge bg-danger ms-2">🔥 ${s.streak}日れんぞく</span>` : '';
+    ? `<span class="badge bg-danger ms-2">${icon('fire')} ${s.streak}日れんぞく</span>` : '';
 
   // ① ポータルの中にいる → その場で送信できる
   if (Portal.embedded && Portal.connected) {
@@ -702,8 +702,8 @@ function studySendPanelHtml() {
       const ownNumber = /^\d+$/.test(String((App.data && App.data.profile && App.data.profile.number) || ''));
       const needsNumber = !Portal.studentNumber && !ownNumber;
       const action = needsNumber
-        ? `<button type="button" class="mq-btn mq-btn-gold send-btn" data-study-number><span class="no-furigana" aria-hidden="true">🔢</span> しゅっせきばんごうを 入れる</button>`
-        : `<button type="button" class="mq-btn mq-btn-pink mq-btn-lg send-btn" data-study-send><span class="no-furigana" aria-hidden="true">📨</span> きろくを おくる</button>`;
+        ? `<button type="button" class="mq-btn mq-btn-gold send-btn" data-study-number>${icon('calc')} しゅっせきばんごうを 入れる</button>`
+        : `<button type="button" class="mq-btn mq-btn-pink mq-btn-lg send-btn" data-study-send>${icon('send')} きろくを おくる</button>`;
       return `<div class="card send-card has-pending"><div class="card-body">
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <span class="send-pending-badge">${Portal.pending}</span>
@@ -784,7 +784,7 @@ function handlePortalSendResult(msg) {
 
   const r = msg.reward || {};
   const lines = [`<b>${msg.saved}件</b>の きろくを おくりました！`];
-  if (r.calcRecords > 0) lines.push(`🧮 100マス計算 <b>${r.calcRecords}回分</b> がきろくされたよ`);
+  if (r.calcRecords > 0) lines.push(`${icon('calc')} 100マス計算 <b>${r.calcRecords}回分</b> がきろくされたよ`);
   if (msg.gainedExp > 0) lines.push(`<b class="text-primary fs-5">+${msg.gainedExp} EXP</b> ゲット！`);
   const detail = [];
   if (r.appExp > 0) detail.push(`学習時間 +${r.appExp}`);
@@ -794,17 +794,17 @@ function handlePortalSendResult(msg) {
   if (r.personalBestExp > 0) detail.push(`じこベスト +${r.personalBestExp}`);
   if (r.recordStreakExp > 0) detail.push(`${r.recordStreak}日れんぞくきろく +${r.recordStreakExp}`);
   if (detail.length > 0) lines.push(`<span class="small text-muted">（${detail.join(' / ')}）</span>`);
-  if (r.exchangePoints > 0) lines.push(`🎁 交換ポイント <b>+${r.exchangePoints}</b>`);
+  if (r.exchangePoints > 0) lines.push(`${icon('gift')} 交換ポイント <b>+${r.exchangePoints}</b>`);
   if (msg.duplicate > 0) lines.push(`<span class="small text-muted">${msg.duplicate}件は おくりずみでした</span>`);
   if (msg.kept > 0) lines.push(`<span class="small text-warning">${msg.kept}件は まだ おくれません（きろくは のこしてあります）</span>`);
   if (msg.personalBest) {
     const b = msg.personalBest;
-    lines.unshift(`🌟 <b class="text-danger">じこベスト更新！</b> ${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）`);
+    lines.unshift(`${icon('star')} <b class="text-danger">じこベスト更新！</b> ${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）`);
   }
 
   Swal.fire({ icon: 'success', title: msg.personalBest ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
     if (msg.leveledUp) {
-      Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${msg.level}</b> になりました！` })
+      Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${msg.level}</b> になりました！` })
         .then(refreshStudentData);
     } else {
       refreshStudentData();
@@ -936,7 +936,7 @@ function renderBadges(earnedBadges, allBadges) {
   container.innerHTML = `<div class="d-flex flex-wrap gap-2 justify-content-center">` +
     badges.map(b => {
       const earned = earnedIds.has(b.id);
-      const inner = b.imageUrl && earned ? `<img src="${esc(b.imageUrl)}" referrerpolicy="no-referrer">` : `<i class="bi ${earned ? 'bi-award-fill' : 'bi-lock-fill'}"></i>`;
+      const inner = b.imageUrl && earned ? `<img src="${esc(b.imageUrl)}" referrerpolicy="no-referrer">` : icon(earned ? 'medal' : 'lock');
       return `<div class="text-center badge-tip" title="${esc(b.name)}: ${esc(b.description)}" style="width:64px;">
         <div class="badge-icon ${earned ? '' : 'locked'}">${inner}</div>
         <div class="small text-truncate ${earned ? 'fw-bold' : 'text-muted'}" style="font-size:.65rem;">${esc(b.name)}</div>
@@ -952,11 +952,11 @@ function renderBadges(earnedBadges, allBadges) {
  * 「グループをえらぶ → 種類をえらぶ → 1問ずつ答える」の3段階にしています。
  */
 const RECORD_GROUPS = [
-  { key: 'practice', emoji: '🏃', title: 'まいにちの れんしゅう', note: 'タイピング・どくしょ',
+  { key: 'practice', icon: 'run', title: 'まいにちの れんしゅう', note: 'タイピング・どくしょ',
     door: 'door-blue', types: ['typing', 'reading'] },
-  { key: 'lesson', emoji: '✍️', title: 'じゅぎょうの ふり返り', note: 'じゅぎょう・テスト・どうとく',
+  { key: 'lesson', icon: 'note', title: 'じゅぎょうの ふり返り', note: 'じゅぎょう・テスト・どうとく',
     door: 'door-cyan', types: ['lesson', 'test', 'moral'] },
-  { key: 'self', emoji: '🌱', title: 'じぶんの こと', note: 'せいちょう・じしゅ学習',
+  { key: 'self', icon: 'sprout', title: 'じぶんの こと', note: 'せいちょう・じしゅ学習',
     door: 'door-green', types: ['growth', 'study'] }
 ];
 
@@ -977,12 +977,12 @@ function renderRecordGroupMenu() {
     <p class="mq-hint mb-3">えらぶと、しつもんが 1つずつ 出てくるよ</p>
     ${RECORD_GROUPS.map(g => `
       <button type="button" class="mq-door ${g.door}" data-record-group="${g.key}">
-        <span class="door-icon no-furigana" aria-hidden="true">${g.emoji}</span>
+        <span class="door-icon">${icon(g.icon)}</span>
         <span class="door-body">
           <span class="door-title">${esc(g.title)}</span>
           <span class="door-note">${esc(g.note)}</span>
         </span>
-        <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+        <span class="door-arrow">${icon('chevron-right')}</span>
       </button>`).join('')}
     <p class="mq-hint mt-3">100マス計算は、100マス計算アプリの きろくから じどうで 入ります。</p>`;
 
@@ -1000,12 +1000,12 @@ function openRecordGroup(key) {
     group.types.map(type => {
       const s = RECORD_STYLES[type];
       return `<button type="button" class="mq-door ${s.door}" data-record-type="${type}">
-        <span class="door-icon no-furigana" aria-hidden="true">${s.emoji}</span>
+        <span class="door-icon">${icon(s.icon)}</span>
         <span class="door-body">
           <span class="door-title">${esc(s.label)}</span>
           <span class="door-note">${esc(s.note)}</span>
         </span>
-        <span class="door-arrow no-furigana" aria-hidden="true">›</span>
+        <span class="door-arrow">${icon('chevron-right')}</span>
       </button>`;
     }).join('');
   bindPanelLinks(panel);
@@ -1141,7 +1141,7 @@ function renderStudyAppTab(d) {
     area.innerHTML = `
       <div id="apps-send-card" class="mb-3"></div>
       <div class="card record-form-card shadow-sm"><div class="card-body text-center py-4">
-        <div style="font-size:2rem;">🎮</div>
+        <div style="font-size:2rem;">${icon('gamepad')}</div>
         <p class="fw-bold mb-1">学習アプリのきろくは、まだとどいていません</p>
         <p class="small text-muted mb-0">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算であそんだら、<br>上の「きろくを おくる」ボタンでおくると、ここに表示されるよ。</p>
       </div></div>`;
@@ -1195,19 +1195,19 @@ function renderStudyAppTab(d) {
  * 「いま どのきろくを 書いているか」が 色でも分かるようにしています。
  */
 const RECORD_STYLES = {
-  typing: { emoji: '⌨️', label: 'タイピング', note: 'そくどと 正かくさ',
+  typing: { icon: 'keyboard', label: 'タイピング', note: 'そくどと 正かくさ',
             door: 'door-blue', accent: 'accent-blue', btn: 'mq-btn' },
-  reading:{ emoji: '📖', label: 'どくしょ', note: 'よんだ本のこと',
+  reading:{ icon: 'book', label: 'どくしょ', note: 'よんだ本のこと',
             door: 'door-orange', accent: 'accent-orange', btn: 'mq-btn-orange' },
-  growth: { emoji: '🌱', label: 'せいちょう', note: 'できるようになったこと',
+  growth: { icon: 'sprout', label: 'せいちょう', note: 'できるようになったこと',
             door: 'door-green', accent: 'accent-green', btn: 'mq-btn-green' },
-  study:  { emoji: '💡', label: 'じしゅ学習', note: 'じぶんでしらべたこと',
+  study:  { icon: 'bulb', label: 'じしゅ学習', note: 'じぶんでしらべたこと',
             door: 'door-purple', accent: 'accent-purple', btn: 'mq-btn-purple' },
-  lesson: { emoji: '✍️', label: 'じゅぎょうの ふり返り', note: '今日のじゅぎょうのこと',
+  lesson: { icon: 'note', label: 'じゅぎょうの ふり返り', note: '今日のじゅぎょうのこと',
             door: 'door-cyan', accent: 'accent-cyan', btn: 'mq-btn' },
-  test:   { emoji: '📝', label: 'テストの ふり返り', note: '目標と 点数',
+  test:   { icon: 'exam', label: 'テストの ふり返り', note: '目標と 点数',
             door: 'door-gold', accent: 'accent-gold', btn: 'mq-btn-gold' },
-  moral:  { emoji: '💖', label: 'どうとくノート', note: 'かんがえたこと',
+  moral:  { icon: 'heart', label: 'どうとくノート', note: 'かんがえたこと',
             door: 'door-pink', accent: 'accent-pink', btn: 'mq-btn-pink' }
 };
 
@@ -1224,23 +1224,23 @@ function stepper(id, options) {
   const min = o.min === undefined ? 0 : o.min;
   const step = o.step || 1;
   return `<div class="mq-stepper" data-stepper-for="${id}" data-step="${step}"${o.max !== undefined ? ` data-max="${o.max}"` : ''} data-min="${min}">
-    <button type="button" class="mq-step-btn no-furigana" data-delta="-1" aria-label="へらす">−</button>
+    <button type="button" class="mq-step-btn" data-delta="-1" aria-label="へらす">${icon('minus')}</button>
     <input type="number" class="mq-input" id="${id}" min="${min}"${o.max !== undefined ? ` max="${o.max}"` : ''} step="${step}" inputmode="decimal"${o.value !== undefined ? ` value="${o.value}"` : ''} placeholder="0">
-    <button type="button" class="mq-step-btn no-furigana" data-delta="1" aria-label="ふやす">＋</button>
+    <button type="button" class="mq-step-btn" data-delta="1" aria-label="ふやす">${icon('plus')}</button>
   </div>`;
 }
 
 /**
  * 押して選ぶ選択肢。プルダウンより中身が見えるので、児童が迷いにくくなります。
  * @param {string} id - えらんだ値は #id の data-value に入ります
- * @param {Array} choices - [{ value, label, emoji }]
+ * @param {Array} choices - [{ value, label, icon, mark }]
  */
 function choiceGroup(id, choices, options) {
   const o = options || {};
   const first = o.value !== undefined ? o.value : choices[0].value;
   return `<div class="mq-choice${o.grow === false ? '' : ' grow'}" id="${id}" data-value="${esc(first)}">
     ${choices.map(c => `<button type="button" class="mq-choice-item${c.value === first ? ' on' : ''}" data-value="${esc(c.value)}">
-      ${c.emoji ? `<span class="choice-emoji no-furigana" aria-hidden="true">${c.emoji}</span>` : ''}<span>${esc(c.label)}</span>
+      ${c.icon ? `<span class="choice-emoji">${icon(c.icon)}</span>` : ''}${c.mark ? `<span class="choice-mark no-furigana" aria-hidden="true">${c.mark}</span>` : ''}<span>${esc(c.label)}</span>
     </button>`).join('')}
   </div>`;
 }
@@ -1265,7 +1265,7 @@ function subField(labelText, inner) {
 /** ふり返り入力の「書き出しヒント」チップ群を生成します */
 function starterChips(targetId, phrases) {
   return `<div class="starter-chips mt-2" data-starter-for="${targetId}">
-    <div class="mq-hint mb-1"><span class="no-furigana" aria-hidden="true">💡</span> かきだしのヒント（タップすると入ります）</div>
+    <div class="mq-hint mb-1">${icon('bulb')} かきだしのヒント（タップすると入ります）</div>
     <div class="mq-choice">
       ${phrases.map(p => `<button type="button" class="mq-choice-item starter-chip" style="min-height:2.4rem;padding:.35rem .8rem;font-size:.92rem;font-weight:500;" data-phrase="${esc(p)}">${esc(p)}…</button>`).join('')}
     </div>
@@ -1330,72 +1330,72 @@ const SUBJECTS = ['国語', '社会', '算数', '理科', '英語', '音楽', '�
 /**
  * きろくの種類ごとの しつもんリスト。
  * 1ステップにつき、入力するものは1〜2こまでにしています。
- * @returns {Array} [{ emoji, question, html, hint, require }]
+ * @returns {Array} [{ icon, question, html, hint, require }]
  */
 function recordSteps(type) {
   switch (type) {
     case 'typing': return [
-      { emoji: '🔤', question: 'ぜんぶで 何もじ 打った？', html: stepper('f-total', { min: 0, step: 5 }), require: 'f-total' },
-      { emoji: '⭕', question: 'そのうち 正しく打てたのは？', html: stepper('f-correct', { min: 0, step: 5 }), require: 'f-correct' },
-      { emoji: '⏱️', question: '何びょう かかった？', html: stepper('f-time', { min: 0, step: 10 }),
+      { icon: 'keyboard', question: 'ぜんぶで 何もじ 打った？', html: stepper('f-total', { min: 0, step: 5 }), require: 'f-total' },
+      { icon: 'check', question: 'そのうち 正しく打てたのは？', html: stepper('f-correct', { min: 0, step: 5 }), require: 'f-correct' },
+      { icon: 'timer', question: '何びょう かかった？', html: stepper('f-time', { min: 0, step: 10 }),
         hint: 'いまの目標は つぎの画面で かくにんできるよ', require: 'f-time' },
-      { emoji: '🎯', question: 'いまの目標', html: `<div class="p-3 rounded-3" style="background:var(--mq-blue-s);" id="typing-goal-info"></div>` }
+      { icon: 'target', question: 'いまの目標', html: `<div class="p-3 rounded-3" style="background:var(--mq-blue-s);" id="typing-goal-info"></div>` }
     ];
 
     case 'reading': return [
-      { emoji: '📕', question: 'よんだ本の だいめいは？',
+      { icon: 'book', question: 'よんだ本の だいめいは？',
         html: `<input type="text" class="mq-input" id="f-title" placeholder="本のなまえ">`, require: 'f-title' },
-      { emoji: '🏷️', question: 'どんな本だった？', html: choiceGroup('f-genre', [
-          { value: 'ものがたり', label: 'ものがたり', emoji: '🐉' },
-          { value: 'かがく', label: 'かがく', emoji: '🔬' },
-          { value: 'でんき', label: 'でんき', emoji: '🧑‍🚀' },
-          { value: 'ずかん', label: 'ずかん', emoji: '🗺️' },
-          { value: 'まんが・その他', label: 'そのほか', emoji: '📚' }
+      { icon: 'tag', question: 'どんな本だった？', html: choiceGroup('f-genre', [
+          { value: 'ものがたり', label: 'ものがたり', icon: 'dragon' },
+          { value: 'かがく', label: 'かがく', icon: 'flask' },
+          { value: 'でんき', label: 'でんき', icon: 'person' },
+          { value: 'ずかん', label: 'ずかん', icon: 'map' },
+          { value: 'まんが・その他', label: 'そのほか', icon: 'books' }
         ]) },
-      { emoji: '📄', question: '何ページ よんだ？', html: stepper('f-pages', { min: 0, step: 10 }) },
-      { emoji: '⭐', question: 'おすすめ度は いくつ？',
+      { icon: 'page', question: '何ページ よんだ？', html: stepper('f-pages', { min: 0, step: 10 }) },
+      { icon: 'star', question: 'おすすめ度は いくつ？',
         html: `<div class="star-rating no-furigana text-center" id="f-rating" data-value="3" role="group" aria-label="おすすめ度">${
           [1, 2, 3, 4, 5].map(i => `<span class="star" data-star="${i}">★</span>`).join('')}</div>`,
         hint: 'ほしを タップして えらんでね' },
-      { emoji: '💭', question: 'よんでみて どうだった？',
+      { icon: 'comment', question: 'よんでみて どうだった？',
         html: `<textarea class="mq-textarea" id="f-comment" placeholder="おもしろかったところ、心にのこったところ"></textarea>
           ${starterChips('f-comment', ['いちばんおもしろかったのは', '主人公は', 'よんでみて'])}` }
     ];
 
     case 'growth': return [
-      { emoji: '🌱', question: 'どんなことが できるように なった？',
+      { icon: 'sprout', question: 'どんなことが できるように なった？',
         html: `<input type="text" class="mq-input" id="f-content" placeholder="れい: なわとびの二重とびができた">`, require: 'f-content' },
-      { emoji: '💬', question: 'どうやって できるように なった？',
+      { icon: 'comment', question: 'どうやって できるように なった？',
         html: `<textarea class="mq-textarea" id="f-gcomment" placeholder="がんばったこと・コツ"></textarea>
           ${starterChips('f-gcomment', ['まいにち', 'コツは', 'つぎは'])}` }
     ];
 
     case 'study': return [
-      { emoji: '❓', question: 'なにを しらべた？',
+      { icon: 'bulb', question: 'なにを しらべた？',
         html: `<input type="text" class="mq-input" id="f-theme" placeholder="テーマ・ふしぎに思ったこと">`, require: 'f-theme' },
-      { emoji: '💡', question: 'なにが わかった？',
+      { icon: 'bulb', question: 'なにが わかった？',
         html: `<textarea class="mq-textarea" id="f-summary" placeholder="しらべて分かったこと"></textarea>
           ${starterChips('f-summary', ['しらべてみると', 'おどろいたのは', 'まとめると'])}` },
-      { emoji: '➡️', question: 'つぎは なにを やってみたい？',
+      { icon: 'arrow-right', question: 'つぎは なにを やってみたい？',
         html: `<input type="text" class="mq-input" id="f-next" placeholder="つぎに知りたいこと">` }
     ];
 
     case 'lesson': return [
-      { emoji: '📚', question: 'なんの じゅぎょう？', html: selectField('f-subject', SUBJECTS) },
-      { emoji: '🎯', question: 'めあては たっせいできた？', html: choiceGroup('f-q1', [
-          { value: '◎ できた', label: 'できた', emoji: '◎' },
-          { value: '◯ だいたいできた', label: 'だいたい', emoji: '◯' },
-          { value: '△ むずかしかった', label: 'むずかしかった', emoji: '△' }
+      { icon: 'books', question: 'なんの じゅぎょう？', html: selectField('f-subject', SUBJECTS) },
+      { icon: 'target', question: 'めあては たっせいできた？', html: choiceGroup('f-q1', [
+          { value: '◎ できた', label: 'できた', mark: '◎' },
+          { value: '◯ だいたいできた', label: 'だいたい', mark: '◯' },
+          { value: '△ むずかしかった', label: 'むずかしかった', mark: '△' }
         ]) },
-      { emoji: '🙋', question: 'すすんで 学べた？', html: choiceGroup('f-selfeval', [
-          { value: '◎', label: 'とても', emoji: '◎' },
-          { value: '◯', label: 'まあまあ', emoji: '◯' },
-          { value: '△', label: 'あまり', emoji: '△' }
+      { icon: 'hand', question: 'すすんで 学べた？', html: choiceGroup('f-selfeval', [
+          { value: '◎', label: 'とても', mark: '◎' },
+          { value: '◯', label: 'まあまあ', mark: '◯' },
+          { value: '△', label: 'あまり', mark: '△' }
         ]) },
-      { emoji: '✋', question: '手を あげたのは 何回？', html: stepper('f-hands', { min: 0, step: 1, value: 0 }) },
-      { emoji: '💡', question: '今日 わかったことは？',
+      { icon: 'hand', question: '手を あげたのは 何回？', html: stepper('f-hands', { min: 0, step: 1, value: 0 }) },
+      { icon: 'bulb', question: '今日 わかったことは？',
         html: `<input type="text" class="mq-input" id="f-q2" placeholder="今日いちばん分かったこと">` },
-      { emoji: '📝', question: 'くわしく ふり返ってみよう',
+      { icon: 'note', question: 'くわしく ふり返ってみよう',
         html: `<textarea class="mq-textarea" id="f-reflection" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
           ${starterChips('f-reflection', ['今日わかったのは', 'まえとくらべて', 'むずかしかったのは', 'つぎにがんばりたいのは'])}`,
         hint: 'くわしく書くと、ふり返りボーナスの けいけんちが もらえます' }
@@ -1405,20 +1405,20 @@ function recordSteps(type) {
       const units = App.data.testUnits || {};
       const testSubjects = Object.keys(units);
       return [
-        { emoji: '📚', question: 'なんの テスト？', html: selectField('f-tsubject', testSubjects.length ? testSubjects : SUBJECTS) },
-        { emoji: '📗', question: 'どの 単元？', html: `<select class="mq-select" id="f-unit"></select>` },
-        { emoji: '🎯', question: 'テストのまえに 立てた目標は？',
+        { icon: 'books', question: 'なんの テスト？', html: selectField('f-tsubject', testSubjects.length ? testSubjects : SUBJECTS) },
+        { icon: 'exam', question: 'どの 単元？', html: `<select class="mq-select" id="f-unit"></select>` },
+        { icon: 'target', question: 'テストのまえに 立てた目標は？',
           html: `<div class="row g-3">
             <div class="col-6">${subField('知識', stepper('f-expected1', { min: 0, max: 100, step: 5 }))}</div>
             <div class="col-6">${subField('思考', stepper('f-expected2', { min: 0, max: 100, step: 5 }))}</div>
           </div>`,
           hint: '目標がないときは 0 のままでも だいじょうぶ' },
-        { emoji: '💯', question: 'テストの 点数は？',
+        { icon: 'score', question: 'テストの 点数は？',
           html: `<div class="row g-3">
             <div class="col-6">${subField('知識', stepper('f-score1', { min: 0, max: 100, step: 5 }))}</div>
             <div class="col-6">${subField('思考', stepper('f-score2', { min: 0, max: 100, step: 5 }))}</div>
           </div>` },
-        { emoji: '📝', question: 'ふり返ってみよう',
+        { icon: 'note', question: 'ふり返ってみよう',
           html: `<textarea class="mq-textarea" id="f-treflection" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
             ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}` }
       ];
@@ -1430,11 +1430,11 @@ function recordSteps(type) {
         ? selectField('f-material', materials.map(m => ({ value: m.number, label: `${m.number}. ${m.name}` })))
         : `<select class="mq-select" id="f-material"><option value="">（教材リストが未登録です）</option></select>`;
       return [
-        { emoji: '📘', question: 'どの おはなし？', html: materialField },
-        { emoji: '🤔', question: 'じぶんは どう思った？',
+        { icon: 'book', question: 'どの おはなし？', html: materialField },
+        { icon: 'comment', question: 'じぶんは どう思った？',
           html: `<textarea class="mq-textarea" id="f-thought" placeholder="どう思った？ どうしてそう思った？"></textarea>
             ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}` },
-        { emoji: '💖', question: '学習して 気づいたことは？',
+        { icon: 'heart', question: '学習して 気づいたことは？',
           html: `<textarea class="mq-textarea" id="f-mreflection" placeholder="これから大切にしたいこと"></textarea>
             ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}` }
       ];
@@ -1483,7 +1483,7 @@ function openRecordForm(type) {
   RecordForm.index = 0;
 
   const panel = document.getElementById('p-rec-form');
-  panel.innerHTML = panelHeader(style.emoji, RECORD_LABELS[type], 'p-rec-group') + `
+  panel.innerHTML = panelHeader(style.icon, RECORD_LABELS[type], 'p-rec-group') + `
     <div class="mq-dots no-furigana" aria-hidden="true">${steps.map(() => '<i></i>').join('')}</div>
     <div class="mq-card ${style.accent}">
       <div class="mq-card-body">
@@ -1491,7 +1491,7 @@ function openRecordForm(type) {
           ${steps.map((s, i) => `
             <div class="mq-step" data-step="${i}">
               <div class="mq-step-question">
-                <span class="q-emoji no-furigana" aria-hidden="true">${s.emoji}</span>
+                <span class="q-emoji">${icon(s.icon)}</span>
                 <span>${esc(s.question)}</span>
               </div>
               ${s.html}
@@ -1500,7 +1500,7 @@ function openRecordForm(type) {
         </div>
         <div class="d-flex gap-2 mt-4">
           <button type="button" class="mq-btn mq-btn-ghost" id="step-prev">
-            <span class="no-furigana" aria-hidden="true">←</span> まえ
+            ${icon('arrow-left')} まえ
           </button>
           <button type="button" class="mq-btn ${style.btn} mq-btn-lg flex-fill" id="step-next">つぎへ</button>
         </div>
@@ -1548,13 +1548,13 @@ function showStep(index, back) {
   const isLast = index === RecordForm.steps.length - 1;
   const next = document.getElementById('step-next');
   next.innerHTML = isLast
-    ? '<span class="no-furigana" aria-hidden="true">✓</span> きろくする'
-    : 'つぎへ <span class="no-furigana" aria-hidden="true">→</span>';
+    ? icon('check') + ' きろくする'
+    : 'つぎへ ' + icon('arrow-right');
   // さいしょのしつもんでは、「まえ」は「やめる」（種類えらびへ戻る）になります
   const prev = document.getElementById('step-prev');
   prev.innerHTML = index === 0
     ? 'やめる'
-    : '<span class="no-furigana" aria-hidden="true">←</span> まえ';
+    : icon('arrow-left') + ' まえ';
 
   // いちばん上の入力欄にカーソルを置いて、すぐ書きはじめられるようにします
   const active = panel.querySelector('.mq-step.on');
@@ -1599,7 +1599,7 @@ function bindRecordFormExtras(type) {
       const parts = [];
       if (goal.speedGoal) parts.push(`速さ ${goal.speedGoal} 打/秒`);
       if (goal.accuracyGoal) parts.push(`正答率 ${goal.accuracyGoal}%`);
-      goalInfo.innerHTML = `<span class="no-furigana" aria-hidden="true">🎯</span> いまの目標: <b>${parts.join(' ・ ')}</b>`;
+      goalInfo.innerHTML = `${icon('target')} いまの目標: <b>${parts.join(' ・ ')}</b>`;
     } else {
       goalInfo.innerHTML = `目標が まだ ありません。
         <button type="button" class="mq-btn mt-2" style="min-height:2.6rem;padding:.4rem 1rem;font-size:.95rem;" id="set-goal-btn">目標をセットする</button>`;
@@ -1676,24 +1676,24 @@ async function submitRecordForm(type) {
   if (result.gainedExp > 0) html += `<br><b class="text-primary">+${result.gainedExp} EXP</b> ゲット！`;
   if (result.reflectionBonus > 0) html += `<br>✨ <b class="text-success">ふり返りがすばらしい！</b><br>（深く考えて書けたので +${result.reflectionBonus} EXP のボーナス）`;
   if (result.streakBonus) {
-    html += `<br>🔥 <b class="text-warning-emphasis">${result.streakBonus.streak}日れんぞくきろく！</b>（+${result.streakBonus.exp} EXP）`;
+    html += `<br>${icon('fire')} <b class="text-warning-emphasis">${result.streakBonus.streak}日れんぞくきろく！</b>（+${result.streakBonus.exp} EXP）`;
   }
   (result.achievedGoals || []).forEach(goal => {
-    html = `🏆 <b>めあてたっせい！</b>（${esc(goal.kindLabel)}）<br>` + html;
+    html = `${icon('trophy')} <b>めあてたっせい！</b>（${esc(goal.kindLabel)}）<br>` + html;
   });
   if (result.personalBest) {
     const b = result.personalBest;
-    html = `🌟 <b class="text-danger">じこベスト更新！</b><br>${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）<br>` + html;
+    html = `${icon('star')} <b class="text-danger">じこベスト更新！</b><br>${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）<br>` + html;
     if (b.exp > 0) html += `<br>（じこベストボーナス +${b.exp} EXP）`;
   }
   if (result.aiCoach) {
-    html += `<hr class="my-2"><div class="text-start small"><b>🤖 AIコーチから</b><br>${esc(result.aiCoach)}</div>`;
+    html += `<hr class="my-2"><div class="text-start small"><b>${icon('bulb')} AIコーチから</b><br>${esc(result.aiCoach)}</div>`;
   }
 
   Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html }).then(() => {
     if (result.leveledUp) {
       celebrate(160);
-      Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
+      Swal.fire({ icon: 'success', title: 'レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
         .then(() => refreshMissions());
     } else {
       refreshMissions();
@@ -1708,10 +1708,10 @@ function renderTypingTab(records) {
   const goal = records.goalData.currentGoal;
   const best = records.typingBest;
   const goalHtml = goal
-    ? `<span class="badge bg-primary">🎯 ${[goal.speedGoal ? `速さ ${goal.speedGoal}` : '', goal.accuracyGoal ? `正答率 ${goal.accuracyGoal}%` : ''].filter(Boolean).join(' / ')}</span>`
+    ? `<span class="badge bg-primary">${icon('target')} ${[goal.speedGoal ? `速さ ${goal.speedGoal}` : '', goal.accuracyGoal ? `正答率 ${goal.accuracyGoal}%` : ''].filter(Boolean).join(' / ')}</span>`
     : `<button class="btn btn-sm btn-outline-primary" id="typing-tab-goal-btn">目標をセット</button>`;
   const achievedHtml = records.goalData.achievedGoals.length > 0
-    ? `<div class="small text-muted mt-1">たっせいした目標: ${records.goalData.achievedGoals.length}こ 🏆</div>` : '';
+    ? `<div class="small text-muted mt-1">たっせいした目標: ${records.goalData.achievedGoals.length}こ ${icon('trophy')}</div>` : '';
 
   document.getElementById('rtab-typing').innerHTML = `
     <div class="card record-form-card shadow-sm mb-3">
@@ -1733,7 +1733,7 @@ function renderCalcTab(records) {
   document.getElementById('rtab-calc').innerHTML = `
     <div id="calc-send-card" class="mb-3"></div>
     <div class="alert alert-light border small">
-      🧮 100マス計算のきろくは、<b>100マス計算アプリ</b>のきろくをおくると自動でふえるよ。
+      ${icon('calc')} 100マス計算のきろくは、<b>100マス計算アプリ</b>のきろくをおくると自動でふえるよ。
       点数は「はじめの1回でとけた数」を100点まんてんにしたものだよ。
     </div>
     <div class="card record-form-card shadow-sm mb-3"><div class="card-body">
@@ -1775,20 +1775,20 @@ function renderNotesTab(records) {
   const growthHtml = records.growth.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
       <div class="small text-muted">${r.date}</div>
-      <div>🌱 <b>${esc(r.content)}</b></div>
+      <div>${icon('sprout')} <b>${esc(r.content)}</b></div>
       ${r.comment ? `<div class="small text-muted">${esc(r.comment)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const studyHtml = records.study.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
       <div class="small text-muted">${r.date}</div>
-      <div>💡 <b>${esc(r.theme)}</b></div>
+      <div>${icon('bulb')} <b>${esc(r.theme)}</b></div>
       <div class="small">${esc(r.summary)}</div>
       ${r.next ? `<div class="small text-muted">つぎは: ${esc(r.next)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   document.getElementById('rtab-notes').innerHTML = `
     <div class="row g-3">
-      <div class="col-md-6"><h6 class="fw-bold text-success">🌱 せいちょうのきろく</h6>${growthHtml}</div>
-      <div class="col-md-6"><h6 class="fw-bold text-warning-emphasis">💡 じしゅ学習</h6>${studyHtml}</div>
+      <div class="col-md-6"><h6 class="fw-bold text-success">${icon('sprout')} せいちょうのきろく</h6>${growthHtml}</div>
+      <div class="col-md-6"><h6 class="fw-bold text-warning-emphasis">${icon('bulb')} じしゅ学習</h6>${studyHtml}</div>
     </div>`;
 }
 
@@ -1798,7 +1798,7 @@ function renderLessonTab(records) {
       <div class="d-flex justify-content-between"><b>✍️ ${esc(r.subject)}</b><span class="small text-muted">${r.date}</span></div>
       <div class="small">${esc(r.reflection)}</div>
       <div class="small text-muted">めあて: ${esc(r.q1 || '-')} ／ 主体性: ${esc(r.selfEval || '-')} ／ 挙手: ${esc(String(r.handRaises || 0))}回</div>
-      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">🤖 AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
+      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">${icon('bulb')} AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const goalDiffBadge = (score, expected) => {
     if (score === '' || score === null || expected === '' || expected === null) return '';
@@ -1809,21 +1809,21 @@ function renderLessonTab(records) {
   };
   const testHtml = records.test.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
-      <div class="d-flex justify-content-between"><b>📝 ${esc(r.subject)} / ${esc(r.unit)}</b><span class="small text-muted">${r.date}</span></div>
+      <div class="d-flex justify-content-between"><b>${icon('exam')} ${esc(r.subject)} / ${esc(r.unit)}</b><span class="small text-muted">${r.date}</span></div>
       <div class="small">点数: <b>${esc(String(r.score1 ?? ''))}</b>${goalDiffBadge(r.score1, r.expected1)}${r.score2 !== '' && r.score2 !== null ? ` ・ <b>${esc(String(r.score2))}</b>${goalDiffBadge(r.score2, r.expected2)}` : ''}</div>
       ${r.reflection ? `<div class="small">${esc(r.reflection)}</div>` : ''}
-      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">🤖 AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
+      ${r.aiCoach ? `<div class="small bg-light rounded p-2 mt-1">${icon('bulb')} AIコーチから: ${esc(r.aiCoach)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   const moralHtml = records.moral.map(r => `
     <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
-      <div class="d-flex justify-content-between"><b>💖 ${esc(r.materialName)}</b><span class="small text-muted">${r.date}</span></div>
+      <div class="d-flex justify-content-between"><b>${icon('heart')} ${esc(r.materialName)}</b><span class="small text-muted">${r.date}</span></div>
       <div class="small">${esc(r.myThought)}</div>
-      ${r.feedback ? `<div class="small bg-light rounded p-2 mt-1">💬 先生AIから: ${esc(r.feedback)}</div>` : ''}
+      ${r.feedback ? `<div class="small bg-light rounded p-2 mt-1">${icon('comment')} 先生AIから: ${esc(r.feedback)}</div>` : ''}
     </div></div>`).join('') || emptyMessage('まだきろくがありません');
   document.getElementById('rtab-lesson').innerHTML = `
     <div class="row g-3">
       <div class="col-lg-4"><h6 class="fw-bold text-primary">✍️ じゅぎょうのふり返り</h6>${lessonHtml}</div>
-      <div class="col-lg-4"><h6 class="fw-bold text-danger">📝 テストのふり返り</h6>
+      <div class="col-lg-4"><h6 class="fw-bold text-danger">${icon('exam')} テストのふり返り</h6>
         <div class="card record-form-card shadow-sm mb-2"><div class="card-body">
           <div class="d-flex justify-content-between align-items-center mb-1">
             <h6 class="fw-bold mb-0 small">点数と目標のグラフ</h6><div id="test-chart-selector"></div>
@@ -1831,7 +1831,7 @@ function renderLessonTab(records) {
           <div id="test-chart" style="width:100%;height:260px;"></div>
         </div></div>
         ${testHtml}</div>
-      <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">💖 どうとくノート</h6>${moralHtml}</div>
+      <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">${icon('heart')} どうとくノート</h6>${moralHtml}</div>
     </div>`;
   if (isShown_('rtab-lesson')) drawTestChart(records.test);
 }
@@ -1963,7 +1963,7 @@ function renderItemGrid(data, filterCategory) {
       data-item="${esc(String(id))}" data-cat="${esc(item['カテゴリ'] || '')}" data-owned="${has}" data-cost="${cost}"
       title="${esc(item['アイテム名'])}${has ? '' : (cost > 0 ? `（${cost}Ptでこうかん）` : '（ガチャでゲット）')}">
       ${rarity ? `<span class="rarity-tag rarity-${esc(rarity)}">${esc(rarity)}</span>` : ''}
-      ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : `<i class="bi bi-box text-muted"></i>`}
+      ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : icon('box')}
       ${!has && cost > 0 ? `<span class="cost-tag">${cost}Pt</span>` : ''}
     </div>`;
   }).join('');
@@ -2135,7 +2135,7 @@ function renderClassGoals() {
                    style="width:${goal.percent}%">${goal.percent}%</div>
             </div>
             ${goal.isComplete
-              ? `<div class="small text-success mt-1">たっせい！ホームのミッションからほうしゅうを受け取ろう 🎉</div>`
+              ? `<div class="small text-success mt-1">たっせい！ホームのミッションからほうしゅうを受け取ろう</div>`
               : `<div class="small text-muted mt-1">あなたの1件が、クラスのゲージを動かします</div>`}
           </div>`).join('')}
       </div>
@@ -2153,7 +2153,7 @@ function renderCheerBoard() {
 
   const received = mine.received > 0
     ? `<div class="small mb-2">もらった応援 <b class="text-danger">${mine.received}</b>（今週 ${mine.receivedThisWeek}）
-         ${(mine.byStamp || []).map(s => `<span class="badge bg-light text-dark border ms-1 no-furigana">${s.emoji} ${s.count}</span>`).join('')}</div>`
+         ${(mine.byStamp || []).map(s => `<span class="badge bg-light text-dark border ms-1">${stampIcon(s.emoji)} ${s.count}</span>`).join('')}</div>`
     : '';
 
   el.innerHTML = `
@@ -2186,14 +2186,25 @@ function renderCheerBoard() {
   });
 }
 
+/**
+ * 応援スタンプの絵文字を、自前のアイコンに置きかえます。
+ * スタンプは「初期設定」シートで先生が変えられるため、
+ * 知らない絵文字が来たときは、そのまま絵文字を出します。
+ */
+const CHEER_ICONS = { '👏': 'clap', '🔥': 'fire', '💖': 'heart', '💪': 'thumb', '👍': 'thumb', '⭐': 'star', '🌟': 'star', '🏆': 'trophy' };
+function stampIcon(emoji) {
+  const name = CHEER_ICONS[emoji];
+  return name ? icon(name) : `<span class="no-furigana">${esc(emoji)}</span>`;
+}
+
 /** スタンプをえらんで送ります（自由記述はありません） */
 function openCheerDialog(toEmail, nickname, stamps) {
   Swal.fire({
     title: `${nickname}さんをおうえん`,
     html: `<div class="d-flex flex-wrap justify-content-center gap-2">
       ${stamps.map(s => `
-        <button class="btn btn-outline-secondary cheer-stamp no-furigana" data-stamp="${esc(s.key)}" title="${esc(s.label)}">
-          ${s.emoji}
+        <button type="button" class="mq-choice-item cheer-stamp" data-stamp="${esc(s.key)}" title="${esc(s.label)}">
+          ${stampIcon(s.emoji)}<span>${esc(s.label)}</span>
         </button>`).join('')}
     </div>
     <div class="small text-muted mt-2">スタンプをえらぶと、そのままおくられます</div>`,
@@ -2251,7 +2262,9 @@ function renderBookshelf() {
 
 function renderRankings(containerId, rankings) {
   const container = document.getElementById(containerId);
-  const medal = rank => rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}位`;
+  const medal = rank => rank <= 3
+    ? `<span class="rank-badge rank-${rank}">${rank}</span>`
+    : `<span class="rank-plain">${rank}</span>`;
   const list = (items, valueFormatter) => items.length === 0 ? emptyMessage('まだきろくがありません') :
     items.map(item => `<div class="ranking-item">
       <span class="rank-medal">${medal(item.rank || items.indexOf(item) + 1)}</span>

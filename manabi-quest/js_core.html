@@ -441,12 +441,12 @@ function currentPanelId(viewId) {
  * 画面の上に置く「もどる」つきの見出しをつくります。
  * どの奥の画面からでも、1タップで1つ前に帰れるようにするためのものです。
  */
-function panelHeader(emoji, title, backPanelId) {
+function panelHeader(iconName, title, backPanelId) {
   return `<div class="mq-panel-head">
     <button type="button" class="mq-back-btn" data-go-back="${esc(backPanelId)}">
-      <span class="no-furigana" aria-hidden="true">←</span> もどる
+      ${icon('arrow-left')} もどる
     </button>
-    <h2 class="mq-panel-title"><span class="no-furigana" aria-hidden="true">${emoji}</span> ${esc(title)}</h2>
+    <h2 class="mq-panel-title">${icon(iconName)} ${esc(title)}</h2>
   </div>`;
 }
 
@@ -588,6 +588,21 @@ function fmtDate(isoString) {
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
+/**
+ * アイコンのHTMLを返します（icons.html の SVG を参照します）。
+ *
+ * 絵文字は端末ごとに絵柄がちがい、画面のデザインとそろわないため、
+ * 児童画面のアイコンはすべてこの関数を通します。
+ * 色は指定しません。置いた場所の文字色になるので、
+ * とびらやカードのアクセント色に自動でそろいます。
+ *
+ * @param {string} name - icons.html の symbol 名（'i-' は付けません）
+ * @param {string} [extraClass] - 追加のクラス（大きさの調整など）
+ */
+function icon(name, extraClass) {
+  return `<svg class="mq-icon${extraClass ? ' ' + extraClass : ''}" aria-hidden="true" focusable="false"><use href="#i-${name}"></use></svg>`;
+}
+
 /** 汎用: 空メッセージ */
 function emptyMessage(text) {
   return `<div class="text-center text-muted small py-3">${esc(text)}</div>`;
@@ -609,7 +624,7 @@ function renderAvatar(container, composition, allItems) {
   (allItems || []).forEach(item => { itemMap[item['アイテムID']] = item; });
   const entries = Object.entries(composition || {}).filter(([, id]) => id);
   if (entries.length === 0) {
-    container.innerHTML = '<div class="avatar-placeholder"><i class="bi bi-person-fill"></i></div>';
+    container.innerHTML = `<div class="avatar-placeholder">${icon('person')}</div>`;
     return;
   }
   entries.forEach(([, itemId]) => {
@@ -624,7 +639,7 @@ function renderAvatar(container, composition, allItems) {
     }
   });
   if (container.children.length === 0) {
-    container.innerHTML = '<div class="avatar-placeholder"><i class="bi bi-person-fill"></i></div>';
+    container.innerHTML = `<div class="avatar-placeholder">${icon('person')}</div>`;
   }
 }
 
