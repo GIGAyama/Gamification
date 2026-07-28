@@ -41,12 +41,24 @@
       ブラウザの戻る（Android の戻るジェスチャー、iOS の画面端スワイプ、戻るボタン）は
       履歴ガード（下の initHistoryGuard）が受け止めるので、アプリが終了することはありません。
 
+    学習ログの送り方（2つの経路）:
+      ① 本体経由（推奨・既定）
+         iframe に表示しているまなびクエストへ postMessage で記録を預け、
+         ログイン済みのその画面から google.script.run でサーバーへ渡してもらいます。
+         デプロイの「アクセスできるユーザー」が『組織内』のままでも送れるので、
+         組織（学校）のポリシーで『全員』を選べない場合はこの経路だけで運用できます。
+         CORS も送信キーも要りません（＝endpoint と key は空欄でかまいません）。
+      ② 受信用URLへ直接POST（任意）
+         デプロイのアクセスを『全員』にできる場合のみ使えます。
+         まなびクエストが表示できない環境でも送信できる予備の経路として残しています。
+      本体経由がだめだったときだけ②へ自動でまわします。
+
     設定方法（先生向け）:
       このページのURLに次のパラメータを付けて一度開くと、設定が端末に保存されます。
-        ?app=<まなびクエスト本体のWebアプリURL>
-        &endpoint=<受信用デプロイのURL>
-        &key=<学習ログ送信キー>
-      例) https://gigayama.github.io/Gamification/manabi-portal/?app=https://script.google.com/a/macros/…/exec&endpoint=https://script.google.com/macros/s/…/exec&key=aikotoba
+        ?app=<まなびクエスト本体のWebアプリURL>          ← 必須
+        &endpoint=<受信用デプロイ（アクセス:全員）のURL>  ← 任意
+        &key=<学習ログ送信キー>                          ← endpoint を使うときだけ
+      例) https://gigayama.github.io/Gamification/manabi-portal/?app=https://script.google.com/a/macros/…/exec
   -->
   <style>
     /* =================================================================
@@ -371,20 +383,22 @@
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="config-title">
     <h2 id="config-title">⚙️ せってい（先生用）</h2>
     <p class="lead">
-      本体URLと受信用URLは<b>別のデプロイ</b>です（本体＝組織内 / 受信用＝全員）。
+      <b>本体URLだけで送信できます</b>（画面に出ているまなびクエストごしに送ります）。
+      組織アカウントでデプロイの「アクセスできるユーザー」を<b>全員</b>にできない場合も、
+      <b>組織内</b>のままで大丈夫です。
       URLパラメータ <code>?app=…&amp;endpoint=…&amp;key=…</code> 付きで開くと自動で保存されます。
     </p>
     <div class="field">
-      <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内）</label>
+      <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内／必須）</label>
       <input type="url" id="conf-app" placeholder="https://script.google.com/a/macros/…/exec" autocomplete="off">
     </div>
     <div class="field">
-      <label for="conf-endpoint">学習ログ受信用のWebアプリURL（アクセス: 全員）</label>
-      <input type="url" id="conf-endpoint" placeholder="https://script.google.com/macros/s/…/exec" autocomplete="off">
+      <label for="conf-endpoint">学習ログ受信用のWebアプリURL（アクセス: 全員／任意）</label>
+      <input type="url" id="conf-endpoint" placeholder="空欄でOK（「全員」で公開できるときだけ）" autocomplete="off">
     </div>
     <div class="field">
-      <label for="conf-key">学習ログ送信キー（「初期設定」シートと同じ合言葉）</label>
-      <input type="text" id="conf-key" placeholder="合言葉" autocomplete="off">
+      <label for="conf-key">学習ログ送信キー（受信用URLを使うときだけ／「初期設定」シートと同じ合言葉）</label>
+      <input type="text" id="conf-key" placeholder="合言葉（本体経由だけなら空欄でOK）" autocomplete="off">
     </div>
     <div class="field">
       <label><input type="checkbox" id="conf-auto"> ページを開いたときに、たまっているきろくを自動でおくる</label>
@@ -428,6 +442,7 @@
   const INSTALL_HINT_KEY = 'studySender.installHint.v1';
   const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
+  const RELAY_TIMEOUT_MS = 45000;              // 本体経由の送信で、返事を待つ上限
   const BACK_DEBOUNCE_MS = 600;                // 「1回の操作」が別々の入口から二重に届くのを無視する時間
 
   const $ = id => document.getElementById(id);
@@ -443,7 +458,9 @@
     lastBackAt: 0,
     lastBackSource: null,   // 直前の「戻る」がどの操作から来たか
     installPrompt: null,
-    wantSendOnLoad: false   // ホーム画面ショートカット（?action=send）から開かれた
+    wantSendOnLoad: false,  // ホーム画面ショートカット（?action=send）から開かれた
+    relaySeq: 0,            // 本体経由の送信につける通し番号
+    relayWaiting: new Map() // 返事待ちの中継送信（reqId → {resolve, reject, timer}）
   };
 
   /* ================================================================
@@ -459,6 +476,16 @@
   function saveConfig(conf) {
     try { localStorage.setItem(CONF_KEY, JSON.stringify(conf)); }
     catch (e) { showToast('bad', 'せっていを保存できませんでした（ブラウザの保存領域を確認してください）。'); }
+  }
+
+  /**
+   * いま送信できる状態かどうか。
+   * ・本体（まなびクエスト）が表示できていれば、それだけで送れます（本体経由）
+   * ・表示できないときは、匿名の受信用URLと送信キーがそろっていれば送れます
+   * どちらも無いときだけ「せっていが まだです」になります。
+   */
+  function canSend(conf) {
+    return state.appConnected || !!(conf.endpoint && conf.key);
   }
 
   function applyUrlParams() {
@@ -555,7 +582,7 @@
   function renderPending() {
     const count = pendingRecords().length;
     const conf = loadConfig();
-    const configured = !!(conf.endpoint && conf.key);
+    const configured = canSend(conf);
     const btn = $('send-btn');
     const badge = $('pending-count');
     const number = currentNumber();
@@ -570,7 +597,9 @@
     chip.textContent = number || '—';
     chip.classList.toggle('empty', !number);
 
-    $('pending-label').textContent = !configured ? '先生: せっていが まだです'
+    // 送れない理由は「設定がまだ」と「本体をよみこみ中」で分けて伝えます
+    $('pending-label').textContent = !configured
+      ? (conf.appUrl ? 'まなびクエストを よみこんでいます…' : '先生: せっていが まだです')
       : count === 0 ? 'おくるきろくは ありません'
       : `おくれるきろく ${count}件`;
 
@@ -673,6 +702,7 @@
         state.appConnected = true;
         $('frame-fallback').hidden = true;
         notifyApp({ type: 'PORTAL_READY', pending: pendingRecords().length, studentNumber: currentNumber() });
+        renderPending();   // 本体経由で送れるようになったので「おくる」を使える状態にする
         maybeAutoSend();
         break;
       case 'REQUEST_SEND':
@@ -688,6 +718,9 @@
         state.navStateKnown = true;
         state.canGoBack = !!msg.canGoBack;
         renderBackButton();
+        break;
+      case 'RELAY_RESULT':            // 本体経由でおくったきろくの結果
+        resolveRelay(msg);
         break;
     }
   });
@@ -790,7 +823,33 @@
    * 送信
    * ================================================================ */
 
-  async function post(endpoint, body) {
+  /**
+   * ① 本体経由でおくる（推奨）。
+   *
+   * 画面に表示しているまなびクエスト（iframe）へ postMessage で記録を預け、
+   * ログイン済みのその画面から google.script.run でサーバーへ渡してもらいます。
+   * Webアプリのデプロイが「アクセスできるユーザー: 組織内」でも送信できるので、
+   * 組織アカウントで『全員』を選べない学校ではこちらが唯一の経路になります。
+   * （CORS も送信キーも要りません。開けている時点でログイン済みだからです）
+   */
+  function postViaApp(body, timeoutMs = RELAY_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+      if (!state.appConnected || !state.appWindow) {
+        reject(new Error('まなびクエストの画面とつながっていません'));
+        return;
+      }
+      const reqId = `r${++state.relaySeq}`;
+      const timer = setTimeout(() => {
+        state.relayWaiting.delete(reqId);
+        reject(new Error('へんじがありません'));
+      }, timeoutMs);
+      state.relayWaiting.set(reqId, { resolve, reject, timer });
+      notifyApp({ type: 'RELAY_POST', reqId, body });
+    });
+  }
+
+  /** ② 匿名エンドポイントへ直接おくる（デプロイのアクセスが「全員」のときだけ使えます） */
+  async function postToEndpoint(endpoint, body) {
     // Content-Type: text/plain にすると CORS のプリフライトが発生せず、
     // GAS Webアプリ（アクセス: 全員）へそのまま届きます。
     const res = await fetch(endpoint, {
@@ -800,6 +859,37 @@
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
+  }
+
+  /**
+   * 使える経路でおくります。
+   * まなびクエストが表示できているときは本体経由（①）を優先し、
+   * 届かなかったときだけ匿名エンドポイント（②）にまわします。
+   */
+  async function post(conf, body) {
+    const hasEndpoint = !!(conf.endpoint && conf.key);   // 匿名POSTはURLと送信キーの両方がいります
+    if (state.appConnected) {
+      try {
+        return await postViaApp(body);
+      } catch (e) {
+        if (!hasEndpoint) throw new Error(`${e.message}（受信用URLの設定もありません）`);
+        // 本体経由がだめでも、匿名エンドポイントがあるならそちらで送ります
+      }
+    }
+    if (!hasEndpoint) {
+      throw new Error('まなびクエストが ひらけていません');
+    }
+    return postToEndpoint(conf.endpoint, body);
+  }
+
+  /** 中継送信の返事を受け取ります */
+  function resolveRelay(msg) {
+    const pending = state.relayWaiting.get(msg.reqId);
+    if (!pending) return;                       // タイムアウト済み、または知らない番号
+    state.relayWaiting.delete(msg.reqId);
+    clearTimeout(pending.timer);
+    if (msg.ok) pending.resolve(msg.result);
+    else pending.reject(new Error(msg.message || '送信できませんでした'));
   }
 
   /** 複数チャンクの結果をひとつにまとめます（ボーナスはサーバー側で1日1回に制御済み） */
@@ -831,7 +921,14 @@
   async function send() {
     if (state.sending) return;
     const conf = loadConfig();
-    if (!conf.endpoint || !conf.key) {
+    if (!canSend(conf)) {
+      // 本体URLはあるのに つながっていないだけなら、先生用の設定は開かずに待ってもらう
+      if (conf.appUrl) {
+        const message = 'まなびクエストが まだ ひらけていません。すこし まってから もういちど おしてね。';
+        showToast('warn', message);
+        finishSend({ ok: false, message });
+        return;
+      }
       const message = 'せっていが まだです。先生に「⚙️ せってい」をたのんでください。';
       showToast('warn', message);
       openConfigSheet();
@@ -870,8 +967,8 @@
     try {
       for (let i = 0; i < sendable.length; i += CHUNK_SIZE) {
         const chunk = sendable.slice(i, i + CHUNK_SIZE);
-        const result = await post(conf.endpoint, {
-          api: 'study-log', token: conf.key, studentNumber, records: chunk
+        const result = await post(conf, {
+          api: 'study-log', token: conf.key || '', studentNumber, records: chunk
         });
         if (!result.success) {
           const message = result.message || 'おくれませんでした。';
@@ -913,7 +1010,7 @@
     const conf = loadConfig();
     if (state.autoSendDone || state.sending) return;
     if (!state.wantSendOnLoad && conf.autoSend === false) return;
-    if (!conf.endpoint || !conf.key || !currentNumber()) return;
+    if (!canSend(conf) || !currentNumber()) return;
     if (pendingRecords().length === 0) return;
     state.autoSendDone = true;
     send();
@@ -961,18 +1058,48 @@
     renderBackButton();
   }
 
+  /**
+   * 使える送信経路をそれぞれ試します。
+   * 本体経由は画面が表示できていれば、匿名エンドポイントはURLと送信キーがあれば試します。
+   */
   async function testConnection() {
     const endpoint = $('conf-endpoint').value.trim();
     const key = $('conf-key').value.trim();
     const status = $('conf-status');
-    if (!endpoint || !key) { status.textContent = '受信用URLと送信キーを入力してください。'; return; }
-    status.textContent = 'テスト中…';
-    try {
-      const result = await post(endpoint, { api: 'study-log', token: key, records: [] });
-      status.textContent = result.success ? '✅ 接続できました。' : `❌ ${result.message || '接続できません'}`;
-    } catch (e) {
-      status.textContent = `❌ 接続できません（${e.message}）`;
+    const body = { api: 'study-log', token: key, records: [] };
+    const lines = [];
+
+    if (!state.appConnected && !(endpoint && key)) {
+      status.textContent = 'まなびクエストが表示できていません。本体URLを確かめるか、受信用URLと送信キーを入力してください。';
+      return;
     }
+    status.textContent = 'テスト中…';
+
+    if (state.appConnected) {
+      try {
+        const result = await postViaApp(body, 20000);
+        lines.push(result.success
+          ? '✅ 本体経由でおくれます（アクセス「組織内」のままでOK）。'
+          : `❌ 本体経由: ${result.message || '受け取ってもらえません'}`);
+      } catch (e) {
+        lines.push(`❌ 本体経由: ${e.message}`);
+      }
+    } else {
+      lines.push('－ 本体経由: まなびクエストが表示できていないため未確認。');
+    }
+
+    if (endpoint && key) {
+      try {
+        const result = await postToEndpoint(endpoint, body);
+        lines.push(result.success ? '✅ 受信用URLへ直接おくれます。' : `❌ 受信用URL: ${result.message || '接続できません'}`);
+      } catch (e) {
+        lines.push(`❌ 受信用URL: ${e.message}（アクセスが「全員」か確認してください）`);
+      }
+    } else {
+      lines.push('－ 受信用URL: 未設定（本体経由だけで運用できます）。');
+    }
+
+    status.innerHTML = lines.map(escapeHtml).join('<br>');
   }
 
   /* ================================================================

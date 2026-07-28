@@ -249,10 +249,30 @@ function initPortalBridge() {
         // ポータルが受け取った戻る操作（下部バー・スワイプ・ブラウザの戻る）
         requestBack('portal');
         break;
+      case 'RELAY_POST':
+        // ポータルから預かった学習ログを、ログイン済みのこの画面から送る
+        relayStudyLog_(msg);
+        break;
     }
   });
 
   postToPortal({ type: 'APP_READY' });
+}
+
+/**
+ * ポータルから預かった学習ログをサーバーへ中継します。
+ *
+ * ポータル(github.io)から Webアプリへ直接 POST する方法は、デプロイの
+ * 「アクセスできるユーザー」を『全員』にできる場合しか使えません
+ * （組織アカウントではポリシーで選べないことがあります）。
+ * この画面はすでに学校アカウントでログインした状態で動いているので、
+ * ここから google.script.run で呼べば『組織内』のデプロイのままで送信できます。
+ */
+function relayStudyLog_(msg) {
+  const reply = payload => postToPortal({ type: 'RELAY_RESULT', reqId: msg.reqId, ...payload });
+  api('receiveStudyLogFromPortal', msg.body)
+    .then(result => reply({ ok: true, result }))
+    .catch(err => reply({ ok: false, message: (err && err.message) || '送信できませんでした。' }));
 }
 
 /** ポータルにきろくの送信を依頼します（アプリ内のボタンから呼びます） */
