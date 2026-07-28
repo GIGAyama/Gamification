@@ -1050,9 +1050,16 @@
   .mq-stagger > *:nth-child(5) { animation-delay: .23s; }
   .mq-stagger > *:nth-child(n+6) { animation-delay: .28s; }
 
-  /* ---- ダイアログ（児童画面だけ、ぽよんと出します） ---- */
+  /* ---- ダイアログ（児童画面だけ、ぽよんと出します） ----
+   * 動きを差しかえるのは「出てくるとき」（.swal2-show が付いているあいだ）だけです。
+   * ここを .swal2-popup だけで指定すると、SweetAlert2 が閉じるときに付ける
+   * .swal2-hide の指定より強くなってしまい、閉じるアニメーションが始まりません。
+   * SweetAlert2 はアニメーションの終わり（animationend）を合図に後片づけをするので、
+   * 合図が来ないとダイアログが消えず、画面ぜんたいが操作できなくなってしまいます。 */
   body.mq-student .swal2-popup {
     border-radius: var(--mq-radius-lg);
+  }
+  body.mq-student .swal2-popup.swal2-show {
     animation: mq-swal-in .4s cubic-bezier(.25,1.5,.45,1) both;
   }
   @keyframes mq-swal-in {
