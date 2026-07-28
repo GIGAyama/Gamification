@@ -52,6 +52,14 @@
          デプロイのアクセスを『全員』にできる場合のみ使えます。
          まなびクエストが表示できない環境でも送信できる予備の経路として残しています。
       本体経由がだめだったときだけ②へ自動でまわします。
+      ※ このページは GitHub Pages ですぐ新しくなりますが、まなびクエスト（GAS）は
+         先生がスクリプトを貼り替えるまで古いままです。そこで①は、本体が
+         APP_READY に relay: true を付けてきたとき（＝中継に対応した版）だけ使います。
+
+    出席番号について:
+      本体経由では、まなびクエストがログイン中の児童の出席番号を STUDENT_IDENTITY で
+      知らせてくるので、児童が入力する必要はありません（サーバー側もログインで判定します）。
+      手入力（🔢 ばんごう）は、匿名POSTだけで運用する構成と、番号を直したいときのためのものです。
 
     設定方法（先生向け）:
       このページのURLに次のパラメータを付けて一度開くと、設定が端末に保存されます。
@@ -367,7 +375,10 @@
 <div class="sheet-backdrop" id="number-sheet" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="number-title">
     <h2 id="number-title">🔢 しゅっせきばんごう</h2>
-    <p class="lead">きろくを おくるときに つかいます。一度いれると おぼえておきます。</p>
+    <p class="lead">
+      ふつうは <b>ログインしている アカウントから じどうで きまります</b>。
+      ちがう ばんごうに したいときだけ 入れてね。
+    </p>
     <div class="field">
       <input type="number" id="number-input" min="1" max="99" inputmode="numeric" placeholder="12" autocomplete="off">
     </div>
@@ -450,6 +461,7 @@
     appOrigin: null,
     appWindow: null,        // まなびクエストが動いているサンドボックスの window
     appConnected: false,
+    appRelay: false,        // 本体が「学習ログの中継」に対応した版か（古い版は未対応）
     frameLoaded: false,     // iframe が何かを読み込めたか（ログイン画面も含む）
     sending: false,
     autoSendDone: false,
@@ -485,7 +497,7 @@
    * どちらも無いときだけ「せっていが まだです」になります。
    */
   function canSend(conf) {
-    return state.appConnected || !!(conf.endpoint && conf.key);
+    return state.appRelay || !!(conf.endpoint && conf.key);
   }
 
   function applyUrlParams() {
@@ -579,6 +591,22 @@
     catch (e) { return ''; }
   }
 
+  /**
+   * まなびクエストにログインしている児童の出席番号を受け取って採用します。
+   *
+   * 画面に出ているまなびクエストは学校アカウントで開かれているので、
+   * 「誰のきろくか」はログインから確実に分かります。手入力より確かなので、
+   * ちがう番号が入っていたら（前の児童が使った端末など）こちらで上書きします。
+   */
+  function adoptStudentNumber(value) {
+    const number = String(value || '').replace(/[^0-9]/g, '');
+    if (!number || number === currentNumber()) return;
+    try { localStorage.setItem(NUMBER_KEY, number); }
+    catch (e) { return; }        // 保存できなくても、送信はサーバー側の判定で通ります
+    renderPending();
+    maybeAutoSend();             // 番号待ちで見送っていた自動送信をここで実行
+  }
+
   function renderPending() {
     const count = pendingRecords().length;
     const conf = loadConfig();
@@ -597,9 +625,11 @@
     chip.textContent = number || '—';
     chip.classList.toggle('empty', !number);
 
-    // 送れない理由は「設定がまだ」と「本体をよみこみ中」で分けて伝えます
+    // 送れない理由を分けて伝えます（設定がまだ／よみこみ中／本体が古い）
     $('pending-label').textContent = !configured
-      ? (conf.appUrl ? 'まなびクエストを よみこんでいます…' : '先生: せっていが まだです')
+      ? (state.appConnected ? '先生: まなびクエストの更新が ひつようです'
+        : conf.appUrl ? 'まなびクエストを よみこんでいます…'
+        : '先生: せっていが まだです')
       : count === 0 ? 'おくるきろくは ありません'
       : `おくれるきろく ${count}件`;
 
@@ -700,6 +730,9 @@
     switch (msg.type) {
       case 'APP_READY':
         state.appConnected = true;
+        // 中継に対応した本体のときだけ、本体経由の送信を使います。
+        // （古い本体に送っても返事が来ず、待たされるだけになるため）
+        state.appRelay = !!msg.relay;
         $('frame-fallback').hidden = true;
         notifyApp({ type: 'PORTAL_READY', pending: pendingRecords().length, studentNumber: currentNumber() });
         renderPending();   // 本体経由で送れるようになったので「おくる」を使える状態にする
@@ -721,6 +754,9 @@
         break;
       case 'RELAY_RESULT':            // 本体経由でおくったきろくの結果
         resolveRelay(msg);
+        break;
+      case 'STUDENT_IDENTITY':        // ログイン中の児童の出席番号
+        adoptStudentNumber(msg.studentNumber);
         break;
     }
   });
@@ -834,7 +870,7 @@
    */
   function postViaApp(body, timeoutMs = RELAY_TIMEOUT_MS) {
     return new Promise((resolve, reject) => {
-      if (!state.appConnected || !state.appWindow) {
+      if (!state.appRelay || !state.appWindow) {
         reject(new Error('まなびクエストの画面とつながっていません'));
         return;
       }
@@ -844,7 +880,9 @@
         reject(new Error('へんじがありません'));
       }, timeoutMs);
       state.relayWaiting.set(reqId, { resolve, reject, timer });
-      notifyApp({ type: 'RELAY_POST', reqId, body });
+      // 送信キーは匿名エンドポイント専用なので、この経路では渡しません
+      const { token, ...payload } = body;
+      notifyApp({ type: 'RELAY_POST', reqId, body: payload });
     });
   }
 
@@ -868,7 +906,7 @@
    */
   async function post(conf, body) {
     const hasEndpoint = !!(conf.endpoint && conf.key);   // 匿名POSTはURLと送信キーの両方がいります
-    if (state.appConnected) {
+    if (state.appRelay) {
       try {
         return await postViaApp(body);
       } catch (e) {
@@ -935,8 +973,10 @@
       finishSend({ ok: false, message });
       return;
     }
+    // 本体経由なら「誰のきろくか」はログインから分かるので、出席番号の入力は要りません。
+    // 匿名エンドポイントへ直接送るときだけ、出席番号が識別子になります。
     const studentNumber = currentNumber();
-    if (!studentNumber) {
+    if (!studentNumber && !state.appRelay) {
       const message = 'しゅっせきばんごうを 入れてから おくってね。';
       showToast('warn', `<b>しゅっせきばんごう</b>を 入れてから おくってね。`);
       openNumberSheet();
@@ -1010,7 +1050,9 @@
     const conf = loadConfig();
     if (state.autoSendDone || state.sending) return;
     if (!state.wantSendOnLoad && conf.autoSend === false) return;
-    if (!canSend(conf) || !currentNumber()) return;
+    if (!canSend(conf)) return;
+    // 匿名エンドポイントへ送るときだけ、出席番号がそろっている必要があります
+    if (!state.appRelay && !currentNumber()) return;
     if (pendingRecords().length === 0) return;
     state.autoSendDone = true;
     send();
@@ -1069,17 +1111,20 @@
     const body = { api: 'study-log', token: key, records: [] };
     const lines = [];
 
-    if (!state.appConnected && !(endpoint && key)) {
+    if (!state.appRelay && !(endpoint && key)) {
       status.textContent = 'まなびクエストが表示できていません。本体URLを確かめるか、受信用URLと送信キーを入力してください。';
       return;
     }
     status.textContent = 'テスト中…';
 
-    if (state.appConnected) {
+    if (state.appRelay) {
       try {
         const result = await postViaApp(body, 20000);
+        const who = result.studentFound
+          ? `出席番号 ${result.studentNumber} として届きます`
+          : 'ただし、いま開いているアカウントは児童マスタにありません（先生のアカウントなら正常です）';
         lines.push(result.success
-          ? '✅ 本体経由でおくれます（アクセス「組織内」のままでOK）。'
+          ? `✅ 本体経由でおくれます（アクセス「組織内」のままでOK）。${who}。`
           : `❌ 本体経由: ${result.message || '受け取ってもらえません'}`);
       } catch (e) {
         lines.push(`❌ 本体経由: ${e.message}`);
@@ -1215,10 +1260,12 @@
   renderBackButton();
   loadApp();
 
-  // 先生の設定がまだなら設定シートを、児童の出席番号がまだなら番号シートを開く
-  if (!conf.endpoint || !conf.key || !conf.appUrl) {
+  // 先生の設定がまだ（＝どちらの送信経路も使えない）なら設定シートを開く。
+  // 出席番号は本体（まなびクエスト）のログインから受け取るので、
+  // 本体URLが無い＝匿名エンドポイントだけで運用する構成のときだけ入力をお願いします。
+  if (!conf.appUrl && !(conf.endpoint && conf.key)) {
     openConfigSheet();
-  } else if (!currentNumber()) {
+  } else if (!conf.appUrl && !currentNumber()) {
     openNumberSheet();
   }
 

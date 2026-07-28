@@ -232,6 +232,8 @@ function initPortalBridge() {
         Portal.pending = Number(msg.pending) || 0;
         Portal.studentNumber = String(msg.studentNumber || '');
         Portal.sending = false;
+        // 初期データの取得が先に終わっていた場合は、ここで出席番号を知らせます
+        if (msg.type === 'PORTAL_READY') notifyPortalIdentity();
         if (Portal.onUpdate) Portal.onUpdate(msg);
         break;
       case 'SEND_STARTED':
@@ -256,7 +258,25 @@ function initPortalBridge() {
     }
   });
 
-  postToPortal({ type: 'APP_READY' });
+  // relay: true は「学習ログの中継（RELAY_POST）に対応した版です」という合図です。
+  // ポータルは GitHub Pages で自動的に新しくなりますが、この GAS 側は先生が
+  // 貼り替えるまで古いままなので、対応済みかどうかをここで伝えます。
+  postToPortal({ type: 'APP_READY', relay: true });
+}
+
+/**
+ * ログイン中の児童の出席番号をポータルへ知らせます。
+ *
+ * この画面は学校アカウントのログインで開いているので、「誰のきろくか」は
+ * ログインから確実に分かります。ポータルはこれを送信時の出席番号として使うため、
+ * 児童が自分で出席番号を入力する必要はありません（入力ミスも起きません）。
+ */
+function notifyPortalIdentity() {
+  if (!Portal.embedded || !Portal.connected) return;
+  if (App.role !== 'student' || !App.data || !App.data.profile) return;
+  const number = String(App.data.profile.number || '').trim();
+  if (!/^\d+$/.test(number)) return;   // 「担任」など、児童の番号でないものは知らせない
+  postToPortal({ type: 'STUDENT_IDENTITY', studentNumber: number });
 }
 
 /**
@@ -601,6 +621,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       document.getElementById('nav-level-badge').classList.remove('d-none');
       initStudentApp(result.data);
       showView('view-home');
+      notifyPortalIdentity();   // ポータルに「誰のきろくか」を伝える（出席番号の手入力が不要になる）
       initFurigana(); // 児童画面だけ漢字にふりがなを付ける（教員画面では呼ばない）
     }
   } catch (e) {

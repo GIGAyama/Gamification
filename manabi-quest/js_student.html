@@ -470,13 +470,9 @@ function showWeeklyHistory() {
  * 親ページに送信を依頼できます（学習アプリの localStorage は同一オリジンの親しか読めないため）。
  * 直接Webアプリを開いているときは、ポータルへの案内を表示します。
  */
-function studySendPanelHtml(compact) {
+function studySendPanelHtml() {
+  // 受信は学習ポータル経由でいつでもできるので、「先生の受け取り設定待ち」の状態はありません
   const s = (App.data && App.data.studyApp) || {};
-  if (!s.enabled) {
-    return compact
-      ? `<div class="alert alert-light border small mb-3 no-furigana">先生が学習ログの受け取り設定をすると、ここからきろくを送れるようになります。</div>`
-      : '';
-  }
 
   const rewards = [];
   if (s.bonusExp > 0) rewards.push(`<span class="reward-chip text-primary">そうしんボーナス +${s.bonusExp} EXP</span>`);
@@ -497,8 +493,10 @@ function studySendPanelHtml(compact) {
       </div></div>`;
     }
     if (Portal.pending > 0) {
-      // 出席番号が未入力だと送れないので、その場で入力をたのめるようにする
-      const needsNumber = !Portal.studentNumber;
+      // 出席番号はログイン中のアカウントから分かる（notifyPortalIdentity でポータルに伝えています）。
+      // 入力をお願いするのは、それが分からなかったときだけです。
+      const ownNumber = /^\d+$/.test(String((App.data && App.data.profile && App.data.profile.number) || ''));
+      const needsNumber = !Portal.studentNumber && !ownNumber;
       const action = needsNumber
         ? `<button class="btn btn-warning text-dark fw-bold send-btn" data-study-number><i class="bi bi-123"></i> しゅっせきばんごうを 入れる</button>`
         : `<button class="btn btn-danger fw-bold send-btn" data-study-send><i class="bi bi-send-fill"></i> きろくを おくる</button>`;
@@ -546,7 +544,7 @@ function renderStudySendPanels() {
   ['home-send-card', 'apps-send-card', 'calc-send-card'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.innerHTML = studySendPanelHtml(id !== 'home-send-card');
+    el.innerHTML = studySendPanelHtml();
     el.classList.toggle('d-none', el.innerHTML.trim() === '');   // 空のときは余白を作らない
     el.querySelectorAll('[data-study-send]').forEach(btn => {
       btn.addEventListener('click', () => {
