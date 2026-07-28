@@ -46,16 +46,29 @@ function renderStudentHeader(profile) {
   document.getElementById('nav-level').textContent = profile.level;
 }
 
+/**
+ * 要素がいま画面に出ているか（親が d-none でも false になります）。
+ * 「開いているときだけグラフを描く」判定に使います。
+ */
+function isShown_(id) {
+  const el = document.getElementById(id);
+  return !!(el && el.offsetParent !== null);
+}
+
 function renderHome(data) {
   const p = data.profile;
   document.getElementById('home-nickname').textContent = p.nickname;
   document.getElementById('home-level').textContent = p.level;
-  document.getElementById('home-exp').textContent = p.exp;
-  document.getElementById('home-exchange').textContent = p.exchangePoints;
+  countUp(document.getElementById('home-exp'), p.exp);
+  countUp(document.getElementById('home-exchange'), p.exchangePoints);
   document.getElementById('home-progress-text').textContent = `${p.currentLevelExp} / ${p.nextLevelExp}`;
   document.getElementById('home-progress-bar').style.width = `${p.progress}%`;
   const motto = data.userProfile && data.userProfile.motto;
   document.getElementById('home-motto').textContent = motto ? `「${motto}」` : '';
+
+  // ヒーローカードの「れんぞくきろく」。くわしいカレンダーは じぶんのきろく にあります
+  const heroStreak = document.getElementById('hero-streak-days');
+  if (heroStreak) countUp(heroStreak, ((insights().calendar || {}).streak) || 0);
 
   renderAvatar(document.getElementById('home-avatar'), data.avatar, data.allItems);
   renderStudySendPanels();
@@ -218,42 +231,45 @@ function renderGoals() {
   const rate = data.achievement || { achieved: 0, rate: 0 };
 
   const summary = `
-    <div class="small text-muted mb-2">
-      たっせいしためあて <b class="text-danger">${rate.achieved}こ</b>
-      ${rate.total > 0 ? `／ たっせい率 <b class="text-danger">${rate.rate}%</b>` : ''}
+    <div class="mq-hint mb-2">
+      たっせいしためあて <b style="color:var(--mq-pink-d);font-size:1.05rem;">${rate.achieved}こ</b>
+      ${rate.total > 0 ? `／ たっせい率 <b style="color:var(--mq-pink-d);font-size:1.05rem;">${rate.rate}%</b>` : ''}
     </div>`;
 
   if (active.length === 0) {
-    el.innerHTML = summary + emptyMessage('いま挑戦中のめあてはありません。「めあてを立てる」から決めてみよう！');
+    el.innerHTML = summary + emptyMessage('いま挑戦中のめあてはありません。「たてる」から決めてみよう！');
     return;
   }
 
   el.innerHTML = summary + active.map(goal => {
     if (goal.manual) {
       return `
-        <div class="border rounded-3 p-2 mb-2">
+        <div class="mission-item">
           <div class="d-flex align-items-center gap-2">
             <div class="flex-grow-1">
-              <div class="small text-muted">${esc(goal.period)}のめあて</div>
-              <div class="fw-bold">${esc(goal.memo || goal.kindLabel)}</div>
+              <div class="mq-hint">${esc(goal.period)}のめあて</div>
+              <div class="mission-text">${esc(goal.memo || goal.kindLabel)}</div>
             </div>
-            <button class="btn btn-sm btn-danger" data-goal-done="${goal.row}">できた！</button>
+            <button type="button" class="mq-btn mq-btn-pink" style="min-height:2.4rem;padding:.35rem .9rem;font-size:.9rem;" data-goal-done="${goal.row}">できた！</button>
           </div>
         </div>`;
     }
     const target = goal.kind === 'typing' ? goal.speedGoal : goal.target;
     const percent = goal.percent === null ? 0 : goal.percent;
+    const done = percent >= 100;
     return `
-      <div class="border rounded-3 p-2 mb-2">
-        <div class="d-flex align-items-center small mb-1">
-          <span class="fw-bold">${esc(goal.kindLabel)}</span>
-          <span class="text-muted ms-2">（${esc(goal.period)}）</span>
-          <span class="ms-auto fw-bold ${percent >= 100 ? 'text-success' : 'text-danger'}">
-            ${goal.current}${esc(goal.unit)} / ${target}${esc(goal.unit)}
-          </span>
+      <div class="mission-item${done ? ' complete' : ''}">
+        <div class="d-flex flex-wrap align-items-center gap-1 mb-1">
+          <span class="mission-text">${esc(goal.kindLabel)}</span>
+          <span class="mq-hint">（${esc(goal.period)}）</span>
         </div>
-        <div class="progress" style="height:10px;">
-          <div class="progress-bar ${percent >= 100 ? 'bg-success' : 'bg-danger'}" style="width:${percent}%"></div>
+        <div class="d-flex align-items-center gap-2">
+          <div class="progress flex-grow-1" style="height:14px;border-radius:999px;">
+            <div class="progress-bar progress-bar-striped progress-bar-animated" style="width:${percent}%;border-radius:999px;background:${done ? 'linear-gradient(90deg,#35c47e,#8fe6b7)' : 'linear-gradient(90deg,#f472a0,#ffb0cb)'};"></div>
+          </div>
+          <span class="fw-bold no-furigana" style="white-space:nowrap;color:${done ? 'var(--mq-green-d)' : 'var(--mq-pink-d)'};">
+            ${done ? '🎉 ' : ''}${goal.current} / ${target}${esc(goal.unit)}
+          </span>
         </div>
       </div>`;
   }).join('');
@@ -362,26 +378,36 @@ function renderWeeklyCard() {
 
   if (weekly.done) {
     el.innerHTML = `
-      <div class="alert alert-success mb-0 d-flex align-items-center gap-2">
-        <span class="no-furigana">✅</span>
-        <div class="flex-grow-1">今週のふり返りは書けています。えらい！</div>
-        <button class="btn btn-sm btn-outline-success" id="weekly-history-btn">これまでのふり返り</button>
+      <div class="mq-card accent-green">
+        <div class="mq-card-head">
+          <span class="mq-card-icon no-furigana" aria-hidden="true">✅</span>
+          <h2 class="mq-card-title">今週のふり返り</h2>
+        </div>
+        <div class="mq-card-body tight">
+          <div class="mb-2">今週のふり返りは書けています。えらい！</div>
+          <button type="button" class="mq-btn mq-btn-ghost" style="min-height:2.5rem;padding:.4rem 1rem;font-size:.92rem;" id="weekly-history-btn">これまでのふり返り</button>
+        </div>
       </div>`;
   } else {
     const s = weekly.summary || {};
     el.innerHTML = `
-      <div class="card shadow-sm border-0 rounded-4 ${weekly.due ? 'border-start border-4 border-warning' : ''}">
-        <div class="card-body">
-          <h5 class="fw-bold text-warning-emphasis mb-2"><i class="bi bi-journal-check"></i> 今週のふり返り</h5>
-          <div class="small text-muted mb-2">
+      <div class="mq-card accent-gold">
+        <div class="mq-card-head">
+          <span class="mq-card-icon no-furigana" aria-hidden="true">📔</span>
+          <h2 class="mq-card-title">今週のふり返り</h2>
+        </div>
+        <div class="mq-card-body tight">
+          <div class="mq-hint mb-2">
             今週は きろく <b>${s.records || 0}件</b>／きろくした日 <b>${s.activeDays || 0}日</b>
-            ${s.newRecords > 0 ? `／じこベスト更新 <b class="text-danger">${s.newRecords}回</b>` : ''}
-            ${s.achievedGoals > 0 ? `／めあてたっせい <b class="text-danger">${s.achievedGoals}こ</b>` : ''}
+            ${s.newRecords > 0 ? `／じこベスト更新 <b>${s.newRecords}回</b>` : ''}
+            ${s.achievedGoals > 0 ? `／めあてたっせい <b>${s.achievedGoals}こ</b>` : ''}
           </div>
-          <button class="btn btn-warning fw-bold" id="weekly-write-btn">
-            <i class="bi bi-pencil"></i> 今週をふり返る
-          </button>
-          <button class="btn btn-outline-secondary ms-2" id="weekly-history-btn">これまでのふり返り</button>
+          <div class="d-flex gap-2 flex-wrap">
+            <button type="button" class="mq-btn mq-btn-gold" id="weekly-write-btn">
+              <span class="no-furigana" aria-hidden="true">✍️</span> 今週をふり返る
+            </button>
+            <button type="button" class="mq-btn mq-btn-ghost" id="weekly-history-btn">これまでのふり返り</button>
+          </div>
         </div>
       </div>`;
     const writeBtn = document.getElementById('weekly-write-btn');
@@ -498,13 +524,13 @@ function studySendPanelHtml() {
       const ownNumber = /^\d+$/.test(String((App.data && App.data.profile && App.data.profile.number) || ''));
       const needsNumber = !Portal.studentNumber && !ownNumber;
       const action = needsNumber
-        ? `<button class="btn btn-warning text-dark fw-bold send-btn" data-study-number><i class="bi bi-123"></i> しゅっせきばんごうを 入れる</button>`
-        : `<button class="btn btn-danger fw-bold send-btn" data-study-send><i class="bi bi-send-fill"></i> きろくを おくる</button>`;
+        ? `<button type="button" class="mq-btn mq-btn-gold send-btn" data-study-number><span class="no-furigana" aria-hidden="true">🔢</span> しゅっせきばんごうを 入れる</button>`
+        : `<button type="button" class="mq-btn mq-btn-pink mq-btn-lg send-btn" data-study-send><span class="no-furigana" aria-hidden="true">📨</span> きろくを おくる</button>`;
       return `<div class="card send-card has-pending"><div class="card-body">
         <div class="d-flex align-items-center gap-3 flex-wrap">
           <span class="send-pending-badge">${Portal.pending}</span>
           <div class="flex-grow-1">
-            <div class="fw-bold fs-5">おくれる がくしゅうきろくが ${Portal.pending}件 あるよ！${streakHtml}</div>
+            <div class="fw-bold" style="font-size:1.2rem;">おくれる がくしゅうきろくが ${Portal.pending}件 あるよ！${streakHtml}</div>
             <div class="small text-muted">${needsNumber
               ? 'おくるまえに、しゅっせきばんごうを 入れてね。'
               : 'おくると まなびクエストの けいけんちに なるよ。'}</div>
@@ -519,7 +545,7 @@ function studySendPanelHtml() {
         <div class="fw-bold">おくるきろくは ありません${streakHtml}</div>
         <div class="small text-muted">学習アプリであそんだあと、ここに「おくる」ボタンが出るよ。</div>
       </div>
-      <button class="btn btn-outline-primary btn-sm fw-bold" data-study-refresh><i class="bi bi-arrow-clockwise"></i> たしかめる</button>
+      <button type="button" class="mq-btn mq-btn-ghost" style="min-height:2.5rem;padding:.4rem 1rem;font-size:.92rem;" data-study-refresh>たしかめる</button>
     </div></div>`;
   }
 
@@ -534,7 +560,7 @@ function studySendPanelHtml() {
       ${rewardHtml}
     </div>
     ${portalUrl
-      ? `<a class="btn btn-primary fw-bold send-btn" href="${esc(portalUrl)}" target="_blank" rel="noopener"><i class="bi bi-box-arrow-up-right"></i> ポータルをひらく</a>`
+      ? `<a class="mq-btn send-btn" href="${esc(portalUrl)}" target="_blank" rel="noopener">ポータルをひらく</a>`
       : ''}
   </div></div>`;
 }
@@ -619,7 +645,7 @@ async function refreshStudentData() {
     renderCalcTab(data.records);
     renderRankings('rankings-container', data.rankings);
     studyAppLoaded = false;
-    if (!document.getElementById('rtab-apps').classList.contains('d-none')) loadStudyAppTab();
+    if (isShown_('rtab-apps')) loadStudyAppTab();
   } catch (e) { /* 表示更新の失敗は致命的ではない */ }
 }
 
@@ -636,20 +662,22 @@ function renderMissions(missions) {
     if (m.isClaimed) {
       action = '<span class="badge bg-secondary">うけとりずみ</span>';
     } else if (m.isComplete) {
-      action = `<button class="btn btn-sm btn-warning fw-bold claim-btn" data-mission="${esc(m.id)}">うけとる！</button>`;
+      action = `<button type="button" class="mq-btn mq-btn-gold claim-btn" style="min-height:2.5rem;padding:.4rem 1rem;font-size:.95rem;" data-mission="${esc(m.id)}">うけとる！</button>`;
     } else {
-      action = `<span class="small text-muted">${m.progress} / ${m.target}</span>`;
+      action = `<span class="fw-bold" style="color:var(--mq-ink-2);">${m.progress} / ${m.target}</span>`;
     }
     return `<div class="mission-item ${m.isComplete ? 'complete' : ''} ${m.isClaimed ? 'claimed' : ''}">
       <div class="d-flex justify-content-between align-items-center gap-2">
         <div class="flex-grow-1">
           <span class="badge ${typeBadge[m.type] || 'bg-secondary'} mission-type-badge">${esc(m.type)}</span>
-          <span class="fw-bold small ms-1">${esc(m.content)}</span>
-          <div class="progress mt-1" style="height:6px;"><div class="progress-bar bg-success" style="width:${pct}%"></div></div>
+          <span class="mission-text ms-1">${esc(m.content)}</span>
+          <div class="progress mt-2" style="height:10px;border-radius:999px;">
+            <div class="progress-bar" style="width:${pct}%;border-radius:999px;background:linear-gradient(90deg,#35c47e,#8fe6b7);"></div>
+          </div>
         </div>
-        <div class="text-end" style="min-width:80px;">
+        <div class="text-end" style="min-width:92px;">
           ${action}
-          <div class="small text-warning-emphasis fw-bold mt-1">${esc(m.rewardType)} +${m.rewardAmount}</div>
+          <div class="fw-bold mt-1" style="font-size:.82rem;color:var(--mq-gold-d);">${esc(m.rewardType)} +${m.rewardAmount}</div>
         </div>
       </div>
     </div>`;
@@ -659,12 +687,13 @@ function renderMissions(missions) {
     btn.addEventListener('click', async () => {
       const result = await apiWithLoading('うけとり中...', 'claimMissionReward', btn.dataset.mission);
       if (result.success) {
+        celebrate(45);
         toast(result.message);
         if (result.newExp !== undefined) {
           App.data.profile.exp = result.newExp;
           App.data.profile.exchangePoints = result.newExchangePoints;
-          document.getElementById('home-exp').textContent = result.newExp;
-          document.getElementById('home-exchange').textContent = result.newExchangePoints;
+          countUp(document.getElementById('home-exp'), result.newExp);
+          countUp(document.getElementById('home-exchange'), result.newExchangePoints);
           document.getElementById('quest-exchange').textContent = result.newExchangePoints;
         }
         refreshMissions();
@@ -747,37 +776,45 @@ function renderRecordsView(data) {
   renderNotesTab(data.records);
   renderLessonTab(data.records);
 
-  document.querySelectorAll('#record-pills [data-rtab]').forEach(btn => {
-    btn.addEventListener('click', () => showRecordTab(btn.dataset.rtab, { push: true }));
+  document.querySelectorAll('#mine-pills [data-mtab]').forEach(btn => {
+    btn.addEventListener('click', () => showMineTab(btn.dataset.mtab, { push: true }));
   });
 }
 
-/** いま開いている「きろく」の中のタブID */
-let currentRecordTab = 'rtab-input';
+/** いま開いている「じぶんのきろく」の中のカテゴリID */
+let currentMineTab = 'mtab-summary';
 
 /**
- * 「きろく」タブの中のサブタブを切り替えます。
+ * 「じぶんのきろく」タブの中のカテゴリを切り替えます。
+ *
+ * 以前は 8 つのサブタブが横一列にならんでいましたが、
+ * にた種類のきろくを 5 つのカテゴリにまとめ、1つのカテゴリの中では
+ * 見出し（.mq-section-title）で区切って上から順に見せるようにしています。
+ *
  * @param {string} tabId
- * @param {Object} [options] - { push: true } でタップ前のタブを「戻る」履歴に積みます
+ * @param {Object} [options] - { push: true } でタップ前のカテゴリを「戻る」履歴に積みます
  */
-function showRecordTab(tabId, options) {
-  if (options && options.push && currentRecordTab && currentRecordTab !== tabId) {
-    const previous = currentRecordTab;
-    navPush('rtab:' + previous, () => showRecordTab(previous));
+function showMineTab(tabId, options) {
+  if (options && options.push && currentMineTab && currentMineTab !== tabId) {
+    const previous = currentMineTab;
+    navPush('mtab:' + previous, () => showMineTab(previous));
   }
-  document.querySelectorAll('#record-pills .nav-link').forEach(b => {
-    b.classList.toggle('active', b.dataset.rtab === tabId);
+  document.querySelectorAll('#mine-pills .mq-pill').forEach(b => {
+    b.classList.toggle('on', b.dataset.mtab === tabId);
   });
-  document.querySelectorAll('.record-tab').forEach(tab => tab.classList.add('d-none'));
+  document.querySelectorAll('.mine-tab').forEach(tab => tab.classList.add('d-none'));
   const panel = document.getElementById(tabId);
   if (panel) panel.classList.remove('d-none');
-  currentRecordTab = tabId;
+  currentMineTab = tabId;
 
-  if (tabId === 'rtab-typing') drawTypingChart(App.data.records.typingChart);
-  if (tabId === 'rtab-calc') drawCalcChart(App.data.records.calcChart);
-  if (tabId === 'rtab-lesson') drawTestChart(App.data.records.test);
-  if (tabId === 'rtab-apps') loadStudyAppTab();
-  if (tabId === 'rtab-album') loadAlbumTab();
+  // グラフは表示されている状態でないと大きさが決まらないので、開いたときに描きます
+  if (tabId === 'mtab-numbers') {
+    drawTypingChart(App.data.records.typingChart);
+    drawCalcChart(App.data.records.calcChart);
+  }
+  if (tabId === 'mtab-lessons') drawTestChart(App.data.records.test);
+  if (tabId === 'mtab-apps') loadStudyAppTab();
+  if (tabId === 'mtab-words') loadAlbumTab();
 }
 
 /* ---------------- ことばアルバム・まなびレーダー ---------------- */
@@ -953,28 +990,47 @@ function renderStudyAppTab(d) {
   renderStudySendPanels();
 }
 
+/**
+ * きろくの種類ごとの見た目（絵文字・タイルの色）。
+ * フォームの見出しやタイルで同じ色をつかうことで、
+ * 「いまどのきろくを書いているか」が色でも分かるようにしています。
+ */
+const RECORD_STYLES = {
+  typing: { emoji: '⌨️', label: 'タイピング',       tile: 'tile-blue',   accent: 'accent-blue',   btn: 'mq-btn' },
+  reading:{ emoji: '📖', label: 'どくしょ',          tile: 'tile-orange', accent: 'accent-orange', btn: 'mq-btn-orange' },
+  growth: { emoji: '🌱', label: 'せいちょう',        tile: 'tile-green',  accent: 'accent-green',  btn: 'mq-btn-green' },
+  study:  { emoji: '💡', label: 'じしゅ学習',        tile: 'tile-purple', accent: 'accent-purple', btn: 'mq-btn-purple' },
+  lesson: { emoji: '✍️', label: 'じゅぎょうのふり返り', tile: 'tile-cyan', accent: 'accent-cyan',   btn: 'mq-btn' },
+  test:   { emoji: '📝', label: 'テストのふり返り',   tile: 'tile-gold',   accent: 'accent-gold',   btn: 'mq-btn-gold' },
+  moral:  { emoji: '💖', label: 'どうとくノート',     tile: 'tile-pink',   accent: 'accent-pink',   btn: 'mq-btn-pink' }
+};
+
 function renderRecordInputMenu(data) {
   // 100マス計算は自己申告ではなく、100マス計算アプリのきろくから自動で記録されます
-  const menu = [
-    { type: 'typing', emoji: '⌨️', label: 'タイピング' },
-    { type: 'reading', emoji: '📖', label: 'どくしょ' },
-    { type: 'growth', emoji: '🌱', label: 'せいちょう' },
-    { type: 'study', emoji: '💡', label: 'じしゅ学習' },
-    { type: 'lesson', emoji: '✍️', label: 'じゅぎょうのふり返り' },
-    { type: 'test', emoji: '📝', label: 'テストのふり返り' },
-    { type: 'moral', emoji: '💖', label: 'どうとくノート' }
-  ];
+  const order = ['typing', 'reading', 'growth', 'study', 'lesson', 'test', 'moral'];
   document.getElementById('rtab-input').innerHTML = `
-    <div class="card record-form-card shadow-sm">
-      <div class="card-header text-primary"><i class="bi bi-plus-circle"></i> なにをきろくする？</div>
-      <div class="card-body">
-        <div class="row g-2">
-          ${menu.map(m => `<div class="col-6 col-md-3">
-            <button class="record-menu-btn fw-bold" data-record-type="${m.type}">
-              <span class="emoji">${m.emoji}</span>${m.label}
-            </button>
-          </div>`).join('')}
+    <div class="mq-card accent-green">
+      <div class="mq-card-head">
+        <span class="mq-card-icon no-furigana" aria-hidden="true">✏️</span>
+        <h2 class="mq-card-title">なにをきろくする？</h2>
+        <span class="mq-card-note">えらぶと入力する画面が出ます</span>
+      </div>
+      <div class="mq-card-body">
+        <div class="row g-3">
+          ${order.map(type => {
+            const s = RECORD_STYLES[type];
+            return `<div class="col-6 col-md-4 col-xl-3">
+              <button type="button" class="record-menu-btn ${s.tile}" data-record-type="${type}">
+                <span class="emoji no-furigana" aria-hidden="true">${s.emoji}</span>
+                <span>${esc(s.label)}</span>
+              </button>
+            </div>`;
+          }).join('')}
         </div>
+        <p class="mq-card-note mt-3 mb-0">
+          100マス計算は、100マス計算アプリのきろくから自動で入ります。
+          書いたきろくは「じぶんのきろく」で見かえせます。
+        </p>
       </div>
     </div>
     <div id="record-form-area" class="mt-3"></div>`;
@@ -984,11 +1040,93 @@ function renderRecordInputMenu(data) {
   });
 }
 
+/* ---- 入力フォームをつくるための小さな部品 ---- */
+
+/** ラベル＋中身のひとかたまり */
+function field(labelEmoji, labelText, inner, hint) {
+  return `<div class="mq-field">
+    <div class="mq-label"><span class="mq-label-emoji no-furigana" aria-hidden="true">${labelEmoji}</span>${esc(labelText)}</div>
+    ${inner}
+    ${hint ? `<div class="mq-hint">${esc(hint)}</div>` : ''}
+  </div>`;
+}
+
+/** ＋−ボタンつきの数入力（小さな数字キーをさわらずに増やせます） */
+function stepper(id, options) {
+  const o = options || {};
+  const min = o.min === undefined ? 0 : o.min;
+  const step = o.step || 1;
+  return `<div class="mq-stepper" data-stepper-for="${id}" data-step="${step}"${o.max !== undefined ? ` data-max="${o.max}"` : ''} data-min="${min}">
+    <button type="button" class="mq-step-btn no-furigana" data-delta="-1" aria-label="へらす">−</button>
+    <input type="number" class="mq-input" id="${id}" min="${min}"${o.max !== undefined ? ` max="${o.max}"` : ''} step="${step}" inputmode="decimal"${o.value !== undefined ? ` value="${o.value}"` : ''}${o.placeholder ? ` placeholder="${esc(o.placeholder)}"` : ''}>
+    <button type="button" class="mq-step-btn no-furigana" data-delta="1" aria-label="ふやす">＋</button>
+  </div>`;
+}
+
+/**
+ * 押して選ぶ選択肢。プルダウンより中身が見えるので、児童が迷いにくくなります。
+ * @param {string} id - 選んだ値は #id の data-value に入ります
+ * @param {Array} choices - [{ value, label, emoji }]
+ */
+function choiceGroup(id, choices, options) {
+  const o = options || {};
+  const first = o.value !== undefined ? o.value : choices[0].value;
+  return `<div class="mq-choice${o.grow === false ? '' : ' grow'}" id="${id}" data-value="${esc(first)}">
+    ${choices.map(c => `<button type="button" class="mq-choice-item${c.value === first ? ' on' : ''}" data-value="${esc(c.value)}">
+      ${c.emoji ? `<span class="choice-emoji no-furigana" aria-hidden="true">${c.emoji}</span>` : ''}<span>${esc(c.label)}</span>
+    </button>`).join('')}
+  </div>`;
+}
+
+/** プルダウン（選択肢が多くてボタンにできないとき） */
+function selectField(id, values, options) {
+  const o = options || {};
+  return `<select class="mq-select" id="${id}">${
+    values.map(v => {
+      const value = typeof v === 'object' ? v.value : v;
+      const label = typeof v === 'object' ? v.label : v;
+      return `<option value="${esc(value)}"${value === o.value ? ' selected' : ''}>${esc(label)}</option>`;
+    }).join('')
+  }</select>`;
+}
+
+/** 選択肢ボタンとステッパーを動くようにします */
+function bindFormWidgets(area) {
+  area.querySelectorAll('.mq-choice').forEach(group => {
+    group.querySelectorAll('.mq-choice-item').forEach(item => {
+      item.addEventListener('click', () => {
+        group.dataset.value = item.dataset.value;
+        group.querySelectorAll('.mq-choice-item').forEach(b => b.classList.toggle('on', b === item));
+      });
+    });
+  });
+  area.querySelectorAll('.mq-stepper').forEach(group => {
+    const input = document.getElementById(group.dataset.stepperFor);
+    if (!input) return;
+    const step = Number(group.dataset.step) || 1;
+    const min = group.dataset.min === '' ? null : Number(group.dataset.min);
+    const max = group.dataset.max === undefined ? null : Number(group.dataset.max);
+    group.querySelectorAll('.mq-step-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const current = input.value === '' ? (min === null ? 0 : min) : Number(input.value);
+        let next = current + step * Number(btn.dataset.delta);
+        if (min !== null && next < min) next = min;
+        if (max !== null && next > max) next = max;
+        // 0.1きざみのときに小数の誤差が出ないようにまるめます
+        input.value = String(Math.round(next * 100) / 100);
+        input.dispatchEvent(new Event('change'));
+      });
+    });
+  });
+}
+
 /** ふり返り入力の「書き出しヒント」チップ群を生成します */
 function starterChips(targetId, phrases) {
-  return `<div class="starter-chips mt-1" data-starter-for="${targetId}">
-    <span class="small text-muted me-1"><i class="bi bi-lightbulb"></i> かきだしのヒント:</span>
-    ${phrases.map(p => `<button type="button" class="btn btn-sm btn-outline-secondary starter-chip py-0 px-2 mb-1 me-1" data-phrase="${esc(p)}">${esc(p)}…</button>`).join('')}
+  return `<div class="starter-chips mt-2" data-starter-for="${targetId}">
+    <div class="mq-hint mb-1"><span class="no-furigana" aria-hidden="true">💡</span> かきだしのヒント（タップすると入ります）</div>
+    <div class="mq-choice">
+      ${phrases.map(p => `<button type="button" class="mq-choice-item starter-chip" style="min-height:2.4rem;padding:.35rem .8rem;font-size:.92rem;font-weight:500;" data-phrase="${esc(p)}">${esc(p)}…</button>`).join('')}
+    </div>
   </div>`;
 }
 
@@ -1009,80 +1147,94 @@ function bindStarterChips(area) {
 /** 記録種別ごとのフォーム定義 */
 function recordFormHtml(type) {
   const subjects = ['国語', '社会', '算数', '理科', '英語', '音楽', '図工', '家庭', '体育', '総合', '学活'];
-  const subjectOptions = subjects.map(s => `<option>${s}</option>`).join('');
   switch (type) {
     case 'typing': return `
-      <div class="row g-2">
-        <div class="col-4"><label class="form-label small fw-bold">正しく打てた数</label><input type="number" class="form-control" id="f-correct" min="0"></div>
-        <div class="col-4"><label class="form-label small fw-bold">打った合計数</label><input type="number" class="form-control" id="f-total" min="1"></div>
-        <div class="col-4"><label class="form-label small fw-bold">時間（秒）</label><input type="number" class="form-control" id="f-time" min="1" step="0.1"></div>
+      <div class="row g-3">
+        <div class="col-md-4">${field('⭕', '正しく打てた数', stepper('f-correct', { min: 0, step: 5, placeholder: '0' }))}</div>
+        <div class="col-md-4">${field('🔤', '打った合計数', stepper('f-total', { min: 0, step: 5, placeholder: '0' }))}</div>
+        <div class="col-md-4">${field('⏱️', '時間（びょう）', stepper('f-time', { min: 0, step: 10, placeholder: '0' }))}</div>
       </div>
-      <div class="mt-3 p-2 bg-light rounded small" id="typing-goal-info"></div>`;
+      <div class="mt-1 p-3 rounded-3" style="background:var(--mq-blue-s);" id="typing-goal-info"></div>`;
+
     case 'reading': return `
-      <div class="row g-2">
-        <div class="col-md-6"><label class="form-label small fw-bold">本のだいめい</label><input type="text" class="form-control" id="f-title"></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">ジャンル</label>
-          <select class="form-select" id="f-genre"><option>ものがたり</option><option>かがく</option><option>でんき</option><option>ずかん</option><option>まんが・その他</option></select></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">ページ数</label><input type="number" class="form-control" id="f-pages" min="0"></div>
-        <div class="col-12"><label class="form-label small fw-bold">おすすめ度</label>
-          <div class="star-rating" id="f-rating" data-value="3">${[1,2,3,4,5].map(i => `<span class="star" data-star="${i}">★</span>`).join('')}</div></div>
-        <div class="col-12"><label class="form-label small fw-bold">かんそう</label><textarea class="form-control" id="f-comment" rows="2"></textarea></div>
-      </div>`;
+      ${field('📕', '本のだいめい', `<input type="text" class="mq-input" id="f-title" placeholder="よんだ本のなまえ">`)}
+      <div class="row g-3">
+        <div class="col-md-8">${field('🏷️', 'ジャンル', choiceGroup('f-genre', [
+          { value: 'ものがたり', label: 'ものがたり', emoji: '🐉' },
+          { value: 'かがく', label: 'かがく', emoji: '🔬' },
+          { value: 'でんき', label: 'でんき', emoji: '🧑‍🚀' },
+          { value: 'ずかん', label: 'ずかん', emoji: '🗺️' },
+          { value: 'まんが・その他', label: 'そのほか', emoji: '📚' }
+        ]))}</div>
+        <div class="col-md-4">${field('📄', 'ページ数', stepper('f-pages', { min: 0, step: 10, placeholder: '0' }))}</div>
+      </div>
+      ${field('⭐', 'おすすめ度', `<div class="star-rating no-furigana" id="f-rating" data-value="3" role="group" aria-label="おすすめ度">${
+        [1, 2, 3, 4, 5].map(i => `<span class="star" data-star="${i}">★</span>`).join('')
+      }</div>`, 'ほしをタップしてえらんでね')}
+      ${field('💭', 'かんそう', `<textarea class="mq-textarea" id="f-comment" placeholder="おもしろかったところ、心にのこったところ"></textarea>
+        ${starterChips('f-comment', ['いちばんおもしろかったのは', '主人公は', 'よんでみて'])}`)}`;
+
     case 'growth': return `
-      <div class="row g-2">
-        <div class="col-12"><label class="form-label small fw-bold">どんなことができるようになった？</label><input type="text" class="form-control" id="f-content"></div>
-        <div class="col-12"><label class="form-label small fw-bold">ひとこと（かんそう）</label><textarea class="form-control" id="f-gcomment" rows="2"></textarea></div>
-      </div>`;
+      ${field('🌱', 'どんなことができるようになった？', `<input type="text" class="mq-input" id="f-content" placeholder="れい: なわとびの二重とびができた">`)}
+      ${field('💬', 'ひとこと（かんそう）', `<textarea class="mq-textarea" id="f-gcomment" placeholder="どうやってできるようになった？"></textarea>
+        ${starterChips('f-gcomment', ['まいにち', 'コツは', 'つぎは'])}`)}`;
+
     case 'study': return `
-      <div class="row g-2">
-        <div class="col-12"><label class="form-label small fw-bold">テーマ・ぎもん</label><input type="text" class="form-control" id="f-theme"></div>
-        <div class="col-12"><label class="form-label small fw-bold">わかったこと・まとめ</label><textarea class="form-control" id="f-summary" rows="3"></textarea></div>
-        <div class="col-12"><label class="form-label small fw-bold">つぎにやってみたいこと</label><input type="text" class="form-control" id="f-next"></div>
-      </div>`;
+      ${field('❓', 'テーマ・ぎもん', `<input type="text" class="mq-input" id="f-theme" placeholder="しらべたいこと・ふしぎに思ったこと">`)}
+      ${field('💡', 'わかったこと・まとめ', `<textarea class="mq-textarea" id="f-summary" placeholder="しらべて分かったことを書こう"></textarea>
+        ${starterChips('f-summary', ['しらべてみると', 'おどろいたのは', 'まとめると'])}`)}
+      ${field('➡️', 'つぎにやってみたいこと', `<input type="text" class="mq-input" id="f-next" placeholder="つぎに知りたいこと">`)}`;
+
     case 'lesson': return `
-      <div class="row g-2">
-        <div class="col-6 col-md-4"><label class="form-label small fw-bold">教科</label><select class="form-select" id="f-subject">${subjectOptions}</select></div>
-        <div class="col-6 col-md-4"><label class="form-label small fw-bold">めあては達成できた？</label>
-          <select class="form-select" id="f-q1"><option>◎ できた</option><option>◯ だいたいできた</option><option>△ むずかしかった</option></select></div>
-        <div class="col-6 col-md-4"><label class="form-label small fw-bold">すすんで学べた？</label>
-          <select class="form-select" id="f-selfeval"><option>◎</option><option>◯</option><option>△</option></select></div>
-        <div class="col-6 col-md-4"><label class="form-label small fw-bold">挙手・発表した回数</label><input type="number" class="form-control" id="f-hands" min="0" value="0"></div>
-        <div class="col-12"><label class="form-label small fw-bold">わかったこと</label><input type="text" class="form-control" id="f-q2"></div>
-        <div class="col-12"><label class="form-label small fw-bold">ふり返り（くわしく）</label><textarea class="form-control" id="f-reflection" rows="3" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
-          ${starterChips('f-reflection', ['今日わかったのは', 'まえとくらべて', 'むずかしかったのは', 'つぎにがんばりたいのは'])}</div>
-      </div>`;
+      ${field('📚', '教科', selectField('f-subject', subjects))}
+      <div class="row g-3">
+        <div class="col-md-6">${field('🎯', 'めあては達成できた？', choiceGroup('f-q1', [
+          { value: '◎ できた', label: 'できた', emoji: '◎' },
+          { value: '◯ だいたいできた', label: 'だいたい', emoji: '◯' },
+          { value: '△ むずかしかった', label: 'むずかしかった', emoji: '△' }
+        ]))}</div>
+        <div class="col-md-6">${field('🙋', 'すすんで学べた？', choiceGroup('f-selfeval', [
+          { value: '◎', label: 'とても', emoji: '◎' },
+          { value: '◯', label: 'まあまあ', emoji: '◯' },
+          { value: '△', label: 'あまり', emoji: '△' }
+        ]))}</div>
+      </div>
+      ${field('✋', '挙手・発表した回数', stepper('f-hands', { min: 0, step: 1, value: 0 }))}
+      ${field('💡', 'わかったこと', `<input type="text" class="mq-input" id="f-q2" placeholder="今日いちばん分かったこと">`)}
+      ${field('📝', 'ふり返り（くわしく）', `<textarea class="mq-textarea" id="f-reflection" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
+        ${starterChips('f-reflection', ['今日わかったのは', 'まえとくらべて', 'むずかしかったのは', 'つぎにがんばりたいのは'])}`,
+        'くわしく書くと、ふり返りボーナスのけいけんちがもらえます')}`;
+
     case 'test': {
       const units = App.data.testUnits || {};
       const testSubjects = Object.keys(units);
       return `
-      <div class="row g-2">
-        <div class="col-6"><label class="form-label small fw-bold">教科</label>
-          <select class="form-select" id="f-tsubject">${(testSubjects.length ? testSubjects : subjects).map(s => `<option>${esc(s)}</option>`).join('')}</select></div>
-        <div class="col-6"><label class="form-label small fw-bold">単元（テスト名）</label>
-          <select class="form-select" id="f-unit"></select></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">目標点（知識）</label><input type="number" class="form-control" id="f-expected1" min="0" max="100" placeholder="テスト前の目標"></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">目標点（思考）</label><input type="number" class="form-control" id="f-expected2" min="0" max="100" placeholder="テスト前の目標"></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（知識）</label><input type="number" class="form-control" id="f-score1" min="0" max="100"></div>
-        <div class="col-6 col-md-3"><label class="form-label small fw-bold">点数（思考）</label><input type="number" class="form-control" id="f-score2" min="0" max="100"></div>
-        <div class="col-12"><label class="form-label small fw-bold">ふり返り</label><textarea class="form-control" id="f-treflection" rows="3" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
-          ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}</div>
-      </div>`;
+      <div class="row g-3">
+        <div class="col-md-6">${field('📚', '教科', selectField('f-tsubject', testSubjects.length ? testSubjects : subjects))}</div>
+        <div class="col-md-6">${field('📗', '単元（テストの名まえ）', `<select class="mq-select" id="f-unit"></select>`)}</div>
+      </div>
+      <div class="row g-3">
+        <div class="col-6 col-lg-3">${field('🎯', '目標点（知識）', stepper('f-expected1', { min: 0, max: 100, step: 5, placeholder: '0' }))}</div>
+        <div class="col-6 col-lg-3">${field('🎯', '目標点（思考）', stepper('f-expected2', { min: 0, max: 100, step: 5, placeholder: '0' }))}</div>
+        <div class="col-6 col-lg-3">${field('💯', '点数（知識）', stepper('f-score1', { min: 0, max: 100, step: 5, placeholder: '0' }))}</div>
+        <div class="col-6 col-lg-3">${field('💯', '点数（思考）', stepper('f-score2', { min: 0, max: 100, step: 5, placeholder: '0' }))}</div>
+      </div>
+      <div class="mq-hint mb-3">目標点は、テストのまえに立てた目標を書きます。点数とのちがいがグラフで見られます。</div>
+      ${field('📝', 'ふり返り', `<textarea class="mq-textarea" id="f-treflection" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
+        ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}`)}`;
     }
+
     case 'moral': {
       const materials = App.data.moralMaterials || [];
+      const materialField = materials.length
+        ? selectField('f-material', materials.map(m => ({ value: m.number, label: `${m.number}. ${m.name}` })))
+        : `<select class="mq-select" id="f-material"><option value="">（教材リストが未登録です）</option></select>`;
       return `
-      <div class="row g-2">
-        <div class="col-12"><label class="form-label small fw-bold">教材</label>
-          <select class="form-select" id="f-material">
-            ${materials.length
-              ? materials.map(m => `<option value="${esc(m.number)}">${esc(m.number)}. ${esc(m.name)}</option>`).join('')
-              : '<option value="">（教材リストが未登録です）</option>'}
-          </select></div>
-        <div class="col-12"><label class="form-label small fw-bold">自分の考え</label><textarea class="form-control" id="f-thought" rows="3"></textarea>
-          ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}</div>
-        <div class="col-12"><label class="form-label small fw-bold">授業のふり返り</label><textarea class="form-control" id="f-mreflection" rows="2"></textarea>
-          ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}</div>
-      </div>`;
+      ${field('📘', '教材', materialField)}
+      ${field('🤔', '自分の考え', `<textarea class="mq-textarea" id="f-thought" placeholder="どう思った？ どうしてそう思った？"></textarea>
+        ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}`)}
+      ${field('💖', '授業のふり返り', `<textarea class="mq-textarea" id="f-mreflection" placeholder="学習して気づいたこと"></textarea>
+        ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}`)}`;
     }
   }
   return '';
@@ -1091,17 +1243,19 @@ function recordFormHtml(type) {
 /** フォームから送信データを組み立てます */
 function collectFormData(type) {
   const v = id => (document.getElementById(id) ? document.getElementById(id).value : '');
+  // 押して選ぶタイプの選択肢は、えらんだ値を data-value に持っています
+  const c = id => (document.getElementById(id) ? document.getElementById(id).dataset.value : '');
   switch (type) {
     case 'typing': return { correct: v('f-correct'), total: v('f-total'), time: v('f-time') };
     case 'reading': return {
-      title: v('f-title'), genre: v('f-genre'), pages: v('f-pages'),
+      title: v('f-title'), genre: c('f-genre'), pages: v('f-pages'),
       rating: document.getElementById('f-rating').dataset.value, comment: v('f-comment')
     };
     case 'growth': return { content: v('f-content'), comment: v('f-gcomment') };
     case 'study': return { theme: v('f-theme'), summary: v('f-summary'), next: v('f-next') };
     case 'lesson': return {
-      subject: v('f-subject'), q1: v('f-q1'), q2: v('f-q2'),
-      selfEval: v('f-selfeval'), handRaises: v('f-hands'), reflection: v('f-reflection')
+      subject: v('f-subject'), q1: c('f-q1'), q2: v('f-q2'),
+      selfEval: c('f-selfeval'), handRaises: v('f-hands'), reflection: v('f-reflection')
     };
     case 'test': return {
       subject: v('f-tsubject'), unit: v('f-unit'),
@@ -1129,19 +1283,26 @@ function openRecordForm(type) {
   const area = document.getElementById('record-form-area');
   // 「戻る」でフォームを閉じられるようにする
   navPush('record-form', () => closeRecordForm(true));
+  const style = RECORD_STYLES[type] || { emoji: '✏️', accent: 'accent-green', btn: 'mq-btn-green' };
   area.innerHTML = `
-    <div class="card record-form-card shadow-sm">
-      <div class="card-header text-success"><i class="bi bi-pencil"></i> ${RECORD_LABELS[type]}のきろく</div>
-      <div class="card-body">
+    <div class="mq-card ${style.accent}" id="record-form-card">
+      <div class="mq-card-head">
+        <span class="mq-card-icon no-furigana" aria-hidden="true">${style.emoji}</span>
+        <h2 class="mq-card-title">${esc(RECORD_LABELS[type])}のきろく</h2>
+      </div>
+      <div class="mq-card-body">
         ${recordFormHtml(type)}
-        <div class="d-flex gap-2 mt-3">
-          <button class="btn btn-success fw-bold flex-fill" id="record-submit-btn"><i class="bi bi-check-circle"></i> きろくする</button>
-          <button class="btn btn-outline-secondary" id="record-cancel-btn">やめる</button>
+        <div class="d-flex gap-2 mt-4">
+          <button type="button" class="mq-btn ${style.btn} mq-btn-lg flex-fill" id="record-submit-btn">
+            <span class="no-furigana" aria-hidden="true">✓</span> きろくする
+          </button>
+          <button type="button" class="mq-btn mq-btn-ghost" id="record-cancel-btn">やめる</button>
         </div>
       </div>
     </div>`;
   area.scrollIntoView({ behavior: 'smooth', block: 'start' });
   bindStarterChips(area);
+  bindFormWidgets(area);
 
   // タイピング: 目標表示 + 目標セットボタン
   if (type === 'typing') {
@@ -1151,9 +1312,10 @@ function openRecordForm(type) {
       const parts = [];
       if (goal.speedGoal) parts.push(`速さ ${goal.speedGoal} 打/秒`);
       if (goal.accuracyGoal) parts.push(`正答率 ${goal.accuracyGoal}%`);
-      goalInfo.innerHTML = `🎯 いまの目標: <b>${parts.join(' ・ ')}</b>`;
+      goalInfo.innerHTML = `<span class="no-furigana" aria-hidden="true">🎯</span> いまの目標: <b>${parts.join(' ・ ')}</b>`;
     } else {
-      goalInfo.innerHTML = `🎯 目標がまだありません。 <button class="btn btn-sm btn-outline-primary" id="set-goal-btn">目標をセットする</button>`;
+      goalInfo.innerHTML = `<span class="no-furigana" aria-hidden="true">🎯</span> 目標がまだありません。
+        <button type="button" class="mq-btn" style="min-height:2.4rem;padding:.35rem 1rem;font-size:.9rem;" id="set-goal-btn">目標をセットする</button>`;
       const btn = document.getElementById('set-goal-btn');
       if (btn) btn.addEventListener('click', () => openGoalDialog('typing'));
     }
@@ -1169,7 +1331,12 @@ function openRecordForm(type) {
       });
     };
     rating.querySelectorAll('.star').forEach(star => {
-      star.addEventListener('click', () => update(Number(star.dataset.star)));
+      star.addEventListener('click', () => {
+        update(Number(star.dataset.star));
+        // 押した星がはねる、ちいさな手ごたえ
+        star.classList.add('pop');
+        setTimeout(() => star.classList.remove('pop'), 160);
+      });
     });
     update(3);
   }
@@ -1208,8 +1375,11 @@ function openRecordForm(type) {
     if (result.newExp !== null && result.newExp !== undefined) {
       App.data.profile.exp = result.newExp;
       App.data.profile.totalExp = result.newTotalExp;
-      document.getElementById('home-exp').textContent = result.newExp;
+      countUp(document.getElementById('home-exp'), result.newExp);
     }
+
+    // がんばったときほど、はでにおいわいします
+    celebrate(result.personalBest || (result.achievedGoals || []).length ? 110 : 55);
 
     let html = `きろくしました！`;
     if (result.gainedExp > 0) html += `<br><b class="text-primary">+${result.gainedExp} EXP</b> ゲット！`;
@@ -1231,6 +1401,7 @@ function openRecordForm(type) {
 
     Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html }).then(() => {
       if (result.leveledUp) {
+        celebrate(160);
         Swal.fire({ icon: 'success', title: '🎉 レベルアップ！', html: `<b>レベル ${result.newLevel}</b> になりました！` })
           .then(() => refreshMissions());
       } else {
@@ -1264,7 +1435,7 @@ function renderTypingTab(records) {
       records.typing.map(r => [r.date, r.speed, r.accuracy]))}</div></div>`;
   const goalBtn = document.getElementById('typing-tab-goal-btn');
   if (goalBtn) goalBtn.addEventListener('click', () => openGoalDialog('typing'));
-  if (!document.getElementById('rtab-typing').classList.contains('d-none')) drawTypingChart(records.typingChart);
+  if (isShown_('rtab-typing')) drawTypingChart(records.typingChart);
 }
 
 function renderCalcTab(records) {
@@ -1284,7 +1455,7 @@ function renderCalcTab(records) {
       ['日付', 'モード', '問題数', '点数', 'タイム(秒)'],
       records.calc.map(r => [r.date, r.mode, r.questions, r.score, r.time]))}</div></div>`;
   renderStudySendPanels();
-  if (!document.getElementById('rtab-calc').classList.contains('d-none')) drawCalcChart(records.calcChart);
+  if (isShown_('rtab-calc')) drawCalcChart(records.calcChart);
 }
 
 function renderReadingTab(records) {
@@ -1371,7 +1542,7 @@ function renderLessonTab(records) {
         ${testHtml}</div>
       <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">💖 どうとくノート</h6>${moralHtml}</div>
     </div>`;
-  if (!document.getElementById('rtab-lesson').classList.contains('d-none')) drawTestChart(records.test);
+  if (isShown_('rtab-lesson')) drawTestChart(records.test);
 }
 
 function recordTable(headers, rows) {
@@ -1575,9 +1746,13 @@ async function runGacha(count) {
   }
   App.data.profile.exp = result.newPoints;
   if (result.newExchangePoints !== undefined) App.data.profile.exchangePoints = result.newExchangePoints;
-  document.getElementById('home-exp').textContent = App.data.profile.exp;
-  document.getElementById('home-exchange').textContent = App.data.profile.exchangePoints;
+  countUp(document.getElementById('home-exp'), App.data.profile.exp);
+  countUp(document.getElementById('home-exchange'), App.data.profile.exchangePoints);
   document.getElementById('quest-exchange').textContent = App.data.profile.exchangePoints;
+  // レアなアイテムが出たときは、はでにおいわいします
+  const bestRarity = result.results.some(i => i['レアリティー'] === 'SR') ? 'SR'
+    : result.results.some(i => i['レアリティー'] === 'R') ? 'R' : 'N';
+  celebrate(bestRarity === 'SR' ? 150 : bestRarity === 'R' ? 70 : 35);
   result.results.forEach(item => {
     if (!item.isDuplicate) App.data.inventory.push(item['アイテムID']);
   });
@@ -1827,6 +2002,10 @@ function bindStudentEvents() {
 
   const addGoalBtn = document.getElementById('home-add-goal-btn');
   if (addGoalBtn) addGoalBtn.addEventListener('click', () => openGoalDialog());
+
+  // ホームからいちばん押されるボタン。「きろく」タブへ連れていきます
+  const cta = document.getElementById('home-record-cta');
+  if (cta) cta.addEventListener('click', () => showView('view-records', { push: true }));
 
   document.getElementById('btn-save-avatar').addEventListener('click', async () => {
     const result = await apiWithLoading('ほぞん中...', 'saveAvatar', App.pendingAvatar);
