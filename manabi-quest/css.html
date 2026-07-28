@@ -1,11 +1,54 @@
 <style>
+  /* =================================================================
+   * デザイントークン
+   * 色・大きさ・角丸・影を1か所にまとめています。
+   * 見た目を変えたいときは、まずここの値を書きかえてください。
+   * ================================================================= */
   :root {
+    /* -- 基本色（既存のクラスからも参照しています） -- */
     --mq-primary: #4a90e2;
     --mq-radius: 1rem;
+
+    /* -- パレット（児童画面のカードやボタンの色わけに使います） -- */
+    --mq-blue:   #4a90e2;  --mq-blue-d:   #2f6fbf;  --mq-blue-s:   #eaf3ff;
+    --mq-green:  #2fb673;  --mq-green-d:  #1f8f57;  --mq-green-s:  #e6f8ef;
+    --mq-orange: #f5942a;  --mq-orange-d: #d0770f;  --mq-orange-s: #fff2e0;
+    --mq-pink:   #ef5f92;  --mq-pink-d:   #cc3b71;  --mq-pink-s:   #ffedf3;
+    --mq-purple: #8b7cf6;  --mq-purple-d: #6a57e0;  --mq-purple-s: #f0edff;
+    --mq-cyan:   #21b6c8;  --mq-cyan-d:   #128e9d;  --mq-cyan-s:   #e2f8fb;
+    --mq-gold:   #f0b429;  --mq-gold-d:   #c98f0d;  --mq-gold-s:   #fff6dd;
+
+    /* -- 文字・線・面 -- */
+    --mq-ink:    #2f3d4f;
+    --mq-ink-2:  #5b6b80;
+    --mq-muted:  #8a99a8;
+    --mq-line:   #dbe6f3;
+    --mq-surface:#ffffff;
+    --mq-canvas: #eef4fb;
+
+    /* -- 角丸・影 -- */
+    --mq-radius-lg: 1.25rem;
+    --mq-radius-md: .9rem;
+    --mq-shadow:    0 .35rem .9rem rgba(47, 61, 79, .10);
+    --mq-shadow-lg: 0 .8rem 1.6rem rgba(47, 61, 79, .16);
+
+    /* -- カードのアクセント（.accent-* クラスで上書きします） -- */
+    --mq-accent:      linear-gradient(90deg, #5b9df5, #8bc0ff);
+    --mq-accent-color: var(--mq-blue-d);
+    --mq-accent-soft:  var(--mq-blue-s);
   }
+
+  /* -----------------------------------------------------------------
+   * 文字サイズの切りかえ（低学年でも読める大きさにできます）
+   * html 要素に付くクラスで rem の基準を変えるので、画面ぜんぶが
+   * いっしょに大きくなります。既定（クラスなし）はブラウザの設定どおり。
+   * ----------------------------------------------------------------- */
+  html.mq-size-l  { font-size: 112.5%; }  /* 標準16pxのとき 18px */
+  html.mq-size-xl { font-size: 125%; }    /* 標準16pxのとき 20px */
 
   body {
     font-family: 'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', sans-serif;
+    color: var(--mq-ink);
     /* 画面端からのスワイプ（戻る操作）で、ページが横に流れないようにする */
     overscroll-behavior-x: none;
   }
@@ -83,6 +126,25 @@
     body:not(.embedded) .app-backbar-hint { display: inline; }
   }
 
+  /* ---- 文字サイズ切りかえボタン（ヘッダーの中） ---- */
+  .mq-sizer {
+    display: inline-flex;
+    align-items: center;
+    gap: .15rem;
+    background: rgba(255, 255, 255, .18);
+    border-radius: 999px;
+    padding: .1rem;
+  }
+  .mq-sizer button {
+    border: 0; background: transparent; color: #fff;
+    font-family: inherit; font-weight: 700; line-height: 1;
+    border-radius: 999px; padding: .25rem .5rem; min-width: 2rem; min-height: 2rem;
+  }
+  .mq-sizer button.on { background: #fff; color: var(--mq-blue-d); }
+  .mq-sizer button:nth-child(1) { font-size: .78rem; }
+  .mq-sizer button:nth-child(2) { font-size: .95rem; }
+  .mq-sizer button:nth-child(3) { font-size: 1.15rem; }
+
   /* ---- ナビゲーションタブ ---- */
   .nav-tab {
     border-bottom: 3px solid transparent !important;
@@ -96,9 +158,177 @@
   }
   .nav-tab:hover { background-color: rgba(74, 144, 226, .08); }
 
+  /* 児童用タブは絵文字を大きく、文字を下に置いて押しやすくします */
+  #student-tabs .nav-tab { display: flex; flex-direction: column; align-items: center; gap: .1rem; padding: .5rem .25rem !important; }
+  #student-tabs .nav-tab .tab-emoji { font-size: 1.45rem; line-height: 1.1; filter: grayscale(.55) opacity(.7); transition: filter .15s, transform .15s; }
+  #student-tabs .nav-tab.active-tab .tab-emoji { filter: none; transform: scale(1.12); }
+  #student-tabs .nav-tab .tab-label { font-size: .78rem; }
+
   /* ---- カード・ボタン ---- */
   .hover-lift { transition: transform .15s ease, box-shadow .15s ease; }
   .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important; }
+
+  /* =================================================================
+   * 児童画面の共通カード（.mq-card）
+   * 上に色の帯・左に大きな絵文字アイコンを置いて、
+   * 「ここは何のカードか」を一目で分かるようにします。
+   * 色は .accent-* クラスで切りかえます。
+   * ================================================================= */
+  .mq-card {
+    position: relative;
+    background: var(--mq-surface);
+    border: 0;
+    border-radius: var(--mq-radius-lg);
+    box-shadow: var(--mq-shadow);
+    overflow: hidden;
+  }
+  .mq-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 6px;
+    background: var(--mq-accent);
+  }
+  .mq-card-head {
+    display: flex; align-items: center; gap: .65rem;
+    padding: 1rem 1rem .35rem;
+  }
+  .mq-card-icon {
+    flex: 0 0 auto;
+    width: 2.6rem; height: 2.6rem;
+    border-radius: var(--mq-radius-md);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; line-height: 1;
+    background: var(--mq-accent-soft);
+  }
+  .mq-card-title {
+    flex: 1 1 auto;
+    margin: 0;
+    font-size: 1.15rem; font-weight: 700;
+    color: var(--mq-accent-color);
+  }
+  .mq-card-note { font-size: .82rem; color: var(--mq-muted); }
+  .mq-card-body { padding: .5rem 1rem 1rem; }
+  .mq-card-body.tight { padding-top: 0; }
+
+  .accent-blue   { --mq-accent: linear-gradient(90deg,#5b9df5,#8bc0ff); --mq-accent-color: var(--mq-blue-d);   --mq-accent-soft: var(--mq-blue-s); }
+  .accent-green  { --mq-accent: linear-gradient(90deg,#35c47e,#8fe6b7); --mq-accent-color: var(--mq-green-d);  --mq-accent-soft: var(--mq-green-s); }
+  .accent-orange { --mq-accent: linear-gradient(90deg,#f9a03f,#ffcf8a); --mq-accent-color: var(--mq-orange-d); --mq-accent-soft: var(--mq-orange-s); }
+  .accent-pink   { --mq-accent: linear-gradient(90deg,#f472a0,#ffb0cb); --mq-accent-color: var(--mq-pink-d);   --mq-accent-soft: var(--mq-pink-s); }
+  .accent-purple { --mq-accent: linear-gradient(90deg,#9a8bff,#c9c0ff); --mq-accent-color: var(--mq-purple-d); --mq-accent-soft: var(--mq-purple-s); }
+  .accent-cyan   { --mq-accent: linear-gradient(90deg,#28c3d6,#93e9f2); --mq-accent-color: var(--mq-cyan-d);   --mq-accent-soft: var(--mq-cyan-s); }
+  .accent-gold   { --mq-accent: linear-gradient(90deg,#f7c63f,#ffe6a1); --mq-accent-color: var(--mq-gold-d);   --mq-accent-soft: var(--mq-gold-s); }
+
+  /* 見出し（カードの外で場面を区切るとき） */
+  .mq-section-title {
+    display: flex; align-items: center; gap: .5rem;
+    font-size: 1.05rem; font-weight: 700; color: var(--mq-ink-2);
+    margin: 1.5rem 0 .6rem;
+  }
+  .mq-section-title::after {
+    content: ''; flex: 1 1 auto; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, var(--mq-line), transparent);
+  }
+  .mq-section-title:first-child { margin-top: 0; }
+
+  /* =================================================================
+   * ボタン（押した感じのある立体ボタン）
+   * ================================================================= */
+  .mq-btn {
+    --btn-bg: linear-gradient(180deg, #5da2f7, #3a78d8);
+    --btn-edge: #2a5fae;
+    display: inline-flex; align-items: center; justify-content: center; gap: .45rem;
+    border: 0; border-radius: 999px;
+    padding: .75rem 1.5rem;
+    min-height: 3rem;
+    font-family: inherit; font-weight: 700; font-size: 1.05rem;
+    color: #fff; background: var(--btn-bg);
+    box-shadow: 0 4px 0 var(--btn-edge), 0 6px 12px rgba(47, 61, 79, .18);
+    transition: transform .08s ease, box-shadow .08s ease, filter .15s ease;
+  }
+  .mq-btn:hover { filter: brightness(1.05); }
+  .mq-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--btn-edge), 0 2px 5px rgba(47, 61, 79, .18); }
+  .mq-btn:disabled { filter: grayscale(.7) opacity(.6); box-shadow: 0 4px 0 #b8c3cf; }
+  .mq-btn-lg { font-size: 1.2rem; padding: .95rem 2rem; min-height: 3.4rem; }
+  .mq-btn-block { display: flex; width: 100%; }
+  .mq-btn-green  { --btn-bg: linear-gradient(180deg,#48cf8c,#26a765); --btn-edge:#1c8250; }
+  .mq-btn-orange { --btn-bg: linear-gradient(180deg,#ffb054,#ef8a17); --btn-edge:#c26f0c; }
+  .mq-btn-pink   { --btn-bg: linear-gradient(180deg,#ff7fae,#e94b83); --btn-edge:#c03668; }
+  .mq-btn-purple { --btn-bg: linear-gradient(180deg,#a294ff,#7a66ee); --btn-edge:#5b49c4; }
+  .mq-btn-gold   { --btn-bg: linear-gradient(180deg,#ffd257,#f0b022); --btn-edge:#c78d10; color:#5a4100; }
+  .mq-btn-ghost  { --btn-bg: #fff; --btn-edge:#cdd9e6; color: var(--mq-ink-2); box-shadow: 0 3px 0 var(--btn-edge); border: 2px solid #e3ecf6; }
+
+  /* =================================================================
+   * 入力フォーム（大きく・見やすく）
+   * 小さなテキストボックスをやめて、指でも押しやすい大きさにします。
+   * ================================================================= */
+  .mq-field { margin-bottom: 1.1rem; }
+  .mq-label {
+    display: flex; align-items: center; gap: .4rem;
+    font-size: 1.02rem; font-weight: 700; color: var(--mq-ink-2);
+    margin-bottom: .4rem;
+  }
+  .mq-label .mq-label-emoji { font-size: 1.2rem; }
+  .mq-hint { font-size: .82rem; color: var(--mq-muted); margin-top: .3rem; }
+
+  .mq-input, .mq-select, .mq-textarea {
+    display: block; width: 100%;
+    font-family: inherit; font-size: 1.1rem; color: var(--mq-ink);
+    background: #fbfdff;
+    border: 2px solid var(--mq-line);
+    border-radius: var(--mq-radius-md);
+    padding: .6rem .9rem;
+    min-height: 3.1rem;
+    transition: border-color .15s, box-shadow .15s, background-color .15s;
+  }
+  .mq-textarea { min-height: 6.5rem; line-height: 1.9; resize: vertical; }
+  .mq-input:focus, .mq-select:focus, .mq-textarea:focus {
+    outline: 0; background: #fff;
+    border-color: var(--mq-blue);
+    box-shadow: 0 0 0 .25rem rgba(74, 144, 226, .18);
+  }
+  .mq-input::placeholder, .mq-textarea::placeholder { color: #b6c3d1; }
+  .mq-select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='%235b6b80'%3E%3Cpath d='M4 6l4 4 4-4z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right .8rem center;
+    background-size: 1.3rem;
+    padding-right: 2.4rem;
+  }
+
+  /* 数を入れるところは ＋ − ボタンつきにします */
+  .mq-stepper { display: flex; align-items: stretch; gap: .45rem; }
+  .mq-stepper .mq-step-btn {
+    flex: 0 0 auto;
+    width: 3.1rem; min-height: 3.1rem;
+    border: 2px solid var(--mq-line); border-radius: var(--mq-radius-md);
+    background: #fff; color: var(--mq-blue-d);
+    font-family: inherit; font-size: 1.5rem; font-weight: 700; line-height: 1;
+    transition: transform .08s, background-color .15s;
+  }
+  .mq-stepper .mq-step-btn:active { transform: scale(.92); background: var(--mq-blue-s); }
+  .mq-stepper .mq-input { flex: 1 1 auto; text-align: center; font-size: 1.4rem; font-weight: 700; }
+  /* 数値入力の上下スピナーは、＋−ボタンがあるので消します */
+  .mq-stepper .mq-input::-webkit-outer-spin-button,
+  .mq-stepper .mq-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .mq-stepper .mq-input[type=number] { -moz-appearance: textfield; }
+
+  /* 選択肢は「押して選ぶ」大きなボタンにします（プルダウンより分かりやすい） */
+  .mq-choice { display: flex; flex-wrap: wrap; gap: .5rem; }
+  .mq-choice-item {
+    display: inline-flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+    border: 2px solid var(--mq-line); border-radius: var(--mq-radius-md);
+    background: #fff; color: var(--mq-ink-2);
+    font-family: inherit; font-weight: 700; font-size: 1rem;
+    padding: .5rem .95rem; min-height: 3.1rem;
+    transition: transform .08s, border-color .15s, background-color .15s, color .15s;
+  }
+  .mq-choice-item .choice-emoji { font-size: 1.35rem; line-height: 1.1; }
+  .mq-choice-item:active { transform: scale(.95); }
+  .mq-choice-item.on {
+    border-color: var(--mq-blue); background: var(--mq-blue-s); color: var(--mq-blue-d);
+    box-shadow: 0 0 0 .2rem rgba(74, 144, 226, .16);
+  }
+  .mq-choice.grow .mq-choice-item { flex: 1 1 6rem; }
 
   /* ---- アバター ---- */
   .avatar-frame {
@@ -108,7 +338,8 @@
   }
   .avatar-frame .avatar-layer,
   #avatar-layers .avatar-layer,
-  .plaza-avatar .avatar-layer {
+  .plaza-avatar .avatar-layer,
+  .hero-avatar .avatar-layer {
     position: absolute; inset: 0;
     width: 100%; height: 100%;
     object-fit: contain;
@@ -155,12 +386,14 @@
 
   /* ---- ミッション ---- */
   .mission-item {
-    border: 1px solid #e9ecef; border-radius: .75rem;
-    padding: .6rem .8rem; margin-bottom: .5rem; background: #fff;
+    border: 2px solid #eef2f7; border-radius: var(--mq-radius-md);
+    padding: .7rem .85rem; margin-bottom: .6rem; background: #fff;
+    transition: border-color .15s, background-color .15s;
   }
-  .mission-item.complete { background: #fffcf0; border-color: #ffe69c; }
-  .mission-item.claimed { opacity: .55; }
-  .mission-type-badge { font-size: .65rem; }
+  .mission-item.complete { background: #fffcf0; border-color: #ffdf8e; }
+  .mission-item.claimed { opacity: .5; }
+  .mission-type-badge { font-size: .7rem; }
+  .mission-item .mission-text { font-size: 1rem; font-weight: 700; }
 
   /* ---- バッジ ---- */
   .badge-icon {
@@ -185,31 +418,143 @@
   .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
   .custom-scrollbar::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 3px; }
 
-  /* ---- 記録フォームカード ---- */
-  .record-form-card { border: 0; border-radius: var(--mq-radius); }
+  /* =================================================================
+   * ホーム: 「きょうのわたし」ヒーローカード
+   * ================================================================= */
+  .mq-hero {
+    position: relative; overflow: hidden;
+    border-radius: var(--mq-radius-lg);
+    padding: 1.1rem 1.15rem 1.2rem;
+    color: #fff;
+    background: linear-gradient(135deg, #4f8ef7 0%, #7a6bf0 55%, #b163e6 100%);
+    box-shadow: var(--mq-shadow-lg);
+  }
+  /* きらきらした背景。装飾なので読み上げ・ふりがなの対象になりません */
+  .mq-hero::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(255,255,255,.35) 0 3px, transparent 4px),
+      radial-gradient(circle at 78% 12%, rgba(255,255,255,.28) 0 4px, transparent 5px),
+      radial-gradient(circle at 88% 62%, rgba(255,255,255,.22) 0 3px, transparent 4px),
+      radial-gradient(circle at 32% 82%, rgba(255,255,255,.18) 0 2px, transparent 3px);
+  }
+  .mq-hero > * { position: relative; z-index: 1; }
+  .mq-hero .hero-avatar {
+    width: 84px; height: 84px; flex: 0 0 auto;
+    border-radius: 50%; overflow: hidden; position: relative;
+    background: rgba(255,255,255,.9);
+    border: 3px solid rgba(255,255,255,.75);
+    box-shadow: 0 .4rem .9rem rgba(0,0,0,.18);
+  }
+  .mq-hero .hero-name { font-size: 1.4rem; font-weight: 700; line-height: 1.3; }
+  .mq-hero .hero-motto { font-size: .9rem; opacity: .9; }
+  .mq-hero .hero-lv {
+    display: inline-flex; align-items: baseline; gap: .15rem;
+    background: rgba(255,255,255,.22); border-radius: 999px;
+    padding: .15rem .7rem; font-weight: 700;
+  }
+  .mq-hero .hero-lv .lv-num { font-size: 1.3rem; }
+  .mq-xpbar {
+    height: 1.05rem; border-radius: 999px; overflow: hidden;
+    background: rgba(255,255,255,.28);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.18);
+  }
+  .mq-xpbar > span {
+    display: block; height: 100%; border-radius: 999px;
+    background: linear-gradient(90deg, #ffe27a, #ffd034);
+    box-shadow: 0 0 .5rem rgba(255, 214, 64, .8);
+    transition: width .8s cubic-bezier(.22,.9,.3,1);
+  }
+  /* ヒーロー内の小さな数値タイル（けいけんち・こうかんPt・れんぞく） */
+  .mq-hero-stats { display: flex; gap: .5rem; }
+  .mq-hero-stat {
+    flex: 1 1 0; text-align: center;
+    background: rgba(255,255,255,.18); border-radius: var(--mq-radius-md);
+    padding: .45rem .3rem;
+  }
+  .mq-hero-stat .stat-label { display: block; font-size: .72rem; opacity: .88; }
+  .mq-hero-stat .stat-value { display: block; font-size: 1.15rem; font-weight: 700; line-height: 1.3; }
+
+  /* ---- 記録カード（きろくの一覧・グラフを入れる白いカード） ---- */
+  .record-form-card {
+    border: 0;
+    border-radius: var(--mq-radius-lg);
+    box-shadow: var(--mq-shadow) !important;
+  }
   .record-form-card .card-header {
     background: transparent; border: 0; font-weight: bold; padding-bottom: 0;
   }
-  .record-menu-btn {
-    border-radius: var(--mq-radius);
-    padding: 1rem .5rem;
-    text-align: center; width: 100%;
-    border: 2px solid #e9ecef; background: #fff;
-    transition: transform .1s, border-color .15s;
-  }
-  .record-menu-btn:hover { transform: translateY(-2px); border-color: var(--bs-primary); }
-  .record-menu-btn .emoji { font-size: 1.8rem; display: block; }
 
-  .table-record td, .table-record th { font-size: .85rem; }
+  /* =================================================================
+   * 「きろくする」メニュー: 大きな色つきタイル
+   * ================================================================= */
+  .record-menu-btn {
+    --tile: var(--mq-blue);
+    --tile-soft: var(--mq-blue-s);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem;
+    width: 100%; min-height: 6.6rem;
+    padding: .9rem .4rem;
+    border: 2px solid var(--tile-soft);
+    border-radius: var(--mq-radius-lg);
+    background: linear-gradient(180deg, #fff, var(--tile-soft));
+    color: var(--mq-ink);
+    font-family: inherit; font-weight: 700; font-size: .98rem; text-align: center;
+    box-shadow: 0 4px 0 var(--tile-soft), var(--mq-shadow);
+    transition: transform .1s ease, box-shadow .1s ease, border-color .15s;
+  }
+  .record-menu-btn:hover { border-color: var(--tile); }
+  .record-menu-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--tile-soft), var(--mq-shadow); }
+  .record-menu-btn .emoji {
+    display: flex; align-items: center; justify-content: center;
+    width: 3rem; height: 3rem; border-radius: 50%;
+    background: #fff; box-shadow: inset 0 0 0 2px var(--tile-soft);
+    font-size: 1.75rem; line-height: 1;
+  }
+  .record-menu-btn.tile-blue   { --tile: var(--mq-blue);   --tile-soft: var(--mq-blue-s); }
+  .record-menu-btn.tile-orange { --tile: var(--mq-orange); --tile-soft: var(--mq-orange-s); }
+  .record-menu-btn.tile-green  { --tile: var(--mq-green);  --tile-soft: var(--mq-green-s); }
+  .record-menu-btn.tile-purple { --tile: var(--mq-purple); --tile-soft: var(--mq-purple-s); }
+  .record-menu-btn.tile-pink   { --tile: var(--mq-pink);   --tile-soft: var(--mq-pink-s); }
+  .record-menu-btn.tile-cyan   { --tile: var(--mq-cyan);   --tile-soft: var(--mq-cyan-s); }
+  .record-menu-btn.tile-gold   { --tile: var(--mq-gold);   --tile-soft: var(--mq-gold-s); }
+
+  .table-record td, .table-record th { font-size: .9rem; }
+
+  /* =================================================================
+   * サブタブ（じぶんのきろく の中の切りかえ）
+   * 横スクロールする大きめのチップにして、指でも押しやすくします。
+   * ================================================================= */
+  .mq-pills {
+    display: flex; gap: .5rem;
+    overflow-x: auto; padding: .15rem .15rem .5rem;
+    scrollbar-width: none;
+  }
+  .mq-pills::-webkit-scrollbar { display: none; }
+  .mq-pill {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: .35rem;
+    border: 2px solid var(--mq-line); border-radius: 999px;
+    background: #fff; color: var(--mq-ink-2);
+    font-family: inherit; font-weight: 700; font-size: .95rem;
+    padding: .5rem 1rem; min-height: 2.8rem;
+    white-space: nowrap;
+    transition: transform .08s, background-color .15s, border-color .15s, color .15s;
+  }
+  .mq-pill .pill-emoji { font-size: 1.15rem; }
+  .mq-pill:active { transform: scale(.96); }
+  .mq-pill.on {
+    background: linear-gradient(180deg, #5da2f7, #3a78d8);
+    border-color: #3a78d8; color: #fff;
+    box-shadow: 0 3px 0 #2a5fae;
+  }
 
   /* ---- 学習アプリのきろく送信パネル ---- */
   .send-card {
-    border: 0; border-radius: var(--mq-radius);
+    border: 0; border-radius: var(--mq-radius-lg);
     background: linear-gradient(135deg, #eaf3ff, #f6ecff);
     box-shadow: 0 .25rem .75rem rgba(74, 144, 226, .18);
   }
   .send-card.has-pending { background: linear-gradient(135deg, #fff3d6, #ffe6ec); }
-  .send-card .send-btn { border-radius: 999px; padding: .7rem 1.6rem; font-size: 1.05rem; }
   .send-card .reward-chip {
     display: inline-block; background: #fff; border: 1px solid #e3edf9;
     border-radius: 999px; padding: .1rem .6rem; font-size: .78rem; font-weight: bold;
@@ -225,13 +570,24 @@
   body.embedded footer { display: none; }
   body.embedded #main-content { padding-top: .75rem !important; }
 
-  /* ---- 星評価 ---- */
-  .star-rating { cursor: pointer; font-size: 1.4rem; color: #ffc107; user-select: none; }
-  .star-rating .star.off { color: #dee2e6; }
+  /* ---- 星評価（大きくして押しやすく） ---- */
+  .star-rating { cursor: pointer; font-size: 2.4rem; color: #ffc107; user-select: none; line-height: 1.2; }
+  .star-rating .star { display: inline-block; padding: 0 .1rem; transition: transform .12s ease, color .12s ease; }
+  .star-rating .star.off { color: #e3e9ef; }
+  .star-rating .star.pop { transform: scale(1.35) rotate(-8deg); }
 
   @media (max-width: 767.98px) {
     /* 高さを詰めてコンテンツ領域を広げつつ、指で押しやすい大きさは確保する */
     .nav-tab { font-size: .82rem; padding: .6rem .25rem !important; min-height: 44px; }
+    #student-tabs .nav-tab .tab-label { font-size: .7rem; }
+  }
+  @media (max-width: 991.98px) {
+    /* せまい画面では、カードの中でさらにスクロールさせません。
+       ページのスクロールと二重になると、下のほうの内容に気づけなくなるためです。 */
+    #home-missions, #home-announcements, #home-activity {
+      max-height: none !important;
+      overflow-y: visible !important;
+    }
   }
 
   /* =================================================================
@@ -311,9 +667,9 @@
 
   /* ---- 応援スタンプ ---- */
   .cheer-stamp {
-    font-size: 1.3rem;
+    font-size: 1.6rem;
     line-height: 1;
-    padding: .35rem .55rem;
+    padding: .45rem .6rem;
   }
   .cheer-target { border: 1px solid #e9ecef; border-radius: .75rem; padding: .5rem .75rem; }
 
@@ -323,6 +679,40 @@
 
   /* ---- 先生からのひとこと（お知らせの中で目立たせる） ---- */
   .personal-note { border-left: 4px solid #d63384; background: #fff5f9; }
+
+  /* =================================================================
+   * うれしい演出（保存したとき・レベルアップしたとき）
+   * ================================================================= */
+  .mq-confetti {
+    position: fixed; inset: 0; z-index: 2200;
+    pointer-events: none; overflow: hidden;
+  }
+  .mq-confetti i {
+    position: absolute; top: -6vh;
+    width: 10px; height: 16px; border-radius: 2px;
+    animation: mq-fall linear forwards;
+  }
+  @keyframes mq-fall {
+    0%   { transform: translate3d(0, -10vh, 0) rotate(0deg); opacity: 1; }
+    100% { transform: translate3d(var(--dx, 0px), 105vh, 0) rotate(var(--rot, 540deg)); opacity: .9; }
+  }
+  /* 保存ボタンを押したときの、カードのぷるっとした反応 */
+  .mq-pop { animation: mq-pop .45s cubic-bezier(.3, 1.6, .5, 1); }
+  @keyframes mq-pop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.04); }
+    100% { transform: scale(1); }
+  }
+
+  /* 動きを減らす設定の端末では、演出をおさえます */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important;
+    }
+    .mq-confetti { display: none !important; }
+  }
 
   /* ---- ふりがな（ルビ）: 低学年向けに漢字の上へ読みを表示 ---- */
   ruby { ruby-align: center; }
@@ -337,5 +727,9 @@
   .furigana-on { line-height: 2.1; }
   .furigana-on .btn,
   .furigana-on .badge,
-  .furigana-on .nav-tab { line-height: 1.7; }
+  .furigana-on .nav-tab,
+  .furigana-on .mq-btn,
+  .furigana-on .mq-pill,
+  .furigana-on .mq-choice-item,
+  .furigana-on .record-menu-btn { line-height: 1.7; }
 </style>

@@ -370,6 +370,119 @@ function showView(viewId, options) {
   navNotify();
 }
 
+/* ---------------------------------------------------------------------
+ * 文字の大きさ切りかえ（低学年でも読める大きさにできます）
+ *
+ * html 要素のクラスで rem の基準を変えるので、画面ぜんぶが同時に大きくなります。
+ * 設定は localStorage に覚えますが、Apps Script の iframe では読み書きが
+ * ブロックされることがあるため、失敗してもその場かぎりの設定として動きます。
+ * ------------------------------------------------------------------- */
+
+const FONT_SIZES = ['', 'l', 'xl'];
+const FONT_SIZE_KEY = 'mq.fontSize.v1';
+
+/** 保存してある文字サイズを読みます（読めなければ既定の '' を返します） */
+function loadFontSize_() {
+  try {
+    const saved = window.localStorage.getItem(FONT_SIZE_KEY);
+    return FONT_SIZES.indexOf(saved) >= 0 ? saved : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** 文字サイズを適用し、ボタンの選択状態も合わせます */
+function applyFontSize(size) {
+  const value = FONT_SIZES.indexOf(size) >= 0 ? size : '';
+  FONT_SIZES.forEach(s => { if (s) document.documentElement.classList.remove('mq-size-' + s); });
+  if (value) document.documentElement.classList.add('mq-size-' + value);
+  document.querySelectorAll('#font-sizer button').forEach(btn => {
+    btn.classList.toggle('on', btn.dataset.size === value);
+    btn.setAttribute('aria-pressed', btn.dataset.size === value ? 'true' : 'false');
+  });
+  try { window.localStorage.setItem(FONT_SIZE_KEY, value); } catch (e) { /* 保存できなくても動きます */ }
+}
+
+/** ヘッダーの「あ あ あ」ボタンを使えるようにします（児童画面でだけ呼びます） */
+function initFontSizer() {
+  const sizer = document.getElementById('font-sizer');
+  if (!sizer) return;
+  sizer.classList.remove('d-none');
+  sizer.querySelectorAll('button').forEach(btn => {
+    btn.addEventListener('click', () => applyFontSize(btn.dataset.size));
+  });
+  applyFontSize(loadFontSize_());
+}
+
+/* ---------------------------------------------------------------------
+ * うれしい演出（きろくできたとき・レベルアップしたとき）
+ * 「動きを減らす」設定の端末では、CSS 側で表示しないようにしています。
+ * ------------------------------------------------------------------- */
+
+/** 端末が「動きを減らす」設定になっているか */
+function prefersReducedMotion_() {
+  return window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
+
+const CONFETTI_COLORS = ['#ffd034', '#4a90e2', '#2fb673', '#ef5f92', '#8b7cf6', '#21b6c8', '#f5942a'];
+
+/**
+ * 紙ふぶきを降らせます。追加のライブラリは使わず、短い時間で自分から消えます。
+ * @param {number} [count] - 紙の枚数（多いほど派手）
+ */
+function celebrate(count) {
+  if (prefersReducedMotion_()) return;
+  const total = count || 60;
+  const layer = document.createElement('div');
+  layer.className = 'mq-confetti';
+  layer.setAttribute('aria-hidden', 'true');
+  let longest = 0;
+  for (let i = 0; i < total; i++) {
+    const piece = document.createElement('i');
+    const duration = 1.6 + Math.random() * 1.4;
+    longest = Math.max(longest, duration);
+    piece.style.left = (Math.random() * 100) + '%';
+    piece.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    piece.style.animationDuration = duration + 's';
+    piece.style.animationDelay = (Math.random() * .5) + 's';
+    piece.style.setProperty('--dx', (Math.random() * 180 - 90).toFixed(0) + 'px');
+    piece.style.setProperty('--rot', (360 + Math.random() * 720).toFixed(0) + 'deg');
+    if (i % 3 === 0) piece.style.borderRadius = '50%';
+    layer.appendChild(piece);
+  }
+  document.body.appendChild(layer);
+  setTimeout(() => layer.remove(), (longest + 1) * 1000);
+}
+
+/** 要素をひとつだけ「ぷるっ」とさせます */
+function popElement(el) {
+  if (!el || prefersReducedMotion_()) return;
+  el.classList.remove('mq-pop');
+  void el.offsetWidth;   // アニメーションをやり直すためのリセット
+  el.classList.add('mq-pop');
+}
+
+/**
+ * 数字をパラパラと変化させます（けいけんちが増えたときなど）。
+ * @param {HTMLElement} el
+ * @param {number} to - 最終的に表示する数
+ */
+function countUp(el, to) {
+  if (!el) return;
+  const target = Number(to) || 0;
+  const from = Number(String(el.textContent).replace(/[^\d-]/g, '')) || 0;
+  if (from === target || prefersReducedMotion_()) { el.textContent = target; return; }
+  const start = performance.now();
+  const duration = 700;
+  const step = now => {
+    const t = Math.min(1, (now - start) / duration);
+    const eased = 1 - Math.pow(1 - t, 3);
+    el.textContent = Math.round(from + (target - from) * eased);
+    if (t < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 /** 日付の表示整形 (ISO文字列 → M/d) */
 function fmtDate(isoString) {
   const d = new Date(isoString);
@@ -619,6 +732,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       document.getElementById('student-tabs').classList.remove('d-none');
       document.getElementById('nav-level-badge').classList.remove('d-none');
+      initFontSizer();  // 文字の大きさは児童画面でだけ切りかえられるようにする
       initStudentApp(result.data);
       showView('view-home');
       notifyPortalIdentity();   // ポータルに「誰のきろくか」を伝える（出席番号の手入力が不要になる）

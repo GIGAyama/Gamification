@@ -25,19 +25,36 @@
         <span>まなびクエスト</span>
       </span>
       <div class="d-flex align-items-center text-white gap-3" id="nav-user-info">
+        <!-- 文字の大きさ切りかえ（児童画面のみ表示）。装飾なのでふりがなは付けません -->
+        <div class="mq-sizer d-none no-furigana" id="font-sizer" role="group" aria-label="文字の大きさ">
+          <button type="button" data-size="" class="on" aria-label="ふつうの大きさ" title="ふつう">あ</button>
+          <button type="button" data-size="l" aria-label="大きい文字" title="大きい">あ</button>
+          <button type="button" data-size="xl" aria-label="もっと大きい文字" title="もっと大きい">あ</button>
+        </div>
         <span id="nav-level-badge" class="d-none"><span class="badge bg-warning text-dark border">Lv. <span id="nav-level">--</span></span></span>
         <span class="fw-bold"><i class="bi bi-person-fill"></i> <span id="nav-nickname">----</span></span>
       </div>
     </div>
   </nav>
 
-  <!-- 児童用タブ -->
+  <!-- 児童用タブ（絵文字を大きく出して、読めなくても場所が分かるようにする） -->
   <div class="container-fluid p-0 d-none" id="student-tabs">
     <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
-      <button data-view="view-home" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab active-tab"><i class="bi bi-house-door"></i> ホーム</button>
-      <button data-view="view-records" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-pencil-square"></i> きろく</button>
-      <button data-view="view-quest" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-controller"></i> クエスト</button>
-      <button data-view="view-plaza" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-people"></i> ひろば</button>
+      <button data-view="view-home" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab active-tab">
+        <span class="tab-emoji no-furigana" aria-hidden="true">🏠</span><span class="tab-label">ホーム</span>
+      </button>
+      <button data-view="view-records" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
+        <span class="tab-emoji no-furigana" aria-hidden="true">✏️</span><span class="tab-label">きろく</span>
+      </button>
+      <button data-view="view-mine" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
+        <span class="tab-emoji no-furigana" aria-hidden="true">📊</span><span class="tab-label">じぶんのきろく</span>
+      </button>
+      <button data-view="view-quest" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
+        <span class="tab-emoji no-furigana" aria-hidden="true">🎁</span><span class="tab-label">クエスト</span>
+      </button>
+      <button data-view="view-plaza" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
+        <span class="tab-emoji no-furigana" aria-hidden="true">👫</span><span class="tab-label">ひろば</span>
+      </button>
     </div>
   </div>
 
@@ -68,202 +85,254 @@
       <button class="btn btn-primary mt-3" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> 再読み込み</button>
     </div>
 
-    <!-- ============ 児童: ホーム ============ -->
+    <!-- ============ 児童: ホーム（「きょう やること」だけにしぼった画面） ============ -->
     <div id="view-home" class="spa-view d-none">
-      <div class="row g-4">
-        <div class="col-lg-4">
-          <div class="card shadow-sm border-0 rounded-4">
-            <div class="card-body text-center">
-              <div class="avatar-frame mx-auto mb-3" id="home-avatar"></div>
-              <h4 class="fw-bold mb-0" id="home-nickname">--</h4>
-              <div class="text-muted small mb-2" id="home-motto"></div>
-              <div class="d-flex justify-content-between bg-light rounded-3 p-2 mt-2">
-                <div class="flex-fill text-center border-end">
-                  <div class="small text-muted fw-bold">レベル</div>
-                  <div class="fs-5 fw-bold text-primary">Lv.<span id="home-level">-</span></div>
-                </div>
-                <div class="flex-fill text-center border-end">
-                  <div class="small text-muted fw-bold">けいけんち</div>
-                  <div class="fs-5 fw-bold text-info"><span id="home-exp">0</span></div>
-                </div>
-                <div class="flex-fill text-center">
-                  <div class="small text-muted fw-bold">こうかんPt</div>
-                  <div class="fs-5 fw-bold text-warning"><span id="home-exchange">0</span></div>
-                </div>
-              </div>
-              <div class="mt-3 px-1">
-                <div class="d-flex justify-content-between small fw-bold mb-1">
-                  <span>つぎのレベルまで</span>
-                  <span id="home-progress-text" class="text-primary">--</span>
-                </div>
-                <div class="progress" style="height:12px;">
-                  <div id="home-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated bg-info" style="width:0%"></div>
-                </div>
-              </div>
-              <!-- 連続きろく日数（毎日の積み重ねが一番見えるところ） -->
-              <div id="home-streak" class="mt-3"></div>
+
+      <!-- じぶんの今の状態がひと目で分かるヒーローカード -->
+      <div class="mq-hero mb-3">
+        <div class="d-flex align-items-center gap-3">
+          <div class="hero-avatar" id="home-avatar"></div>
+          <div class="flex-grow-1 min-w-0">
+            <div class="hero-name" id="home-nickname">--</div>
+            <div class="hero-motto" id="home-motto"></div>
+            <div class="mt-1">
+              <span class="hero-lv"><span class="no-furigana" aria-hidden="true">Lv.</span><span class="lv-num" id="home-level">-</span></span>
             </div>
-          </div>
-          <div class="card shadow-sm border-0 rounded-4 mt-4">
-            <div class="card-header bg-transparent border-0 pt-3 pb-0">
-              <h5 class="fw-bold text-warning-emphasis"><i class="bi bi-award"></i> バッジ</h5>
-            </div>
-            <div class="card-body" id="home-badges"></div>
-          </div>
-          <!-- 学びの総量メーター -->
-          <div class="card shadow-sm border-0 rounded-4 mt-4">
-            <div class="card-header bg-transparent border-0 pt-3 pb-0">
-              <h5 class="fw-bold text-secondary"><i class="bi bi-bar-chart-steps"></i> これまでのつみあげ</h5>
-            </div>
-            <div class="card-body" id="home-totals"></div>
           </div>
         </div>
-        <div class="col-lg-8">
-          <div class="row g-4">
-            <!-- 学習アプリのきろく送信パネル（ポータル埋め込み時はここから直接送信できる） -->
-            <div class="col-12" id="home-send-card"></div>
-            <!-- 今週のふり返り（書いていない週の後半に出ます） -->
-            <div class="col-12" id="home-weekly-card"></div>
-            <!-- 今週のマイめあて -->
-            <div class="col-12">
-              <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex align-items-center">
-                  <h5 class="fw-bold text-danger mb-0"><i class="bi bi-flag-fill"></i> わたしのめあて</h5>
-                  <button class="btn btn-sm btn-outline-danger ms-auto" id="home-add-goal-btn">
-                    <i class="bi bi-plus-lg"></i> めあてを立てる
-                  </button>
-                </div>
-                <div class="card-body" id="home-goals"></div>
-              </div>
+        <div class="mt-3">
+          <div class="d-flex justify-content-between align-items-end mb-1" style="font-size:.85rem;font-weight:700;">
+            <span>つぎのレベルまで</span>
+            <span id="home-progress-text">--</span>
+          </div>
+          <div class="mq-xpbar"><span id="home-progress-bar" style="width:0%"></span></div>
+        </div>
+        <div class="mq-hero-stats mt-3">
+          <div class="mq-hero-stat">
+            <span class="stat-label">けいけんち</span>
+            <span class="stat-value" id="home-exp">0</span>
+          </div>
+          <div class="mq-hero-stat">
+            <span class="stat-label">こうかんポイント</span>
+            <span class="stat-value" id="home-exchange">0</span>
+          </div>
+          <div class="mq-hero-stat">
+            <span class="stat-label">れんぞくきろく</span>
+            <span class="stat-value"><span id="hero-streak-days">0</span><span style="font-size:.8rem;">日</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- きろくをつけにいく、いちばん大きなボタン -->
+      <button type="button" class="mq-btn mq-btn-green mq-btn-lg mq-btn-block mb-3" id="home-record-cta">
+        <span class="no-furigana" aria-hidden="true">✏️</span> きょうのきろくをつける
+      </button>
+
+      <div class="row g-3">
+        <div class="col-lg-7">
+          <!-- 学習アプリのきろく送信パネル（ポータル埋め込み時はここから直接送信できる） -->
+          <div id="home-send-card" class="mb-3"></div>
+
+          <!-- きょうのミッション -->
+          <div class="mq-card accent-blue mb-3">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">🎯</span>
+              <h2 class="mq-card-title">きょうのミッション</h2>
             </div>
-            <!-- がんばりカレンダー（学習ヒートマップ） -->
-            <div class="col-12">
-              <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                  <h5 class="fw-bold text-success"><i class="bi bi-calendar-heart"></i> がんばりカレンダー</h5>
-                </div>
-                <div class="card-body" id="home-calendar"></div>
-              </div>
+            <div class="mq-card-body tight custom-scrollbar" style="max-height:340px;overflow-y:auto;" id="home-missions"></div>
+          </div>
+
+          <!-- 今週のマイめあて -->
+          <div class="mq-card accent-pink mb-3">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">🚩</span>
+              <h2 class="mq-card-title">わたしのめあて</h2>
+              <button type="button" class="mq-btn mq-btn-pink" style="min-height:2.4rem;padding:.35rem .9rem;font-size:.9rem;" id="home-add-goal-btn">
+                <span class="no-furigana" aria-hidden="true">＋</span> たてる
+              </button>
             </div>
-            <div class="col-12">
-              <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                  <h5 class="fw-bold text-primary"><i class="bi bi-list-check"></i> ミッション</h5>
-                </div>
-                <div class="card-body custom-scrollbar" style="max-height:280px;overflow-y:auto;" id="home-missions"></div>
-              </div>
+            <div class="mq-card-body tight" id="home-goals"></div>
+          </div>
+        </div>
+
+        <div class="col-lg-5">
+          <!-- 今週のふり返り（書いていない週の後半に出ます） -->
+          <div id="home-weekly-card" class="mb-3"></div>
+
+          <div class="mq-card accent-green mb-3">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">📣</span>
+              <h2 class="mq-card-title">おしらせ</h2>
             </div>
-            <!-- わたしの成長カード（今月 vs 先月） -->
-            <div class="col-12">
-              <div class="card shadow-sm border-0 rounded-4">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                  <h5 class="fw-bold text-info"><i class="bi bi-graph-up-arrow"></i> わたしの成長カード</h5>
-                </div>
-                <div class="card-body" id="home-growth-card"></div>
-              </div>
+            <div class="mq-card-body tight custom-scrollbar" style="max-height:240px;overflow-y:auto;" id="home-announcements"></div>
+          </div>
+
+          <div class="mq-card accent-cyan">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">🕒</span>
+              <h2 class="mq-card-title">さいきんのできごと</h2>
             </div>
-            <!-- むかしの自分のふり返り -->
-            <div class="col-12" id="home-flashback"></div>
-            <div class="col-md-6">
-              <div class="card shadow-sm border-0 rounded-4 h-100">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                  <h5 class="fw-bold text-success"><i class="bi bi-megaphone"></i> おしらせ</h5>
-                </div>
-                <div class="card-body custom-scrollbar" style="max-height:220px;overflow-y:auto;" id="home-announcements"></div>
-              </div>
-            </div>
-            <div class="col-md-6">
-              <div class="card shadow-sm border-0 rounded-4 h-100">
-                <div class="card-header bg-transparent border-0 pt-3 pb-0">
-                  <h5 class="fw-bold text-info"><i class="bi bi-clock-history"></i> さいきんのできごと</h5>
-                </div>
-                <div class="card-body custom-scrollbar" style="max-height:220px;overflow-y:auto;" id="home-activity"></div>
-              </div>
-            </div>
+            <div class="mq-card-body tight custom-scrollbar" style="max-height:240px;overflow-y:auto;" id="home-activity"></div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- ============ 児童: きろく ============ -->
+    <!-- ============ 児童: きろく（入力だけの画面） ============ -->
     <div id="view-records" class="spa-view d-none">
-      <ul class="nav nav-pills mb-3 flex-nowrap overflow-auto" id="record-pills">
-        <li class="nav-item"><button class="nav-link active" data-rtab="rtab-input"><i class="bi bi-pencil"></i> きろくする</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-typing">タイピング</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-calc">100マス</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-reading">読書</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-notes">せいちょう・自学</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-lesson">じゅぎょう</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-apps">学習アプリ</button></li>
-        <li class="nav-item"><button class="nav-link" data-rtab="rtab-album">ことばアルバム</button></li>
-      </ul>
-      <div id="rtab-input" class="record-tab"></div>
-      <div id="rtab-typing" class="record-tab d-none"></div>
-      <div id="rtab-calc" class="record-tab d-none"></div>
-      <div id="rtab-reading" class="record-tab d-none"></div>
-      <div id="rtab-notes" class="record-tab d-none"></div>
-      <div id="rtab-lesson" class="record-tab d-none"></div>
-      <div id="rtab-apps" class="record-tab d-none"></div>
-      <div id="rtab-album" class="record-tab d-none"></div>
+      <div id="rtab-input"></div>
+    </div>
+
+    <!-- ============ 児童: じぶんのきろく（見かえす画面） ============ -->
+    <div id="view-mine" class="spa-view d-none">
+      <div class="mq-pills" id="mine-pills">
+        <button type="button" class="mq-pill on" data-mtab="mtab-summary"><span class="pill-emoji no-furigana" aria-hidden="true">📊</span>まとめ</button>
+        <button type="button" class="mq-pill" data-mtab="mtab-numbers"><span class="pill-emoji no-furigana" aria-hidden="true">⌨️</span>スピード</button>
+        <button type="button" class="mq-pill" data-mtab="mtab-words"><span class="pill-emoji no-furigana" aria-hidden="true">📖</span>ことば</button>
+        <button type="button" class="mq-pill" data-mtab="mtab-lessons"><span class="pill-emoji no-furigana" aria-hidden="true">✍️</span>じゅぎょう</button>
+        <button type="button" class="mq-pill" data-mtab="mtab-apps"><span class="pill-emoji no-furigana" aria-hidden="true">🎮</span>学習アプリ</button>
+      </div>
+
+      <!-- まとめ: つみあげてきたものを1画面で見わたす -->
+      <div id="mtab-summary" class="mine-tab">
+        <div class="row g-3">
+          <div class="col-lg-7">
+            <div class="mq-card accent-green">
+              <div class="mq-card-head">
+                <span class="mq-card-icon no-furigana" aria-hidden="true">📅</span>
+                <h2 class="mq-card-title">がんばりカレンダー</h2>
+              </div>
+              <div class="mq-card-body tight">
+                <div id="home-streak" class="mb-3"></div>
+                <div id="home-calendar"></div>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <div class="mq-card accent-cyan h-100">
+              <div class="mq-card-head">
+                <span class="mq-card-icon no-furigana" aria-hidden="true">🏔️</span>
+                <h2 class="mq-card-title">これまでのつみあげ</h2>
+              </div>
+              <div class="mq-card-body tight" id="home-totals"></div>
+            </div>
+          </div>
+          <div class="col-lg-5">
+            <div class="mq-card accent-purple h-100">
+              <div class="mq-card-head">
+                <span class="mq-card-icon no-furigana" aria-hidden="true">📈</span>
+                <h2 class="mq-card-title">わたしの成長カード</h2>
+                <span class="mq-card-note">今月と先月をくらべます</span>
+              </div>
+              <div class="mq-card-body tight" id="home-growth-card"></div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="mq-card accent-gold h-100">
+              <div class="mq-card-head">
+                <span class="mq-card-icon no-furigana" aria-hidden="true">🏅</span>
+                <h2 class="mq-card-title">バッジ</h2>
+              </div>
+              <div class="mq-card-body tight" id="home-badges"></div>
+            </div>
+          </div>
+          <!-- むかしの自分のふり返り -->
+          <div class="col-12" id="home-flashback"></div>
+        </div>
+      </div>
+
+      <!-- スピード: 数でのびが見えるもの -->
+      <div id="mtab-numbers" class="mine-tab d-none">
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">⌨️</span> タイピング</h3>
+        <div id="rtab-typing"></div>
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🔢</span> 100マス計算</h3>
+        <div id="rtab-calc"></div>
+      </div>
+
+      <!-- ことば: 読んだもの・書いたことば -->
+      <div id="mtab-words" class="mine-tab d-none">
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📖</span> どくしょ</h3>
+        <div id="rtab-reading"></div>
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🗒️</span> ことばアルバム</h3>
+        <div id="rtab-album"></div>
+      </div>
+
+      <!-- じゅぎょう: 授業・テスト・自学のふり返り -->
+      <div id="mtab-lessons" class="mine-tab d-none">
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">✍️</span> じゅぎょう・テスト</h3>
+        <div id="rtab-lesson"></div>
+        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🌱</span> せいちょう・じしゅ学習</h3>
+        <div id="rtab-notes"></div>
+      </div>
+
+      <!-- 学習アプリ -->
+      <div id="mtab-apps" class="mine-tab d-none">
+        <div id="rtab-apps"></div>
+      </div>
     </div>
 
     <!-- ============ 児童: クエスト（ガチャ・アバター） ============ -->
     <div id="view-quest" class="spa-view d-none">
-      <div class="row g-4">
+      <div class="row g-3">
         <div class="col-lg-6">
-          <div class="card shadow-sm border-0 rounded-4 mb-4">
-            <div class="card-body">
-              <h5 class="fw-bold text-primary mb-3"><i class="bi bi-magic"></i> ガチャをひく</h5>
-              <div class="d-flex justify-content-around">
-                <button id="btn-gacha-1" class="btn btn-primary d-flex flex-column align-items-center p-3 rounded-4 shadow hover-lift" style="min-width:120px;">
-                  <span class="fs-4 fw-bold mb-1">1回</span>
-                  <span class="badge bg-light text-dark shadow-sm"><span id="cost-gacha-1">200</span> EXP</span>
+          <div class="mq-card accent-purple mb-3">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">✨</span>
+              <h2 class="mq-card-title">ガチャをひく</h2>
+            </div>
+            <div class="mq-card-body">
+              <div class="d-flex justify-content-center gap-3 flex-wrap">
+                <button id="btn-gacha-1" class="mq-btn mq-btn-purple flex-column" style="min-width:9rem;border-radius:1.25rem;padding:1rem;">
+                  <span style="font-size:1.5rem;">1回</span>
+                  <span style="font-size:.85rem;opacity:.9;"><span id="cost-gacha-1">200</span> けいけんち</span>
                 </button>
-                <button id="btn-gacha-10" class="btn btn-warning text-dark d-flex flex-column align-items-center p-3 rounded-4 shadow hover-lift" style="min-width:120px;">
-                  <span class="fs-4 fw-bold mb-1">10連</span>
-                  <span class="badge bg-light text-dark shadow-sm"><i class="bi bi-star-fill text-danger" style="font-size:.6rem;"></i> <span id="cost-gacha-10">1800</span> EXP</span>
+                <button id="btn-gacha-10" class="mq-btn mq-btn-gold flex-column" style="min-width:9rem;border-radius:1.25rem;padding:1rem;">
+                  <span style="font-size:1.5rem;">10連</span>
+                  <span style="font-size:.85rem;opacity:.9;"><span id="cost-gacha-10">1800</span> けいけんち</span>
                 </button>
               </div>
-              <p class="text-center text-muted small mt-3 mb-0">けいけんちをつかってアイテムをゲット！かさなったら交換ポイントになるよ。</p>
+              <p class="text-center mq-card-note mt-3 mb-0">けいけんちをつかってアイテムをゲット！かさなったら交換ポイントになるよ。</p>
             </div>
           </div>
-          <div class="card shadow-sm border-0 rounded-4">
-            <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
-              <h5 class="fw-bold text-info mb-0"><i class="bi bi-bag-heart"></i> アイテム</h5>
+          <div class="mq-card accent-cyan">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">🎒</span>
+              <h2 class="mq-card-title">アイテム</h2>
               <span class="badge bg-warning text-dark">こうかんPt: <span id="quest-exchange">0</span></span>
             </div>
-            <div class="card-body">
+            <div class="mq-card-body tight">
               <div id="item-category-filter" class="mb-2"></div>
               <div id="inventory-grid" class="d-flex flex-wrap gap-2 custom-scrollbar" style="max-height:300px;overflow-y:auto;"></div>
             </div>
           </div>
         </div>
         <div class="col-lg-6">
-          <div class="card shadow-sm border-0 rounded-4 h-100">
-            <div class="card-header bg-transparent border-0 pt-3 pb-0 d-flex justify-content-between align-items-center">
-              <h5 class="fw-bold text-primary mb-0"><i class="bi bi-person-bounding-box"></i> アバター</h5>
-              <button id="btn-save-avatar" class="btn btn-success btn-sm fw-bold px-3"><i class="bi bi-save"></i> ほぞん</button>
+          <div class="mq-card accent-blue h-100">
+            <div class="mq-card-head">
+              <span class="mq-card-icon no-furigana" aria-hidden="true">🧑‍🎤</span>
+              <h2 class="mq-card-title">アバター</h2>
+              <button id="btn-save-avatar" class="mq-btn mq-btn-green" style="min-height:2.4rem;padding:.35rem 1rem;font-size:.9rem;">ほぞん</button>
             </div>
-            <div class="card-body">
+            <div class="mq-card-body">
               <div class="avatar-preview-box bg-light rounded-4 mx-auto border position-relative" style="width:220px;height:220px;">
                 <div id="avatar-layers" class="w-100 h-100 position-relative"></div>
               </div>
-              <p class="text-center text-muted small mt-2">もっているアイテムをタップしてきせかえよう！</p>
+              <p class="text-center mq-card-note mt-2">もっているアイテムをタップしてきせかえよう！</p>
               <hr>
-              <h6 class="fw-bold"><i class="bi bi-card-text"></i> プロフィール</h6>
-              <div class="mb-2">
-                <label class="form-label small text-muted fw-bold mb-1">ひとこと</label>
-                <input type="text" id="profile-motto" class="form-control form-control-sm" maxlength="30">
+              <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📇</span> プロフィール</h3>
+              <div class="mq-field">
+                <label class="mq-label" for="profile-motto"><span class="mq-label-emoji no-furigana" aria-hidden="true">💬</span>ひとこと</label>
+                <input type="text" id="profile-motto" class="mq-input" maxlength="30" placeholder="まいにちコツコツ！">
               </div>
-              <div class="mb-2">
-                <label class="form-label small text-muted fw-bold mb-1">すきなもの</label>
-                <input type="text" id="profile-favorite" class="form-control form-control-sm" maxlength="30">
+              <div class="mq-field">
+                <label class="mq-label" for="profile-favorite"><span class="mq-label-emoji no-furigana" aria-hidden="true">💖</span>すきなもの</label>
+                <input type="text" id="profile-favorite" class="mq-input" maxlength="30" placeholder="サッカー・音楽 など">
               </div>
-              <div class="mb-3">
-                <label class="form-label small text-muted fw-bold mb-1">がんばりたいこと</label>
-                <input type="text" id="profile-goal" class="form-control form-control-sm" maxlength="30">
+              <div class="mq-field">
+                <label class="mq-label" for="profile-goal"><span class="mq-label-emoji no-furigana" aria-hidden="true">🔥</span>がんばりたいこと</label>
+                <input type="text" id="profile-goal" class="mq-input" maxlength="30" placeholder="かん字をおぼえる など">
               </div>
-              <button id="btn-save-profile" class="btn btn-outline-primary btn-sm w-100 fw-bold">プロフィールをほぞんする</button>
+              <button id="btn-save-profile" class="mq-btn mq-btn-ghost mq-btn-block">プロフィールをほぞんする</button>
             </div>
           </div>
         </div>
@@ -278,13 +347,13 @@
           <div id="class-goals-container" class="mb-4"></div>
           <!-- 今週がんばっている友だちに応援スタンプを送る -->
           <div id="cheer-board-container" class="mb-4"></div>
-          <h5 class="fw-bold text-primary mb-3"><i class="bi bi-people-fill"></i> みんなのひろば</h5>
+          <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">👫</span> みんなのひろば</h3>
           <div id="plaza-container" class="row g-3"></div>
           <!-- みんなの本だな -->
           <div id="bookshelf-container" class="mt-4"></div>
         </div>
         <div class="col-lg-4">
-          <h5 class="fw-bold text-warning-emphasis mb-3"><i class="bi bi-trophy"></i> ランキング</h5>
+          <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🏆</span> ランキング</h3>
           <div id="rankings-container"></div>
         </div>
       </div>
