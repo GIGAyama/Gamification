@@ -568,7 +568,13 @@ function handlePortalSendResult(msg) {
     return;
   }
   if (!msg.saved) {
-    toast('あたらしいきろくは ありませんでした', 'info');
+    // 受信側がまだ対応していないきろく（仕様 §9.3 の一時エラー）は端末に残してあります。
+    // 「なかった」と伝えると気づかれないまま たまり続けるので、分けて知らせます。
+    if (msg.kept > 0) {
+      toast(`${msg.kept}件は まだ おくれません。きろくは のこしてあるので、先生に つたえてね`, 'warning');
+    } else {
+      toast('あたらしいきろくは ありませんでした', 'info');
+    }
     return;
   }
 
@@ -586,6 +592,7 @@ function handlePortalSendResult(msg) {
   if (detail.length > 0) lines.push(`<span class="small text-muted">（${detail.join(' / ')}）</span>`);
   if (r.exchangePoints > 0) lines.push(`🎁 交換ポイント <b>+${r.exchangePoints}</b>`);
   if (msg.duplicate > 0) lines.push(`<span class="small text-muted">${msg.duplicate}件は おくりずみでした</span>`);
+  if (msg.kept > 0) lines.push(`<span class="small text-warning">${msg.kept}件は まだ おくれません（きろくは のこしてあります）</span>`);
   if (msg.personalBest) {
     const b = msg.personalBest;
     lines.unshift(`🌟 <b class="text-danger">じこベスト更新！</b> ${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）`);
