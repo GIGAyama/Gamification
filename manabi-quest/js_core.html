@@ -91,6 +91,13 @@ function navDrop(key) {
   }
 }
 
+/** 指定の書き出しで始まるキーの履歴をまとめて捨てます（タブを変えたときなど） */
+function navDropPrefix(prefix) {
+  const before = Nav.stack.length;
+  Nav.stack = Nav.stack.filter(entry => String(entry.key).indexOf(prefix) !== 0);
+  if (Nav.stack.length !== before) navNotify();
+}
+
 /** 現在の状態をポータルと画面下部のバーに反映します */
 function navNotify() {
   const canGoBack = navCanGoBack();
@@ -365,9 +372,100 @@ function showView(viewId, options) {
     tab.classList.toggle('text-secondary', !active);
   });
   currentViewId = viewId;
+
+  // タブを移ったら、そのタブは必ず最初の画面（入口）から見せます。
+  // 前のタブの奥の階層に「戻る」で入り込んでしまわないよう、
+  // パネルの履歴もここで捨てます。
+  if (view && view.dataset.root) {
+    navDropPrefix('panel:');
+    goPanel(view.dataset.root, { silent: true });
+  }
+
   // タブを切り替えたら、いつも画面の先頭から見せる
   window.scrollTo({ top: 0, behavior: 'auto' });
   navNotify();
+}
+
+/* ---------------------------------------------------------------------
+ * パネル（1画面ずつの階層移動）
+ * -------------------------------------------------------------------
+ * 1つのタブの中を、さらに「入口 → えらぶ → 中身」と階層に分けています。
+ * 1画面にえらぶものを3つまでしか置かないための仕組みで、
+ * 奥に入るときは右から、戻るときは左からスライドして向きが分かるようにします。
+ * ------------------------------------------------------------------- */
+
+/** パネルが表示されたときに呼ばれるフック（児童画面で遅い読み込みなどに使います） */
+let onPanelShown = null;
+
+/**
+ * 同じタブの中でパネルを切り替えます。
+ * @param {string} panelId
+ * @param {Object} [options] - { back: true } 戻る向き / { silent: true } 履歴を積まない
+ */
+function goPanel(panelId, options) {
+  const next = document.getElementById(panelId);
+  if (!next) return;
+  const view = next.closest('.spa-view');
+  if (!view) return;
+  const current = view.querySelector('.mq-panel.on');
+  if (current === next) return;
+
+  const back = !!(options && options.back);
+  const silent = !!(options && options.silent);
+  if (current) {
+    current.classList.remove('on');
+    if (!back && !silent) {
+      const from = current.id;
+      navPush('panel:' + from, () => goPanel(from, { back: true }));
+    }
+  }
+
+  next.classList.remove('anim-fwd', 'anim-back');
+  void next.offsetWidth;   // アニメーションをやり直すためのリセット
+  next.classList.add('on');
+  if (!silent) next.classList.add(back ? 'anim-back' : 'anim-fwd');
+
+  window.scrollTo({ top: 0, behavior: 'auto' });
+  navNotify();
+  if (typeof onPanelShown === 'function') onPanelShown(panelId);
+}
+
+/** いま開いているパネルのID（そのタブの中で） */
+function currentPanelId(viewId) {
+  const view = document.getElementById(viewId || currentViewId);
+  const panel = view && view.querySelector('.mq-panel.on');
+  return panel ? panel.id : null;
+}
+
+/**
+ * 画面の上に置く「もどる」つきの見出しをつくります。
+ * どの奥の画面からでも、1タップで1つ前に帰れるようにするためのものです。
+ */
+function panelHeader(emoji, title, backPanelId) {
+  return `<div class="mq-panel-head">
+    <button type="button" class="mq-back-btn" data-go-back="${esc(backPanelId)}">
+      <span class="no-furigana" aria-hidden="true">←</span> もどる
+    </button>
+    <h2 class="mq-panel-title"><span class="no-furigana" aria-hidden="true">${emoji}</span> ${esc(title)}</h2>
+  </div>`;
+}
+
+/** panelHeader() の「もどる」と、data-go-panel を押したときの移動をまとめて有効にします */
+function bindPanelLinks(root) {
+  (root || document).querySelectorAll('[data-go-panel]').forEach(el => {
+    if (el.dataset.panelBound) return;
+    el.dataset.panelBound = '1';
+    el.addEventListener('click', () => goPanel(el.dataset.goPanel));
+  });
+  (root || document).querySelectorAll('[data-go-back]').forEach(el => {
+    if (el.dataset.panelBound) return;
+    el.dataset.panelBound = '1';
+    el.addEventListener('click', () => {
+      // 「もどる」は履歴も1つ消費して、行き先と履歴がずれないようにします
+      navDrop('panel:' + el.dataset.goBack);
+      goPanel(el.dataset.goBack, { back: true });
+    });
+  });
 }
 
 /* ---------------------------------------------------------------------

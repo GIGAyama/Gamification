@@ -164,9 +164,189 @@
   #student-tabs .nav-tab.active-tab .tab-emoji { filter: none; transform: scale(1.12); }
   #student-tabs .nav-tab .tab-label { font-size: .78rem; }
 
+  /* タブを変えたときも、すっと入れかわって見えるようにします */
+  .spa-view:not(.d-none) { animation: mq-view-in .26s cubic-bezier(.2,.85,.3,1) both; }
+  @keyframes mq-view-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+  /* =================================================================
+   * ホームの「きょう やること」カード
+   * いま一番やってほしいこと「1つだけ」を、大きく出します。
+   * ================================================================= */
+  .mq-today {
+    position: relative; overflow: hidden;
+    display: block; width: 100%; text-align: left;
+    border: 0; border-radius: var(--mq-radius-lg);
+    padding: 1.15rem 1.2rem;
+    font-family: inherit; color: #fff;
+    background: linear-gradient(135deg, #ff9d4d, #f2653f 60%, #e8467a);
+    box-shadow: 0 6px 0 rgba(0, 0, 0, .12), var(--mq-shadow-lg);
+    transition: transform .1s ease, box-shadow .1s ease;
+  }
+  .mq-today:active { transform: translateY(6px); box-shadow: 0 0 0 rgba(0,0,0,.12), var(--mq-shadow); }
+  .mq-today.done {
+    background: linear-gradient(135deg, #4fd08a, #22a05f);
+    cursor: default;
+  }
+  .mq-today .today-label {
+    display: inline-flex; align-items: center; gap: .3rem;
+    background: rgba(255, 255, 255, .22); border-radius: 999px;
+    padding: .15rem .7rem; font-size: .82rem; font-weight: 700;
+    margin-bottom: .5rem;
+  }
+  .mq-today .today-title {
+    display: flex; align-items: center; gap: .6rem;
+    font-size: 1.35rem; font-weight: 700; line-height: 1.45;
+  }
+  .mq-today .today-emoji { font-size: 2.2rem; line-height: 1; }
+  .mq-today .today-note { display: block; font-size: .9rem; opacity: .92; margin-top: .35rem; }
+  /* さそうように、ゆっくり息をするアイコン */
+  .mq-today:not(.done) .today-emoji { animation: mq-breathe 2.4s ease-in-out infinite; }
+  @keyframes mq-breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.14) rotate(-6deg); } }
+
   /* ---- カード・ボタン ---- */
   .hover-lift { transition: transform .15s ease, box-shadow .15s ease; }
   .hover-lift:hover { transform: translateY(-3px); box-shadow: 0 .5rem 1rem rgba(0,0,0,.15) !important; }
+
+  /* =================================================================
+   * パネル（1画面ずつの階層移動）
+   * 奥に入るときは右から、戻るときは左からすべりこみます。
+   * 中の要素も少しずつ遅らせて出すことで、目線が上から下へ流れます。
+   * ================================================================= */
+  .mq-panel { display: none; }
+  .mq-panel.on { display: block; }
+  .mq-panel.anim-fwd  { animation: mq-panel-fwd .3s cubic-bezier(.2,.85,.3,1) both; }
+  .mq-panel.anim-back { animation: mq-panel-back .3s cubic-bezier(.2,.85,.3,1) both; }
+  @keyframes mq-panel-fwd  { from { opacity: 0; transform: translateX(26px); } to { opacity: 1; transform: none; } }
+  @keyframes mq-panel-back { from { opacity: 0; transform: translateX(-26px); } to { opacity: 1; transform: none; } }
+
+  /* パネルの中身が順番に浮きあがってくる演出 */
+  .mq-panel.anim-fwd > *, .mq-panel.anim-back > * { animation: mq-rise .34s cubic-bezier(.2,.85,.3,1) both; }
+  .mq-panel.anim-fwd > *:nth-child(1), .mq-panel.anim-back > *:nth-child(1) { animation-delay: .02s; }
+  .mq-panel.anim-fwd > *:nth-child(2), .mq-panel.anim-back > *:nth-child(2) { animation-delay: .07s; }
+  .mq-panel.anim-fwd > *:nth-child(3), .mq-panel.anim-back > *:nth-child(3) { animation-delay: .12s; }
+  .mq-panel.anim-fwd > *:nth-child(4), .mq-panel.anim-back > *:nth-child(4) { animation-delay: .17s; }
+  .mq-panel.anim-fwd > *:nth-child(n+5), .mq-panel.anim-back > *:nth-child(n+5) { animation-delay: .22s; }
+  @keyframes mq-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+
+  /* ---- パネルの見出し（もどるボタンつき） ---- */
+  .mq-panel-head {
+    display: flex; align-items: center; gap: .6rem;
+    margin-bottom: 1rem;
+  }
+  .mq-back-btn {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: .25rem;
+    border: 2px solid var(--mq-line); border-radius: 999px;
+    background: #fff; color: var(--mq-ink-2);
+    font-family: inherit; font-weight: 700; font-size: .95rem;
+    padding: .45rem 1rem; min-height: 2.9rem;
+    box-shadow: 0 3px 0 #e4ecf5;
+    transition: transform .08s, box-shadow .08s;
+  }
+  .mq-back-btn:active { transform: translateY(3px); box-shadow: none; }
+  .mq-panel-title {
+    flex: 1 1 auto; margin: 0;
+    font-size: 1.3rem; font-weight: 700; color: var(--mq-ink);
+  }
+
+  /* =================================================================
+   * 「とびら」ボタン
+   * 次の階層へ進むための、大きな1行ボタン。
+   * 1画面に3つまでしか置きません。
+   * ================================================================= */
+  .mq-door {
+    --door: var(--mq-blue);
+    --door-soft: var(--mq-blue-s);
+    display: flex; align-items: center; gap: .9rem; width: 100%;
+    text-align: left;
+    padding: 1rem 1.1rem;
+    margin-bottom: .9rem;
+    border: 2px solid var(--door-soft);
+    border-radius: var(--mq-radius-lg);
+    background: linear-gradient(135deg, #fff 40%, var(--door-soft));
+    color: var(--mq-ink);
+    font-family: inherit;
+    box-shadow: 0 5px 0 var(--door-soft), var(--mq-shadow);
+    transition: transform .1s ease, box-shadow .1s ease, border-color .15s;
+  }
+  .mq-door:hover { border-color: var(--door); }
+  .mq-door:active { transform: translateY(5px); box-shadow: 0 0 0 var(--door-soft), var(--mq-shadow); }
+  .mq-door .door-icon {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 3.4rem; height: 3.4rem; border-radius: 1rem;
+    background: #fff; box-shadow: inset 0 0 0 2px var(--door-soft);
+    font-size: 2rem; line-height: 1;
+  }
+  .mq-door .door-body { flex: 1 1 auto; min-width: 0; }
+  .mq-door .door-title { display: block; font-size: 1.2rem; font-weight: 700; line-height: 1.4; }
+  .mq-door .door-note { display: block; font-size: .84rem; color: var(--mq-muted); }
+  .mq-door .door-arrow { flex: 0 0 auto; font-size: 1.4rem; color: var(--door); font-weight: 700; }
+  .mq-door .door-count {
+    flex: 0 0 auto;
+    min-width: 1.9rem; height: 1.9rem; padding: 0 .45rem;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 999px; background: #e8467a; color: #fff;
+    font-size: .95rem; font-weight: 700;
+  }
+  .mq-door.door-blue   { --door: var(--mq-blue);   --door-soft: var(--mq-blue-s); }
+  .mq-door.door-green  { --door: var(--mq-green);  --door-soft: var(--mq-green-s); }
+  .mq-door.door-orange { --door: var(--mq-orange); --door-soft: var(--mq-orange-s); }
+  .mq-door.door-pink   { --door: var(--mq-pink);   --door-soft: var(--mq-pink-s); }
+  .mq-door.door-purple { --door: var(--mq-purple); --door-soft: var(--mq-purple-s); }
+  .mq-door.door-cyan   { --door: var(--mq-cyan);   --door-soft: var(--mq-cyan-s); }
+  .mq-door.door-gold   { --door: var(--mq-gold);   --door-soft: var(--mq-gold-s); }
+
+  /* ---- ガチャの絵（押すまえにゆらゆらして、さそいます） ---- */
+  .gacha-machine {
+    font-size: 5rem; line-height: 1;
+    animation: mq-wiggle 2.6s ease-in-out infinite;
+  }
+  @keyframes mq-wiggle {
+    0%, 70%, 100% { transform: rotate(0deg) scale(1); }
+    76% { transform: rotate(-9deg) scale(1.06); }
+    84% { transform: rotate(9deg) scale(1.06); }
+    92% { transform: rotate(-5deg) scale(1.03); }
+  }
+  .gacha-machine.opening { animation: mq-gacha-open .8s cubic-bezier(.3,1.4,.5,1) both; }
+  @keyframes mq-gacha-open {
+    0% { transform: scale(1) rotate(0); }
+    35% { transform: scale(.82) rotate(-12deg); }
+    70% { transform: scale(1.45) rotate(10deg); }
+    100% { transform: scale(1) rotate(0); }
+  }
+
+  /* =================================================================
+   * ステップ入力（1画面に1つの質問だけ）
+   * 「たくさんの入力欄がならんだ紙」ではなく、
+   * 1問ずつ答えていくゲームのような形にしています。
+   * ================================================================= */
+  .mq-steps { position: relative; }
+  .mq-step { display: none; }
+  .mq-step.on { display: block; }
+  .mq-step.anim-fwd  { animation: mq-step-fwd .26s cubic-bezier(.2,.85,.3,1) both; }
+  .mq-step.anim-back { animation: mq-step-back .26s cubic-bezier(.2,.85,.3,1) both; }
+  @keyframes mq-step-fwd  { from { opacity: 0; transform: translateX(30px) scale(.985); } to { opacity: 1; transform: none; } }
+  @keyframes mq-step-back { from { opacity: 0; transform: translateX(-30px) scale(.985); } to { opacity: 1; transform: none; } }
+
+  .mq-step-question {
+    display: flex; align-items: center; gap: .6rem;
+    font-size: 1.35rem; font-weight: 700; line-height: 1.5;
+    color: var(--mq-ink);
+    margin-bottom: 1rem;
+  }
+  .mq-step-question .q-emoji { font-size: 2rem; line-height: 1; }
+  .mq-step-hint { font-size: .9rem; color: var(--mq-muted); margin-top: .6rem; }
+
+  /* 進み具合の点。いま何問目かが分かります */
+  .mq-dots { display: flex; justify-content: center; gap: .45rem; margin-bottom: 1rem; }
+  .mq-dots i {
+    width: .6rem; height: .6rem; border-radius: 999px;
+    background: var(--mq-line);
+    transition: transform .25s cubic-bezier(.3,1.6,.5,1), background-color .25s;
+  }
+  .mq-dots i.done { background: var(--mq-green); }
+  .mq-dots i.now { background: var(--mq-blue); transform: scale(1.7); }
 
   /* =================================================================
    * 児童画面の共通カード（.mq-card）
@@ -485,68 +665,7 @@
     background: transparent; border: 0; font-weight: bold; padding-bottom: 0;
   }
 
-  /* =================================================================
-   * 「きろくする」メニュー: 大きな色つきタイル
-   * ================================================================= */
-  .record-menu-btn {
-    --tile: var(--mq-blue);
-    --tile-soft: var(--mq-blue-s);
-    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .35rem;
-    width: 100%; min-height: 6.6rem;
-    padding: .9rem .4rem;
-    border: 2px solid var(--tile-soft);
-    border-radius: var(--mq-radius-lg);
-    background: linear-gradient(180deg, #fff, var(--tile-soft));
-    color: var(--mq-ink);
-    font-family: inherit; font-weight: 700; font-size: .98rem; text-align: center;
-    box-shadow: 0 4px 0 var(--tile-soft), var(--mq-shadow);
-    transition: transform .1s ease, box-shadow .1s ease, border-color .15s;
-  }
-  .record-menu-btn:hover { border-color: var(--tile); }
-  .record-menu-btn:active { transform: translateY(4px); box-shadow: 0 0 0 var(--tile-soft), var(--mq-shadow); }
-  .record-menu-btn .emoji {
-    display: flex; align-items: center; justify-content: center;
-    width: 3rem; height: 3rem; border-radius: 50%;
-    background: #fff; box-shadow: inset 0 0 0 2px var(--tile-soft);
-    font-size: 1.75rem; line-height: 1;
-  }
-  .record-menu-btn.tile-blue   { --tile: var(--mq-blue);   --tile-soft: var(--mq-blue-s); }
-  .record-menu-btn.tile-orange { --tile: var(--mq-orange); --tile-soft: var(--mq-orange-s); }
-  .record-menu-btn.tile-green  { --tile: var(--mq-green);  --tile-soft: var(--mq-green-s); }
-  .record-menu-btn.tile-purple { --tile: var(--mq-purple); --tile-soft: var(--mq-purple-s); }
-  .record-menu-btn.tile-pink   { --tile: var(--mq-pink);   --tile-soft: var(--mq-pink-s); }
-  .record-menu-btn.tile-cyan   { --tile: var(--mq-cyan);   --tile-soft: var(--mq-cyan-s); }
-  .record-menu-btn.tile-gold   { --tile: var(--mq-gold);   --tile-soft: var(--mq-gold-s); }
-
   .table-record td, .table-record th { font-size: .9rem; }
-
-  /* =================================================================
-   * サブタブ（じぶんのきろく の中の切りかえ）
-   * 横スクロールする大きめのチップにして、指でも押しやすくします。
-   * ================================================================= */
-  .mq-pills {
-    display: flex; gap: .5rem;
-    overflow-x: auto; padding: .15rem .15rem .5rem;
-    scrollbar-width: none;
-  }
-  .mq-pills::-webkit-scrollbar { display: none; }
-  .mq-pill {
-    flex: 0 0 auto;
-    display: inline-flex; align-items: center; gap: .35rem;
-    border: 2px solid var(--mq-line); border-radius: 999px;
-    background: #fff; color: var(--mq-ink-2);
-    font-family: inherit; font-weight: 700; font-size: .95rem;
-    padding: .5rem 1rem; min-height: 2.8rem;
-    white-space: nowrap;
-    transition: transform .08s, background-color .15s, border-color .15s, color .15s;
-  }
-  .mq-pill .pill-emoji { font-size: 1.15rem; }
-  .mq-pill:active { transform: scale(.96); }
-  .mq-pill.on {
-    background: linear-gradient(180deg, #5da2f7, #3a78d8);
-    border-color: #3a78d8; color: #fff;
-    box-shadow: 0 3px 0 #2a5fae;
-  }
 
   /* ---- 学習アプリのきろく送信パネル ---- */
   .send-card {
@@ -584,7 +703,7 @@
   @media (max-width: 991.98px) {
     /* せまい画面では、カードの中でさらにスクロールさせません。
        ページのスクロールと二重になると、下のほうの内容に気づけなくなるためです。 */
-    #home-missions, #home-announcements, #home-activity {
+    #inventory-grid {
       max-height: none !important;
       overflow-y: visible !important;
     }
@@ -729,7 +848,7 @@
   .furigana-on .badge,
   .furigana-on .nav-tab,
   .furigana-on .mq-btn,
-  .furigana-on .mq-pill,
   .furigana-on .mq-choice-item,
-  .furigana-on .record-menu-btn { line-height: 1.7; }
+  .furigana-on .mq-door,
+  .furigana-on .mq-back-btn { line-height: 1.7; }
 </style>
