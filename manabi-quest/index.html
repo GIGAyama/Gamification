@@ -17,6 +17,8 @@
 </head>
 <body class="bg-body-tertiary d-flex flex-column min-vh-100<?!= (typeof embedded !== 'undefined' && embedded) ? ' embedded' : '' ?>">
 
+  <?!= include('icons'); ?>
+
   <!-- ナビゲーションヘッダー -->
   <nav class="navbar navbar-expand navbar-dark bg-primary shadow-sm sticky-top" id="main-nav" style="display:none;">
     <div class="container-fluid">
@@ -41,19 +43,16 @@
   <div class="container-fluid p-0 d-none" id="student-tabs">
     <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
       <button data-view="view-home" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab active-tab">
-        <span class="tab-emoji no-furigana" aria-hidden="true">🏠</span><span class="tab-label">ホーム</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-home"></use></svg></span><span class="tab-label">ホーム</span>
       </button>
       <button data-view="view-records" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">✏️</span><span class="tab-label">きろく</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-pencil"></use></svg></span><span class="tab-label">きろく</span>
       </button>
       <button data-view="view-mine" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">📊</span><span class="tab-label">じぶんのきろく</span>
-      </button>
-      <button data-view="view-quest" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">🎁</span><span class="tab-label">クエスト</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg></span><span class="tab-label">マイページ</span>
       </button>
       <button data-view="view-plaza" class="flex-fill btn btn-link text-decoration-none rounded-0 fw-bold nav-tab text-secondary">
-        <span class="tab-emoji no-furigana" aria-hidden="true">👫</span><span class="tab-label">ひろば</span>
+        <span class="tab-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg></span><span class="tab-label">みんな</span>
       </button>
     </div>
   </div>
@@ -85,279 +84,431 @@
       <button class="btn btn-primary mt-3" onclick="location.reload()"><i class="bi bi-arrow-clockwise"></i> 再読み込み</button>
     </div>
 
-    <!-- ============ 児童: ホーム（「きょう やること」だけにしぼった画面） ============ -->
-    <div id="view-home" class="spa-view d-none">
+    <!-- =================================================================
+         児童画面
+         1つの画面にえらぶものを3つまでにするため、タブの中をさらに
+         「入口（.mq-panel）→ えらぶ → 中身」の階層に分けています。
+         data-root はそのタブを開いたときに最初に出すパネルです。
+         ================================================================= -->
 
-      <!-- じぶんの今の状態がひと目で分かるヒーローカード -->
-      <div class="mq-hero mb-3">
-        <div class="d-flex align-items-center gap-3">
-          <div class="hero-avatar" id="home-avatar"></div>
-          <div class="flex-grow-1 min-w-0">
-            <div class="hero-name" id="home-nickname">--</div>
-            <div class="hero-motto" id="home-motto"></div>
-            <div class="mt-1">
-              <span class="hero-lv"><span class="no-furigana" aria-hidden="true">Lv.</span><span class="lv-num" id="home-level">-</span></span>
+    <!-- ============ 児童: ホーム ============ -->
+    <div id="view-home" class="spa-view d-none" data-root="p-home">
+
+      <div class="mq-panel on" id="p-home">
+        <!-- じぶんの今の状態（見るだけ・押すところはありません） -->
+        <div class="mq-hero mb-3">
+          <div class="d-flex align-items-center gap-3">
+            <div class="hero-avatar" id="home-avatar"></div>
+            <div class="flex-grow-1 min-w-0">
+              <div class="hero-name" id="home-nickname">--</div>
+              <div class="hero-motto" id="home-motto"></div>
+              <div class="mt-1">
+                <span class="hero-lv"><span class="no-furigana" aria-hidden="true">Lv.</span><span class="lv-num" id="home-level">-</span></span>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3">
+            <div class="d-flex justify-content-between align-items-end mb-1" style="font-size:.85rem;font-weight:700;">
+              <span>つぎのレベルまで</span>
+              <span id="home-progress-text">--</span>
+            </div>
+            <div class="mq-xpbar"><span id="home-progress-bar" style="width:0%"></span></div>
+          </div>
+          <div class="mq-hero-stats mt-3">
+            <div class="mq-hero-stat">
+              <span class="stat-label">けいけんち</span>
+              <span class="stat-value" id="home-exp">0</span>
+            </div>
+            <div class="mq-hero-stat">
+              <span class="stat-label">こうかんポイント</span>
+              <span class="stat-value" id="home-exchange">0</span>
+            </div>
+            <div class="mq-hero-stat">
+              <span class="stat-label">れんぞくきろく</span>
+              <span class="stat-value"><span id="hero-streak-days">0</span><span style="font-size:.8rem;">日</span></span>
             </div>
           </div>
         </div>
-        <div class="mt-3">
-          <div class="d-flex justify-content-between align-items-end mb-1" style="font-size:.85rem;font-weight:700;">
-            <span>つぎのレベルまで</span>
-            <span id="home-progress-text">--</span>
+
+        <!-- ① いま一番やってほしいこと（1つだけ） -->
+        <div id="home-today" class="mb-3"></div>
+
+        <!-- ② きろくをつけにいく -->
+        <button type="button" class="mq-door door-green" id="home-record-cta">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-pencil"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">きろくをつける</span>
+            <span class="door-note">きょうがんばったことを書こう</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+
+        <!-- ③ そのほか（ミッション・めあて・おしらせ） -->
+        <button type="button" class="mq-door door-cyan" data-go-panel="p-more">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ミッション・めあて</span>
+            <span class="door-note">おしらせもここ</span>
+          </span>
+          <span class="door-count d-none" id="home-more-count">0</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+      </div>
+
+      <!-- ホームの「もっと見る」（3つ） -->
+      <div class="mq-panel" id="p-more">
+        <div id="p-more-head"></div>
+        <button type="button" class="mq-door door-blue" data-go-panel="p-missions">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ミッション</span>
+            <span class="door-note" id="more-missions-note">クリアするとごほうびがもらえる</span>
+          </span>
+          <span class="door-count d-none" id="more-missions-count">0</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-pink" data-go-panel="p-goals">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-flag"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">わたしのめあて</span>
+            <span class="door-note" id="more-goals-note">じぶんで決めた目標</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-green" data-go-panel="p-news">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-megaphone"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">おしらせ</span>
+            <span class="door-note">先生からのメッセージ</span>
+          </span>
+          <span class="door-count d-none" id="more-news-count">0</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+      </div>
+
+      <div class="mq-panel" id="p-news">
+        <div id="p-news-head"></div>
+        <div class="mq-card accent-green mb-3">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-megaphone"></use></svg></span>
+            <h2 class="mq-card-title">先生から</h2>
           </div>
-          <div class="mq-xpbar"><span id="home-progress-bar" style="width:0%"></span></div>
+          <div class="mq-card-body tight" id="home-announcements"></div>
         </div>
-        <div class="mq-hero-stats mt-3">
-          <div class="mq-hero-stat">
-            <span class="stat-label">けいけんち</span>
-            <span class="stat-value" id="home-exp">0</span>
+        <div class="mq-card accent-cyan">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clock"></use></svg></span>
+            <h2 class="mq-card-title">さいきんのできごと</h2>
           </div>
-          <div class="mq-hero-stat">
-            <span class="stat-label">こうかんポイント</span>
-            <span class="stat-value" id="home-exchange">0</span>
-          </div>
-          <div class="mq-hero-stat">
-            <span class="stat-label">れんぞくきろく</span>
-            <span class="stat-value"><span id="hero-streak-days">0</span><span style="font-size:.8rem;">日</span></span>
-          </div>
+          <div class="mq-card-body tight" id="home-activity"></div>
         </div>
       </div>
 
-      <!-- きろくをつけにいく、いちばん大きなボタン -->
-      <button type="button" class="mq-btn mq-btn-green mq-btn-lg mq-btn-block mb-3" id="home-record-cta">
-        <span class="no-furigana" aria-hidden="true">✏️</span> きょうのきろくをつける
-      </button>
-
-      <div class="row g-3">
-        <div class="col-lg-7">
-          <!-- 学習アプリのきろく送信パネル（ポータル埋め込み時はここから直接送信できる） -->
-          <div id="home-send-card" class="mb-3"></div>
-
-          <!-- きょうのミッション -->
-          <div class="mq-card accent-blue mb-3">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">🎯</span>
-              <h2 class="mq-card-title">きょうのミッション</h2>
-            </div>
-            <div class="mq-card-body tight custom-scrollbar" style="max-height:340px;overflow-y:auto;" id="home-missions"></div>
+      <!-- ミッション（「きょうのやること」から来ます） -->
+      <div class="mq-panel" id="p-missions">
+        <div id="p-missions-head"></div>
+        <div class="mq-card accent-blue">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
+            <h2 class="mq-card-title">ミッション</h2>
           </div>
-
-          <!-- 今週のマイめあて -->
-          <div class="mq-card accent-pink mb-3">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">🚩</span>
-              <h2 class="mq-card-title">わたしのめあて</h2>
-              <button type="button" class="mq-btn mq-btn-pink" style="min-height:2.4rem;padding:.35rem .9rem;font-size:.9rem;" id="home-add-goal-btn">
-                <span class="no-furigana" aria-hidden="true">＋</span> たてる
-              </button>
-            </div>
-            <div class="mq-card-body tight" id="home-goals"></div>
-          </div>
+          <div class="mq-card-body tight" id="home-missions"></div>
         </div>
+      </div>
 
-        <div class="col-lg-5">
-          <!-- 今週のふり返り（書いていない週の後半に出ます） -->
-          <div id="home-weekly-card" class="mb-3"></div>
-
-          <div class="mq-card accent-green mb-3">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">📣</span>
-              <h2 class="mq-card-title">おしらせ</h2>
-            </div>
-            <div class="mq-card-body tight custom-scrollbar" style="max-height:240px;overflow-y:auto;" id="home-announcements"></div>
+      <!-- めあて -->
+      <div class="mq-panel" id="p-goals">
+        <div id="p-goals-head"></div>
+        <div class="mq-card accent-pink">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-flag"></use></svg></span>
+            <h2 class="mq-card-title">わたしのめあて</h2>
           </div>
-
-          <div class="mq-card accent-cyan">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">🕒</span>
-              <h2 class="mq-card-title">さいきんのできごと</h2>
-            </div>
-            <div class="mq-card-body tight custom-scrollbar" style="max-height:240px;overflow-y:auto;" id="home-activity"></div>
-          </div>
+          <div class="mq-card-body tight" id="home-goals"></div>
         </div>
+        <button type="button" class="mq-btn mq-btn-pink mq-btn-lg mq-btn-block mt-3" id="home-add-goal-btn">
+          <svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-plus"></use></svg> あたらしいめあてを立てる
+        </button>
+      </div>
+
+      <!-- 学習アプリのきろくを送る -->
+      <div class="mq-panel" id="p-send">
+        <div id="p-send-head"></div>
+        <div id="home-send-card"></div>
+      </div>
+
+      <!-- 今週のふり返り -->
+      <div class="mq-panel" id="p-weekly">
+        <div id="p-weekly-head"></div>
+        <div id="home-weekly-card"></div>
       </div>
     </div>
 
-    <!-- ============ 児童: きろく（入力だけの画面） ============ -->
-    <div id="view-records" class="spa-view d-none">
-      <div id="rtab-input"></div>
+    <!-- ============ 児童: きろく（書く） ============ -->
+    <div id="view-records" class="spa-view d-none" data-root="p-rec-menu">
+      <!-- ① なにをきろくする？（3つのグループ） -->
+      <div class="mq-panel on" id="p-rec-menu"></div>
+      <!-- ② グループの中から種類をえらぶ -->
+      <div class="mq-panel" id="p-rec-group"></div>
+      <!-- ③ 1問ずつ答えていく入力画面 -->
+      <div class="mq-panel" id="p-rec-form"></div>
     </div>
 
-    <!-- ============ 児童: じぶんのきろく（見かえす画面） ============ -->
-    <div id="view-mine" class="spa-view d-none">
-      <div class="mq-pills" id="mine-pills">
-        <button type="button" class="mq-pill on" data-mtab="mtab-summary"><span class="pill-emoji no-furigana" aria-hidden="true">📊</span>まとめ</button>
-        <button type="button" class="mq-pill" data-mtab="mtab-numbers"><span class="pill-emoji no-furigana" aria-hidden="true">⌨️</span>スピード</button>
-        <button type="button" class="mq-pill" data-mtab="mtab-words"><span class="pill-emoji no-furigana" aria-hidden="true">📖</span>ことば</button>
-        <button type="button" class="mq-pill" data-mtab="mtab-lessons"><span class="pill-emoji no-furigana" aria-hidden="true">✍️</span>じゅぎょう</button>
-        <button type="button" class="mq-pill" data-mtab="mtab-apps"><span class="pill-emoji no-furigana" aria-hidden="true">🎮</span>学習アプリ</button>
+    <!-- ============ 児童: マイページ（見る・あそぶ） ============ -->
+    <div id="view-mine" class="spa-view d-none" data-root="p-my">
+      <div class="mq-panel on" id="p-my">
+        <h2 class="mq-panel-title mb-3"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-star"></use></svg> マイページ</h2>
+        <button type="button" class="mq-door door-green" data-go-panel="p-my-effort">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-fire"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">がんばりを見る</span>
+            <span class="door-note">カレンダー・つみあげ・バッジ</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-blue" data-go-panel="p-my-records">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-books"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">きろくを見かえす</span>
+            <span class="door-note">これまで書いたきろくとグラフ</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-purple" data-go-panel="p-my-quest">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gift"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ガチャ・きせかえ</span>
+            <span class="door-note">けいけんちでアイテムをゲット</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
       </div>
 
-      <!-- まとめ: つみあげてきたものを1画面で見わたす -->
-      <div id="mtab-summary" class="mine-tab">
-        <div class="row g-3">
-          <div class="col-lg-7">
-            <div class="mq-card accent-green">
-              <div class="mq-card-head">
-                <span class="mq-card-icon no-furigana" aria-hidden="true">📅</span>
-                <h2 class="mq-card-title">がんばりカレンダー</h2>
-              </div>
-              <div class="mq-card-body tight">
-                <div id="home-streak" class="mb-3"></div>
-                <div id="home-calendar"></div>
-              </div>
-            </div>
+      <!-- がんばり（見るだけの画面） -->
+      <div class="mq-panel" id="p-my-effort">
+        <div id="p-my-effort-head"></div>
+        <div class="mq-card accent-green mb-3">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-calendar"></use></svg></span>
+            <h2 class="mq-card-title">がんばりカレンダー</h2>
           </div>
-          <div class="col-lg-5">
-            <div class="mq-card accent-cyan h-100">
-              <div class="mq-card-head">
-                <span class="mq-card-icon no-furigana" aria-hidden="true">🏔️</span>
-                <h2 class="mq-card-title">これまでのつみあげ</h2>
-              </div>
-              <div class="mq-card-body tight" id="home-totals"></div>
-            </div>
+          <div class="mq-card-body tight">
+            <div id="home-streak" class="mb-3"></div>
+            <div id="home-calendar"></div>
           </div>
-          <div class="col-lg-5">
-            <div class="mq-card accent-purple h-100">
-              <div class="mq-card-head">
-                <span class="mq-card-icon no-furigana" aria-hidden="true">📈</span>
-                <h2 class="mq-card-title">わたしの成長カード</h2>
-                <span class="mq-card-note">今月と先月をくらべます</span>
-              </div>
-              <div class="mq-card-body tight" id="home-growth-card"></div>
-            </div>
-          </div>
-          <div class="col-lg-7">
-            <div class="mq-card accent-gold h-100">
-              <div class="mq-card-head">
-                <span class="mq-card-icon no-furigana" aria-hidden="true">🏅</span>
-                <h2 class="mq-card-title">バッジ</h2>
-              </div>
-              <div class="mq-card-body tight" id="home-badges"></div>
-            </div>
-          </div>
-          <!-- むかしの自分のふり返り -->
-          <div class="col-12" id="home-flashback"></div>
         </div>
+        <div class="mq-card accent-cyan mb-3">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-mountain"></use></svg></span>
+            <h2 class="mq-card-title">これまでのつみあげ</h2>
+          </div>
+          <div class="mq-card-body tight" id="home-totals"></div>
+        </div>
+        <div class="mq-card accent-purple mb-3">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chart"></use></svg></span>
+            <h2 class="mq-card-title">わたしの成長カード</h2>
+          </div>
+          <div class="mq-card-body tight" id="home-growth-card"></div>
+        </div>
+        <div class="mq-card accent-gold mb-3">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-medal"></use></svg></span>
+            <h2 class="mq-card-title">バッジ</h2>
+          </div>
+          <div class="mq-card-body tight" id="home-badges"></div>
+        </div>
+        <div id="home-flashback"></div>
       </div>
 
-      <!-- スピード: 数でのびが見えるもの -->
-      <div id="mtab-numbers" class="mine-tab d-none">
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">⌨️</span> タイピング</h3>
+      <!-- きろくを見かえす（3つのグループ） -->
+      <div class="mq-panel" id="p-my-records">
+        <div id="p-my-records-head"></div>
+        <button type="button" class="mq-door door-blue" data-go-panel="p-rec-speed">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-keyboard"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">スピード</span>
+            <span class="door-note">タイピング・100マス・学習アプリ</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-orange" data-go-panel="p-rec-words">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ことば</span>
+            <span class="door-note">どくしょ・ことばアルバム</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-cyan" data-go-panel="p-rec-lessons">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-note"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">じゅぎょう</span>
+            <span class="door-note">じゅぎょう・テスト・せいちょう</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+      </div>
+
+      <div class="mq-panel" id="p-rec-speed">
+        <div id="p-rec-speed-head"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-keyboard"></use></svg> タイピング</h3>
         <div id="rtab-typing"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🔢</span> 100マス計算</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-calc"></use></svg> 100マス計算</h3>
         <div id="rtab-calc"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gamepad"></use></svg> 学習アプリ</h3>
+        <div id="rtab-apps"></div>
       </div>
 
-      <!-- ことば: 読んだもの・書いたことば -->
-      <div id="mtab-words" class="mine-tab d-none">
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📖</span> どくしょ</h3>
+      <div class="mq-panel" id="p-rec-words">
+        <div id="p-rec-words-head"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-book"></use></svg> どくしょ</h3>
         <div id="rtab-reading"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🗒️</span> ことばアルバム</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-comment"></use></svg> ことばアルバム</h3>
         <div id="rtab-album"></div>
       </div>
 
-      <!-- じゅぎょう: 授業・テスト・自学のふり返り -->
-      <div id="mtab-lessons" class="mine-tab d-none">
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">✍️</span> じゅぎょう・テスト</h3>
+      <div class="mq-panel" id="p-rec-lessons">
+        <div id="p-rec-lessons-head"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-note"></use></svg> じゅぎょう・テスト</h3>
         <div id="rtab-lesson"></div>
-        <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🌱</span> せいちょう・じしゅ学習</h3>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-sprout"></use></svg> せいちょう・じしゅ学習</h3>
         <div id="rtab-notes"></div>
       </div>
 
-      <!-- 学習アプリ -->
-      <div id="mtab-apps" class="mine-tab d-none">
-        <div id="rtab-apps"></div>
+      <!-- ガチャ・きせかえ（3つ） -->
+      <div class="mq-panel" id="p-my-quest">
+        <div id="p-my-quest-head"></div>
+        <button type="button" class="mq-door door-purple" data-go-panel="p-gacha">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-sparkles"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ガチャをひく</span>
+            <span class="door-note">けいけんち <span id="quest-exp-note">0</span></span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-blue" data-go-panel="p-avatar">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-avatar"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">きせかえる</span>
+            <span class="door-note">もっているアイテムでアバターを作る</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-pink" data-go-panel="p-profile">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-idcard"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">プロフィール</span>
+            <span class="door-note">ひとこと・すきなもの</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+      </div>
+
+      <div class="mq-panel" id="p-gacha">
+        <div id="p-gacha-head"></div>
+        <div class="mq-card accent-purple">
+          <div class="mq-card-body text-center">
+            <div class="gacha-machine mb-2" id="gacha-machine" aria-hidden="true"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gift"></use></svg></div>
+            <div class="mq-hint mb-3">かさなったアイテムは交換ポイントになるよ<br>
+              いまのこうかんPt: <b id="quest-exchange">0</b></div>
+            <button type="button" class="mq-btn mq-btn-purple mq-btn-lg mq-btn-block mb-2" id="btn-gacha-1">
+              1回ひく（<span id="cost-gacha-1">200</span> けいけんち）
+            </button>
+            <button type="button" class="mq-btn mq-btn-gold mq-btn-lg mq-btn-block" id="btn-gacha-10">
+              10連ひく（<span id="cost-gacha-10">1800</span> けいけんち）
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mq-panel" id="p-avatar">
+        <div id="p-avatar-head"></div>
+        <div class="mq-card accent-blue">
+          <div class="mq-card-body">
+            <div class="avatar-preview-box bg-light rounded-4 mx-auto border position-relative" style="width:220px;height:220px;">
+              <div id="avatar-layers" class="w-100 h-100 position-relative"></div>
+            </div>
+            <p class="text-center mq-card-note mt-2 mb-3">アイテムをタップしてきせかえよう！</p>
+            <div id="item-category-filter" class="mb-2"></div>
+            <div id="inventory-grid" class="d-flex flex-wrap gap-2 justify-content-center custom-scrollbar" style="max-height:320px;overflow-y:auto;"></div>
+            <button type="button" class="mq-btn mq-btn-green mq-btn-lg mq-btn-block mt-3" id="btn-save-avatar">ほぞんする</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="mq-panel" id="p-profile">
+        <div id="p-profile-head"></div>
+        <div class="mq-card accent-pink">
+          <div class="mq-card-body">
+            <div class="mq-field">
+              <label class="mq-label" for="profile-motto"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-comment"></use></svg></span>ひとこと</label>
+              <input type="text" id="profile-motto" class="mq-input" maxlength="30" placeholder="まいにちコツコツ！">
+            </div>
+            <div class="mq-field">
+              <label class="mq-label" for="profile-favorite"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-heart"></use></svg></span>すきなもの</label>
+              <input type="text" id="profile-favorite" class="mq-input" maxlength="30" placeholder="サッカー・音楽 など">
+            </div>
+            <div class="mq-field">
+              <label class="mq-label" for="profile-goal"><span class="mq-label-emoji"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-fire"></use></svg></span>がんばりたいこと</label>
+              <input type="text" id="profile-goal" class="mq-input" maxlength="30" placeholder="かん字をおぼえる など">
+            </div>
+            <button type="button" class="mq-btn mq-btn-pink mq-btn-lg mq-btn-block" id="btn-save-profile">ほぞんする</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <!-- ============ 児童: クエスト（ガチャ・アバター） ============ -->
-    <div id="view-quest" class="spa-view d-none">
-      <div class="row g-3">
-        <div class="col-lg-6">
-          <div class="mq-card accent-purple mb-3">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">✨</span>
-              <h2 class="mq-card-title">ガチャをひく</h2>
-            </div>
-            <div class="mq-card-body">
-              <div class="d-flex justify-content-center gap-3 flex-wrap">
-                <button id="btn-gacha-1" class="mq-btn mq-btn-purple flex-column" style="min-width:9rem;border-radius:1.25rem;padding:1rem;">
-                  <span style="font-size:1.5rem;">1回</span>
-                  <span style="font-size:.85rem;opacity:.9;"><span id="cost-gacha-1">200</span> けいけんち</span>
-                </button>
-                <button id="btn-gacha-10" class="mq-btn mq-btn-gold flex-column" style="min-width:9rem;border-radius:1.25rem;padding:1rem;">
-                  <span style="font-size:1.5rem;">10連</span>
-                  <span style="font-size:.85rem;opacity:.9;"><span id="cost-gacha-10">1800</span> けいけんち</span>
-                </button>
-              </div>
-              <p class="text-center mq-card-note mt-3 mb-0">けいけんちをつかってアイテムをゲット！かさなったら交換ポイントになるよ。</p>
-            </div>
-          </div>
-          <div class="mq-card accent-cyan">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">🎒</span>
-              <h2 class="mq-card-title">アイテム</h2>
-              <span class="badge bg-warning text-dark">こうかんPt: <span id="quest-exchange">0</span></span>
-            </div>
-            <div class="mq-card-body tight">
-              <div id="item-category-filter" class="mb-2"></div>
-              <div id="inventory-grid" class="d-flex flex-wrap gap-2 custom-scrollbar" style="max-height:300px;overflow-y:auto;"></div>
-            </div>
-          </div>
-        </div>
-        <div class="col-lg-6">
-          <div class="mq-card accent-blue h-100">
-            <div class="mq-card-head">
-              <span class="mq-card-icon no-furigana" aria-hidden="true">🧑‍🎤</span>
-              <h2 class="mq-card-title">アバター</h2>
-              <button id="btn-save-avatar" class="mq-btn mq-btn-green" style="min-height:2.4rem;padding:.35rem 1rem;font-size:.9rem;">ほぞん</button>
-            </div>
-            <div class="mq-card-body">
-              <div class="avatar-preview-box bg-light rounded-4 mx-auto border position-relative" style="width:220px;height:220px;">
-                <div id="avatar-layers" class="w-100 h-100 position-relative"></div>
-              </div>
-              <p class="text-center mq-card-note mt-2">もっているアイテムをタップしてきせかえよう！</p>
-              <hr>
-              <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">📇</span> プロフィール</h3>
-              <div class="mq-field">
-                <label class="mq-label" for="profile-motto"><span class="mq-label-emoji no-furigana" aria-hidden="true">💬</span>ひとこと</label>
-                <input type="text" id="profile-motto" class="mq-input" maxlength="30" placeholder="まいにちコツコツ！">
-              </div>
-              <div class="mq-field">
-                <label class="mq-label" for="profile-favorite"><span class="mq-label-emoji no-furigana" aria-hidden="true">💖</span>すきなもの</label>
-                <input type="text" id="profile-favorite" class="mq-input" maxlength="30" placeholder="サッカー・音楽 など">
-              </div>
-              <div class="mq-field">
-                <label class="mq-label" for="profile-goal"><span class="mq-label-emoji no-furigana" aria-hidden="true">🔥</span>がんばりたいこと</label>
-                <input type="text" id="profile-goal" class="mq-input" maxlength="30" placeholder="かん字をおぼえる など">
-              </div>
-              <button id="btn-save-profile" class="mq-btn mq-btn-ghost mq-btn-block">プロフィールをほぞんする</button>
-            </div>
-          </div>
-        </div>
+    <!-- ============ 児童: みんな ============ -->
+    <div id="view-plaza" class="spa-view d-none" data-root="p-all">
+      <div class="mq-panel on" id="p-all">
+        <h2 class="mq-panel-title mb-3"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg> みんな</h2>
+        <button type="button" class="mq-door door-green" data-go-panel="p-class-goal">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">クラスの目標</span>
+            <span class="door-note">みんなで力を合わせよう</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-pink" data-go-panel="p-cheer">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clap"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">おうえんする</span>
+            <span class="door-note">がんばっている友だちにスタンプ</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+        <button type="button" class="mq-door door-gold" data-go-panel="p-ranking">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-trophy"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">ランキング・本だな</span>
+            <span class="door-note">みんなのきろくを見てみよう</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+      </div>
+
+      <div class="mq-panel" id="p-class-goal">
+        <div id="p-class-goal-head"></div>
+        <div id="class-goals-container"></div>
+      </div>
+
+      <div class="mq-panel" id="p-cheer">
+        <div id="p-cheer-head"></div>
+        <div id="cheer-board-container"></div>
+      </div>
+
+      <div class="mq-panel" id="p-ranking">
+        <div id="p-ranking-head"></div>
+        <div id="rankings-container"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-books"></use></svg> みんなの本だな</h3>
+        <div id="bookshelf-container"></div>
+        <h3 class="mq-section-title"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-people"></use></svg> みんなのアバター</h3>
+        <div id="plaza-container" class="row g-3"></div>
       </div>
     </div>
 
-    <!-- ============ 児童: ひろば ============ -->
-    <div id="view-plaza" class="spa-view d-none">
-      <div class="row g-4">
-        <div class="col-lg-8">
-          <!-- クラスみんなの共同目標 -->
-          <div id="class-goals-container" class="mb-4"></div>
-          <!-- 今週がんばっている友だちに応援スタンプを送る -->
-          <div id="cheer-board-container" class="mb-4"></div>
-          <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">👫</span> みんなのひろば</h3>
-          <div id="plaza-container" class="row g-3"></div>
-          <!-- みんなの本だな -->
-          <div id="bookshelf-container" class="mt-4"></div>
-        </div>
-        <div class="col-lg-4">
-          <h3 class="mq-section-title"><span class="no-furigana" aria-hidden="true">🏆</span> ランキング</h3>
-          <div id="rankings-container"></div>
-        </div>
-      </div>
-    </div>
 
     <!-- ============ 教員: ダッシュボード ============ -->
     <div id="view-t-dashboard" class="spa-view d-none">
