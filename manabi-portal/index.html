@@ -399,6 +399,7 @@
       <b>組織内</b>のままで大丈夫です。
       URLパラメータ <code>?app=…&amp;endpoint=…&amp;key=…</code> 付きで開くと自動で保存されます。
     </p>
+    <div class="muted" id="pending-status" style="margin-bottom:12px;line-height:1.7;"></div>
     <div class="field">
       <label for="conf-app">まなびクエスト本体のWebアプリURL（アクセス: 組織内／必須）</label>
       <input type="url" id="conf-app" placeholder="https://script.google.com/a/macros/…/exec" autocomplete="off">
@@ -455,6 +456,7 @@
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
   const RELAY_TIMEOUT_MS = 45000;              // 本体経由の送信で、返事を待つ上限
   const BACK_DEBOUNCE_MS = 600;                // 「1回の操作」が別々の入口から二重に届くのを無視する時間
+  const STALE_DAYS = 7;                        // 未送信がこれだけ古くなったら「たまっている」と知らせる（§9.3）
 
   const $ = id => document.getElementById(id);
   const state = {
@@ -543,7 +545,35 @@
   }
 
   /**
-   * 送信済み（受理・重複・形式エラー）のレコードを端末から削除します（仕様 §1.3）。
+   * 未送信のきろくの件数と、いちばん古い学習日（仕様 §9.3）。
+   *
+   * 受信側が未対応で送れないレコードは端末に残るため、放っておくと
+   * 誰にも気づかれないまま たまり続けます。件数と最古の日付をいつも画面に出しておき、
+   * 「いつまでも減らない」ことに先生が気づけるようにします。
+   */
+  function pendingSummary() {
+    const list = pendingRecords();
+    let oldest = null;
+    list.forEach(r => {
+      const t = Date.parse(r && r.startedAt);
+      if (!isNaN(t) && (oldest === null || t < oldest)) oldest = t;
+    });
+    return {
+      count: list.length,
+      oldest,
+      // 何日ぶん滞留しているか（1週間たまっていたら送信が止まっている可能性が高い）
+      ageDays: oldest === null ? 0 : Math.floor((Date.now() - oldest) / 86400000)
+    };
+  }
+
+  function formatDay(ms) {
+    const d = new Date(ms);
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  }
+
+  /**
+   * 送信済み（受理・重複・再送しても通らない恒久エラー）のレコードを
+   * 端末から削除します（仕様 §1.3 / §9.3）。
    * サーバーはレコードIDを小文字にそろえて返すため、大文字を含むIDでも
    * 消し残さないよう小文字にそろえて突き合わせます
    * （消し残すと、そのレコードが毎回「重複」として送られ続けてしまいます）。
@@ -608,7 +638,8 @@
   }
 
   function renderPending() {
-    const count = pendingRecords().length;
+    const pending = pendingSummary();
+    const count = pending.count;
     const conf = loadConfig();
     const configured = canSend(conf);
     const btn = $('send-btn');
@@ -625,16 +656,41 @@
     chip.textContent = number || '—';
     chip.classList.toggle('empty', !number);
 
-    // 送れない理由を分けて伝えます（設定がまだ／よみこみ中／本体が古い）
+    // 送れない理由を分けて伝えます（設定がまだ／よみこみ中／本体が古い）。
+    // 送れる状態のときは、件数だけでなく「いちばん古いきろくの日付」も出します（§9.3）
     $('pending-label').textContent = !configured
       ? (state.appConnected ? '先生: まなびクエストの更新が ひつようです'
         : conf.appUrl ? 'まなびクエストを よみこんでいます…'
         : '先生: せっていが まだです')
       : count === 0 ? 'おくるきろくは ありません'
-      : `おくれるきろく ${count}件`;
+      : `${pending.ageDays >= STALE_DAYS ? '⚠️ ' : ''}おくれるきろく ${count}件`
+        + (pending.oldest !== null ? `（いちばん古い ${formatDay(pending.oldest)}）` : '');
 
+    renderPendingStatus(pending);
     notifyApp({ type: 'PENDING_CHANGED', pending: count, studentNumber: number });
     return count;
+  }
+
+  /**
+   * 設定シート（先生用）に、未送信のたまり具合を出します（仕様 §9.3）。
+   * 受信側が未対応のレコードは端末に残るため、件数が減らないことに
+   * 先生が気づけるようにするための表示です。
+   */
+  function renderPendingStatus(pending) {
+    const box = $('pending-status');
+    if (!box) return;
+    const info = pending || pendingSummary();
+    if (info.count === 0) {
+      box.innerHTML = '📨 未送信のきろく: <b>0件</b>';
+      return;
+    }
+    const oldest = info.oldest !== null ? `／いちばん古い学習日: <b>${formatDay(info.oldest)}</b>` : '';
+    const stale = info.ageDays >= STALE_DAYS
+      ? '<br>⚠️ 送信できていないきろくが残り続けています。'
+        + '新しい学習アプリを追加した場合は、まなびクエスト側の <code>STUDY_APPS</code>（受信の許可リスト）に'
+        + 'そのアプリを追加してからスクリプトを更新してください。'
+      : '';
+    box.innerHTML = `📨 未送信のきろく: <b>${info.count}件</b>${oldest}${stale}`;
   }
 
   /**
@@ -930,11 +986,35 @@
     else pending.reject(new Error(msg.message || '送信できませんでした'));
   }
 
+  /**
+   * サーバーが拒否したレコードを「消してよいもの」と「残すもの」に分けます（仕様 §9.3）。
+   *
+   * 拒否には2種類あります。
+   *  ・恒久エラー（retryable: false）… レコード自体が不正。再送しても通らないので削除します
+   *  ・一時エラー（retryable: true）… 受信側が未対応なだけ。代表例は新しいアプリの
+   *    appId が許可リストに無いときで、**更新すれば通ります**。ここで消してしまうと
+   *    児童が学習したきろくが誰にも気づかれないまま永久に失われます
+   *
+   * retryable が返ってこない古いサーバーのときは、安全側に倒して残します。
+   */
+  function splitRejected(rejected) {
+    const list = Array.isArray(rejected) ? rejected : [];
+    const removable = [];
+    let kept = 0;
+    list.forEach(r => {
+      if (r && r.retryable === false && r.id) removable.push(r.id);
+      else kept++;
+    });
+    return { removable, kept };
+  }
+
   /** 複数チャンクの結果をひとつにまとめます（ボーナスはサーバー側で1日1回に制御済み） */
   function mergeResult(total, result) {
+    const split = splitRejected(result.rejected);
     total.saved += (result.saved || []).length;
     total.duplicate += (result.duplicate || []).length;
-    total.rejected += (result.rejected || []).length;
+    total.rejected += split.removable.length;
+    total.kept += split.kept;
     total.gainedExp += result.gainedExp || 0;
     const r = result.reward || {};
     ['appExp', 'calcExp', 'sendExp', 'streakExp', 'exchangePoints', 'calcRecords',
@@ -996,7 +1076,8 @@
     notifyApp({ type: 'SEND_STARTED' });
 
     const total = {
-      ok: true, saved: 0, duplicate: 0, rejected: 0, gainedExp: 0, level: null, leveledUp: false,
+      ok: true, saved: 0, duplicate: 0, rejected: 0, kept: 0,
+      gainedExp: 0, level: null, leveledUp: false,
       personalBest: null,
       reward: {
         appExp: 0, calcExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0, calcRecords: 0, streak: 0,
@@ -1017,11 +1098,12 @@
           return;
         }
         mergeResult(total, result);
-        // 受理・重複・形式エラーはすべて「送信済み」として端末から削除する
+        // 受理・重複と「再送しても通らない恒久エラー」だけを端末から削除する。
+        // 受信側が未対応なだけのレコード（retryable）は、更新後に送り直せるよう残す（§9.3）
         removeRecords(new Set([
           ...(result.saved || []),
           ...(result.duplicate || []),
-          ...(result.rejected || []).map(r => r && r.id).filter(Boolean)
+          ...splitRejected(result.rejected).removable
         ]));
       }
     } catch (e) {
@@ -1038,7 +1120,20 @@
     if (total.reward.streak > 1) parts.push(`🔥 ${total.reward.streak}日れんぞく`);
     if (total.duplicate > 0) parts.push(`<span class="muted">${total.duplicate}件はおくりずみ</span>`);
     if (total.rejected > 0) parts.push(`<span class="muted">${total.rejected}件は形式エラー</span>`);
-    showToast(total.saved > 0 ? 'good' : 'info', parts.join(' ／ '));
+    // 1件も届かず、残したレコードだけがあるときは「0件 おくりました」と出さず、
+    // 下の「まだ おくれません」だけを見せます
+    if (total.saved > 0 || total.duplicate > 0 || total.rejected > 0 || total.kept === 0) {
+      showToast(total.saved > 0 ? 'good' : 'info', parts.join(' ／ '));
+    }
+
+    // 受信側がまだ対応していないレコードは端末に残してあるので、その旨を伝えます（§9.3）。
+    // 消してしまうと二度と戻らないため、「まだ おくれない」であって「失敗」ではありません。
+    if (total.kept > 0) {
+      showToast('warn',
+        `⏳ <b>${total.kept}件</b>は まだ おくれませんでした。きろくは <b>けさずに のこして</b> あります。<br>` +
+        '<span class="muted">先生へ: 新しい学習アプリを追加したときは、まなびクエストの ' +
+        '<code>STUDY_APPS</code>（受信の許可リスト）にそのアプリを足してから、スクリプトを更新してください。</span>');
+    }
     finishSend(total);
   }
 
@@ -1092,6 +1187,7 @@
     $('conf-key').value = conf.key || '';
     $('conf-auto').checked = conf.autoSend !== false;
     $('conf-status').textContent = '';
+    renderPendingStatus();
     $('config-sheet').hidden = false;
     renderBackButton();
   }

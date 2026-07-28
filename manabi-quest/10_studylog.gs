@@ -36,13 +36,34 @@
  *     組織のポリシーで『全員』が選べないときは ① だけで運用してください。
  */
 
-/** 仕様 §3.1 の appId 予約値と表示名 */
+/**
+ * 仕様 §3.1 の appId 予約値と表示名。
+ * ここが「受信側の許可リスト」です。新しい学習アプリを公開する前に必ず追加してください
+ * （§9.4。未登録のアプリのレコードは appId で拒否されます）。
+ */
 const STUDY_APPS = {
   'qalc': 'Qalc（計算ゲーム）',
   'kanji-town': '漢字タウン',
   'keisan-card': 'けいさんカード',
   'keisan-block': 'さんすうブロック',
-  'square100': '100マス計算'
+  'square100': '100マス計算',
+  'kuku-card': '九九カード'
+};
+
+/**
+ * 拒否理由ごとの再送可否（仕様 §9.3）。
+ *
+ * true = レコードは正しいのに受信側が未対応なだけの「一時エラー」。
+ *        送信ページはこのレコードを端末から削除せず、受信側の更新後に送り直します。
+ * ここに無い理由は「恒久エラー」（レコード自体が不正・記録対象外）として扱い、
+ * 送信ページが削除してかまいません。
+ *
+ * appId が一時エラーなのは、新しい学習アプリを公開したのに上の許可リストを
+ * 更新し忘れたときに起きるためです。ここで削除すると、児童が学習したきろくが
+ * 誰にも気づかれないまま永久に失われます。
+ */
+const STUDY_RETRYABLE_REASONS = {
+  'appId': true
 };
 
 /** 「100マス計算記録」シートへ自動転記する対象アプリ */
@@ -128,8 +149,8 @@ function receiveStudyLogFromPortal(payload) {
  * study.v1 レコード群を検証して「学習ログ」シートへ保存します。
  * @param {Object} payload 送信ページ（またはポータル）から届いた本体
  * @param {Object} [options] { trusted: 本体経由の呼び出しで、送信キーの照合が不要なとき true }
- * @returns {Object} { success, saved: [id], duplicate: [id], rejected: [{id, reason}],
- *                     gainedExp, reward: {…}, level, leveledUp }
+ * @returns {Object} { success, saved: [id], duplicate: [id],
+ *                     rejected: [{id, reason, retryable}], gainedExp, reward: {…}, level, leveledUp }
  */
 function receiveStudyRecords_(payload, options) {
   const trusted = !!(options && options.trusted);
@@ -194,7 +215,13 @@ function receiveStudyRecords_(payload, options) {
     records.forEach(rec => {
       const v = validateStudyRecord_(rec, now);
       if (!v.ok) {
-        rejected.push({ id: (rec && typeof rec.id === 'string') ? rec.id : null, reason: v.reason });
+        // retryable を必ず返します（§9.3）。送信ページはこれを見て、
+        // 受信側の更新で通るレコード（未登録の appId など）を端末に残します
+        rejected.push({
+          id: (rec && typeof rec.id === 'string') ? rec.id : null,
+          reason: v.reason,
+          retryable: STUDY_RETRYABLE_REASONS[v.reason] === true
+        });
         return;
       }
       if (existingIds.has(v.rec.id)) {
@@ -625,15 +652,57 @@ function readStudyLog_(ss) {
       firstTryCorrect: Number(row[22]) || 0,
       correct: (row[23] === '' || row[23] === null) ? null : Number(row[23]),
       itemsJson: String(row[24] || ''),
+      extJson: String(row[25] || ''),
       id: String(row[26] || '')
     }))
     .filter(r => r.id);
 }
 
+/**
+ * 設問層が200件で切り詰められたレコードの、実際の解答実績（仕様 §2.7 の ext.itemsTruncated）。
+ *
+ * 制限時間まで出題が続くモードでは items が上限を超えることがあり、
+ * そのとき summary は切り詰め後の items に合わせて作られ、
+ * 本当の解答数・初回正答数は ext.itemsTruncated に退避されています。
+ * これを見落とすと、長く取り組んだセッションほど「未着手が多い」「解答数が少ない」と
+ * 誤って読まれてしまいます。
+ * @returns {{attempted: number, firstTryCorrect: number}|null} 切り詰めが無ければ null
+ */
+function parseStudyTruncated_(r) {
+  if (!r.extJson || r.extJson.indexOf('itemsTruncated') < 0) return null;
+  let ext;
+  try { ext = JSON.parse(r.extJson); } catch (e) { return null; }
+  const t = ext && ext.itemsTruncated;
+  if (!t || typeof t !== 'object') return null;
+
+  // 退避された値も §9.2 の範囲内でだけ採用します（0 < firstTryCorrect <= attempted <= count）。
+  // 正答率の分母と分子はそろえる必要があるため、どちらかが壊れていれば
+  // 両方あきらめて summary の値（切り詰め後）を使います。
+  const attempted = Number(t.attempted);
+  const firstTry = Number(t.firstTryCorrect);
+  if (!isFinite(attempted) || attempted <= 0 || attempted > r.count) return null;
+  if (!isFinite(firstTry) || firstTry < 0 || firstTry > attempted) return null;
+  return { attempted: Math.round(attempted), firstTryCorrect: Math.round(firstTry) };
+}
+
+/** parseStudyTruncated_ の結果をレコードごとに1回だけ計算します */
+function studyTruncated_(r) {
+  if (r._truncated === undefined) r._truncated = parseStudyTruncated_(r);
+  return r._truncated;
+}
+
 /** 解答数（未記録の完走レコードは count で補完・中断は 0 扱い） */
 function studyAttempted_(r) {
+  const truncated = studyTruncated_(r);
+  if (truncated) return truncated.attempted;
   if (r.attempted !== null && !isNaN(r.attempted)) return r.attempted;
   return r.status === 'completed' ? r.count : 0;
+}
+
+/** 初回正答数（切り詰めが起きたレコードは退避された真の値を使う。§2.7） */
+function studyFirstTry_(r) {
+  const truncated = studyTruncated_(r);
+  return truncated ? truncated.firstTryCorrect : r.firstTryCorrect;
 }
 
 /** 学習時間として使う値（activeMs 優先・なければ elapsedMs） */
@@ -721,8 +790,9 @@ function getStudyLogDashboard(period) {
       }
       if (isStudyRateEligible_(r)) {
         const att = studyAttempted_(r);
-        if (app) { app.attempted += att; app.firstTry += r.firstTryCorrect; }
-        if (st) { st.attempted += att; st.firstTry += r.firstTryCorrect; }
+        const firstTry = studyFirstTry_(r);
+        if (app) { app.attempted += att; app.firstTry += firstTry; }
+        if (st) { st.attempted += att; st.firstTry += firstTry; }
       }
     });
 
@@ -760,7 +830,7 @@ function getStudyLogDashboard(period) {
           day: formatDate_(r.day, 'M/d'), slot: r.slot,
           number: st ? st.number : '', name: st ? st.name : '（名簿外）',
           app: r.appLabel, mode: r.mode, unit: r.unitTitle, status: r.status,
-          count: r.count, attempted: studyAttempted_(r), firstTry: r.firstTryCorrect,
+          count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
           minutes: studyMinutes_(studyLearnMs_(r)),
           multiplayer: r.multiplayer, grading: r.grading, source: r.source
         };
@@ -831,7 +901,7 @@ function getStudyLogForUser_(ss, email, recentLimit) {
     if (r.status === 'aborted') sum.aborted++;
     if (isStudyRateEligible_(r)) {
       sum.attempted += studyAttempted_(r);
-      sum.firstTry += r.firstTryCorrect;
+      sum.firstTry += studyFirstTry_(r);
     }
     if (r.day && r.day >= startOfWeek) { week.records++; week.ms += ms; }
     const label = r.appLabel || r.appId;
@@ -844,7 +914,7 @@ function getStudyLogForUser_(ss, email, recentLimit) {
     .map(r => ({
       day: formatDate_(r.day, 'M/d'), slot: r.slot,
       app: r.appLabel, mode: r.mode, unit: r.unitTitle, status: r.status,
-      count: r.count, attempted: studyAttempted_(r), firstTry: r.firstTryCorrect,
+      count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
       minutes: studyMinutes_(studyLearnMs_(r)),
       multiplayer: r.multiplayer, grading: r.grading, source: r.source
     }));

@@ -494,7 +494,7 @@ function collectMetricsInRange_(ss, email, start, end, insights) {
     ms += studyLearnMs_(r);
     if (isStudyRateEligible_(r)) {
       attempted += studyAttempted_(r);
-      firstTry += r.firstTryCorrect;
+      firstTry += studyFirstTry_(r);
     }
   });
   metrics.appMinutes = Math.round(ms / 60000);
