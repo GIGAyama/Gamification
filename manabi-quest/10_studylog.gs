@@ -9,7 +9,8 @@
  * 重複排除して「学習ログ」シートへ蓄積します。
  *
  * 設計上のポイント（仕様書との対応）:
- * - 児童の識別子（出席番号）は送信ページが付与する。アプリ層は匿名のまま（§0-2）
+ * - アプリ層は匿名のまま。児童の識別は本体経由ならログイン中のアカウント、
+ *   匿名POSTなら送信ページが付ける出席番号で行う（§0-2）
  * - 受信時の検証は §9 の受け入れ条件に従い、満たさないレコードは破棄する
  * - startedAt は既定で「日付＋時間帯」に丸めて保存する（§4.1 の標準運用）
  * - 重複排除はレコードの id（UUID）で行い、同一 id の再送は受理済みとして扱う（§9）
@@ -105,7 +106,8 @@ function studyJson_(obj) {
  *
  * 匿名POST（doPost）と違い、呼び出せる時点で学校アカウントでのログインが済んでいるので、
  * 「学習ログ送信キー」の照合は行いません（キーは経路②の匿名POST専用です）。
- * 出席番号が渡されなかったときは、ログイン中のアカウントから児童を特定します。
+ * 誰のきろくかもログイン中のアカウントから決まるため、出席番号の手入力は不要です
+ * （名簿に無いアカウントのときだけ、渡された出席番号を使います）。
  *
  * @param {Object} payload { api:'study-log', studentNumber?: 出席番号, records: [study.v1レコード…] }
  * @returns {Object} doPost と同じ形の結果オブジェクト
@@ -147,18 +149,31 @@ function receiveStudyRecords_(payload, options) {
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const records = Array.isArray(payload.records) ? payload.records.slice(0, STUDY_MAX_RECORDS_PER_POST) : [];
-  let student = (payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '')
-    ? findStudentByNumber_(ss, payload.studentNumber)
-    : null;
-  // 本体経由なら、出席番号が未入力でもログイン中のアカウントから児童を特定できます
-  if (!student && trusted) student = findStudentBySignedInUser_(ss);
+
+  // 誰のきろくかの決め方:
+  //  ・本体経由（経路①）… ログイン中のアカウントが最も確かなので最優先。
+  //    出席番号の手入力は要らず、入力ミスや前の児童の番号が残っていても取りちがえません
+  //  ・匿名POST（経路②）… ログイン情報が届かないため、送信ページが付けた出席番号で識別します
+  let student = trusted ? findStudentBySignedInUser_(ss) : null;
+  if (!student && payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '') {
+    student = findStudentByNumber_(ss, payload.studentNumber);
+  }
 
   // レコードなし = 送信ページの接続テスト
   if (records.length === 0) {
-    return { success: true, saved: [], duplicate: [], rejected: [], gainedExp: 0, studentFound: !!student };
+    return {
+      success: true, saved: [], duplicate: [], rejected: [], gainedExp: 0,
+      studentFound: !!student,
+      studentNumber: student ? String(student.number) : ''   // 誰として届いたかを先生に見せます
+    };
   }
   if (!student) {
-    return { success: false, error: 'unknown-student', message: 'この出席番号は児童マスタに見つかりません。' };
+    return {
+      success: false, error: 'unknown-student',
+      message: trusted
+        ? 'ログイン中のアカウントも出席番号も、児童マスタに見つかりません。先生に確認してもらってください。'
+        : 'この出席番号は児童マスタに見つかりません。'
+    };
   }
 
   return withLock_(() => {
@@ -753,9 +768,9 @@ function getStudyLogDashboard(period) {
 
     return {
       success: true,
-      // 学習ポータルからの送信は本体経由（ログイン済みの画面ごし）でいつでも受け取れます。
+      // 学習ポータルからの送信は本体経由（ログイン済みの画面ごし）でいつでも受け取れるので、
+      // 「受信が止まっている」状態はありません。
       // 「学習ログ送信キー」は匿名POSTの受け口だけを制御します。
-      enabled: true,
       anonymousPost: !!String(config['学習ログ送信キー'] || '').trim(),
       portalUrl: String(config['学習ポータルURL'] || '').trim(),
       everReceived: all.length > 0,   // 期間で0件でも、一度でも届いていれば設定案内は出しません
@@ -881,8 +896,7 @@ function getStudyAppPanelData_(ss, email, config) {
 
   return {
     // 本体経由の送信は常に受け付けるので、児童の送信パネルはいつでも出します
-    // （「学習ログ送信キー」は匿名POSTの受け口だけを制御します）
-    enabled: true,
+    // （「学習ログ送信キー」は匿名POSTの受け口だけを制御するので、ここでは見ません）
     portalUrl: String(config['学習ポータルURL'] || '').trim(),
     sentToday,
     streak: sentToday ? streakIfSent : Math.max(0, streakIfSent - 1),
