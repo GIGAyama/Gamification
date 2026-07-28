@@ -22,7 +22,7 @@ function saveRecord(payload) {
       const typeDef = RECORD_TYPES[type];
       if (!typeDef) throw new Error(`不明な記録種別です: ${type}`);
       if (typeDef.appOnly) {
-        throw new Error(`${typeDef.label}は学習アプリのきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
+        throw new Error(`${typeDef.label}は${typeDef.app || '学習アプリ'}のきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
       }
 
       // 1回の保存で複数回 addExp_ が走るため、開始時のレベルを覚えておいて最後に比べます
@@ -43,7 +43,6 @@ function saveRecord(payload) {
           goalContext = { typingSpeed: r.speed, typingAccuracy: r.accuracy };
           break;
         }
-        case 'reading': gainedExp = saveReadingRecord_(ss, email, formData, config); break;
         case 'growth': gainedExp = saveGrowthRecord_(ss, email, formData, config); break;
         case 'study': gainedExp = saveStudyRecord_(ss, email, formData, config); break;
         case 'lesson': {
@@ -139,19 +138,9 @@ function saveTypingRecord_(ss, email, data, config) {
   return { gainedExp, speed, accuracy, previousBestSpeed };
 }
 
-// ※ 100マス計算は自己申告の手入力を廃止し、100マス計算アプリ（study.v1）から届いた
-//    レコードを 10_studylog.gs が「100マス計算記録」シートへ自動転記します。
-
-function saveReadingRecord_(ss, email, data, config) {
-  const pages = parseInt(data.pages, 10);
-  const rating = parseInt(data.rating, 10);
-  if (!data.title || !data.genre || isNaN(pages) || pages < 0 || isNaN(rating)) {
-    throw new Error('入力内容が正しくありません。');
-  }
-  ss.getSheetByName(SHEETS.READING).appendRow([new Date(), email, data.title, data.genre, pages, rating, data.comment || '']);
-  const coefficient = getConfigNumber_(config, '読書記録経験値係数', 1);
-  return Math.floor(pages * coefficient);
-}
+// ※ 100マス計算と読書は自己申告の手入力を廃止し、それぞれ 100マス計算アプリ／
+//    どくしょ ちょきんばこ（study.v1）から届いたレコードを 10_studylog.gs が
+//    「100マス計算記録」「読書記録」シートへ自動転記します。
 
 function saveGrowthRecord_(ss, email, data, config) {
   if (!data.content) throw new Error('「どんなことができるようになった？」を入力してください。');
@@ -640,22 +629,24 @@ function getCalcChartData_(ss, email) {
   return result;
 }
 
+/**
+ * 読書記録（どくしょ ちょきんばこから自動転記された行）を読み出します。
+ * D列「ジャンル」は手入力フォームがあった時代の列で、現在は書き込みません。
+ * 読み出し側でも使わないため、ここでは返しません（過去データはシートに残ります）。
+ */
 function getReadingData_(ss, email) {
-  const rows = getUserRows_(ss, SHEETS.READING, email, 7, 0);
-  const summary = { totalBooks: 0, totalPages: 0, byGenre: {} };
+  const rows = getUserRows_(ss, SHEETS.READING, email, READING_COLS.NUM, 0);
+  const summary = { totalBooks: 0, totalPages: 0 };
   const records = rows.map(row => {
     const pages = parseInt(row[4], 10) || 0;
-    const genre = row[3] || '分類なし';
     summary.totalBooks++;
     summary.totalPages += pages;
-    summary.byGenre[genre] = summary.byGenre[genre] || { books: 0, pages: 0 };
-    summary.byGenre[genre].books++;
-    summary.byGenre[genre].pages += pages;
     return {
       date: formatDate_(row[0]),
-      title: row[2], genre, pages,
+      title: row[2], pages,
       rating: parseInt(row[5], 10) || 0,
-      comment: row[6]
+      comment: row[6],
+      isbn: String(row[7] || '')
     };
   });
   return { records, summary };

@@ -784,7 +784,7 @@ function studySendPanelHtml() {
 
 /** ホームと「きろく」タブの送信パネルをまとめて描き直します */
 function renderStudySendPanels() {
-  ['home-send-card', 'apps-send-card', 'calc-send-card'].forEach(id => {
+  ['home-send-card', 'apps-send-card', 'calc-send-card', 'reading-send-card'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.innerHTML = studySendPanelHtml();
@@ -824,10 +824,12 @@ function handlePortalSendResult(msg) {
   const r = msg.reward || {};
   const lines = [`<b>${msg.saved}件</b>の きろくを おくりました！`];
   if (r.calcRecords > 0) lines.push(`${icon('calc')} 100マス計算 <b>${r.calcRecords}回分</b> がきろくされたよ`);
+  if (r.readingRecords > 0) lines.push(`${icon('book')} どくしょ <b>${r.readingRecords}さつ分</b> がきろくされたよ`);
   if (msg.gainedExp > 0) lines.push(`<b class="text-primary fs-5">+${msg.gainedExp} EXP</b> ゲット！`);
   const detail = [];
   if (r.appExp > 0) detail.push(`学習時間 +${r.appExp}`);
   if (r.calcExp > 0) detail.push(`100マスの点数 +${r.calcExp}`);
+  if (r.readingExp > 0) detail.push(`よんだページ +${r.readingExp}`);
   if (r.sendExp > 0) detail.push(`そうしんボーナス +${r.sendExp}`);
   if (r.streakExp > 0) detail.push(`れんぞく${r.streak}日目 +${r.streakExp}`);
   if (r.personalBestExp > 0) detail.push(`じこベスト +${r.personalBestExp}`);
@@ -993,8 +995,8 @@ function renderBadges(earnedBadges, allBadges) {
  * 「グループをえらぶ → 種類をえらぶ → 1問ずつ答える」の3段階にしています。
  */
 const RECORD_GROUPS = [
-  { key: 'practice', icon: 'run', title: 'まいにちの れんしゅう', note: 'タイピング・どくしょ',
-    door: 'door-blue', types: ['typing', 'reading'] },
+  { key: 'practice', icon: 'run', title: 'まいにちの れんしゅう', note: 'タイピング',
+    door: 'door-blue', types: ['typing'] },
   { key: 'lesson', icon: 'note', title: 'じゅぎょうの ふり返り', note: 'じゅぎょう・テスト・どうとく',
     door: 'door-cyan', types: ['lesson', 'test', 'moral'] },
   { key: 'self', icon: 'sprout', title: 'じぶんの こと', note: 'せいちょう・じしゅ学習',
@@ -1025,7 +1027,10 @@ function renderRecordGroupMenu() {
         </span>
         <span class="door-arrow">${icon('chevron-right')}</span>
       </button>`).join('')}
-    <p class="mq-hint mt-3">100マス計算は、100マス計算アプリの きろくから じどうで 入ります。</p>`;
+    <p class="mq-hint mt-3">
+      100マス計算と どくしょは、<b>100マス計算アプリ</b>・<b>どくしょ ちょきんばこ</b>の
+      きろくを おくると じどうで 入ります。
+    </p>`;
 
   panel.querySelectorAll('[data-record-group]').forEach(btn => {
     btn.addEventListener('click', () => openRecordGroup(btn.dataset.recordGroup));
@@ -1238,8 +1243,6 @@ function renderStudyAppTab(d) {
 const RECORD_STYLES = {
   typing: { icon: 'keyboard', label: 'タイピング', note: 'そくどと 正かくさ',
             door: 'door-blue', accent: 'accent-blue', btn: 'mq-btn' },
-  reading:{ icon: 'book', label: 'どくしょ', note: 'よんだ本のこと',
-            door: 'door-orange', accent: 'accent-orange', btn: 'mq-btn-orange' },
   growth: { icon: 'sprout', label: 'せいちょう', note: 'できるようになったこと',
             door: 'door-green', accent: 'accent-green', btn: 'mq-btn-green' },
   study:  { icon: 'bulb', label: 'じしゅ学習', note: 'じぶんでしらべたこと',
@@ -1252,8 +1255,10 @@ const RECORD_STYLES = {
             door: 'door-pink', accent: 'accent-pink', btn: 'mq-btn-pink' }
 };
 
+// どくしょ（reading）と100マス計算（calc）はアプリのきろくから自動で入るため、
+// 入力フォームを持ちません。この2つは RECORD_STYLES / RECORD_LABELS にも載せていません。
 const RECORD_LABELS = {
-  typing: 'タイピング', reading: 'どくしょ', growth: 'せいちょうのきろく',
+  typing: 'タイピング', growth: 'せいちょうのきろく',
   study: 'じしゅ学習', lesson: 'じゅぎょうのふり返り', test: 'テストのふり返り', moral: 'どうとくノート'
 };
 
@@ -1383,25 +1388,8 @@ function recordSteps(type) {
       { icon: 'target', question: 'いまの目標', html: `<div class="p-3 rounded-3" style="background:var(--mq-blue-s);" id="typing-goal-info"></div>` }
     ];
 
-    case 'reading': return [
-      { icon: 'book', question: 'よんだ本の だいめいは？',
-        html: `<input type="text" class="mq-input" id="f-title" placeholder="本のなまえ">`, require: 'f-title' },
-      { icon: 'tag', question: 'どんな本だった？', html: choiceGroup('f-genre', [
-          { value: 'ものがたり', label: 'ものがたり', icon: 'dragon' },
-          { value: 'かがく', label: 'かがく', icon: 'flask' },
-          { value: 'でんき', label: 'でんき', icon: 'person' },
-          { value: 'ずかん', label: 'ずかん', icon: 'map' },
-          { value: 'まんが・その他', label: 'そのほか', icon: 'books' }
-        ]) },
-      { icon: 'page', question: '何ページ よんだ？', html: stepper('f-pages', { min: 0, step: 10 }) },
-      { icon: 'star', question: 'おすすめ度は いくつ？',
-        html: `<div class="star-rating no-furigana text-center" id="f-rating" data-value="3" role="group" aria-label="おすすめ度">${
-          [1, 2, 3, 4, 5].map(i => `<span class="star" data-star="${i}">★</span>`).join('')}</div>`,
-        hint: 'ほしを タップして えらんでね' },
-      { icon: 'comment', question: 'よんでみて どうだった？',
-        html: `<textarea class="mq-textarea" id="f-comment" placeholder="おもしろかったところ、心にのこったところ"></textarea>
-          ${starterChips('f-comment', ['いちばんおもしろかったのは', '主人公は', 'よんでみて'])}` }
-    ];
+    // どくしょは「どくしょ ちょきんばこ」アプリのきろくから自動で入るため、
+    // 入力フォームを持ちません（100マス計算と同じ扱い。RECORD_TYPES.reading.appOnly）
 
     case 'growth': return [
       { icon: 'sprout', question: 'どんなことが できるように なった？',
@@ -1491,10 +1479,6 @@ function collectFormData(type) {
   const c = id => (document.getElementById(id) ? document.getElementById(id).dataset.value : '');
   switch (type) {
     case 'typing': return { correct: v('f-correct'), total: v('f-total'), time: v('f-time') };
-    case 'reading': return {
-      title: v('f-title'), genre: c('f-genre'), pages: v('f-pages'),
-      rating: document.getElementById('f-rating').dataset.value, comment: v('f-comment')
-    };
     case 'growth': return { content: v('f-content'), comment: v('f-gcomment') };
     case 'study': return { theme: v('f-theme'), summary: v('f-summary'), next: v('f-next') };
     case 'lesson': return {
@@ -1660,26 +1644,6 @@ function bindRecordFormExtras(type) {
     }
   }
 
-  // 読書: 星評価
-  const rating = document.getElementById('f-rating');
-  if (rating) {
-    const update = value => {
-      rating.dataset.value = value;
-      rating.querySelectorAll('.star').forEach(star => {
-        star.classList.toggle('off', Number(star.dataset.star) > value);
-      });
-    };
-    rating.querySelectorAll('.star').forEach(star => {
-      star.addEventListener('click', () => {
-        update(Number(star.dataset.star));
-        // 押した星がはねる、ちいさな手ごたえ
-        star.classList.add('pop');
-        setTimeout(() => star.classList.remove('pop'), 160);
-      });
-    });
-    update(3);
-  }
-
   // テスト: 教科 → 単元の連動
   const tsubject = document.getElementById('f-tsubject');
   if (tsubject) {
@@ -1801,24 +1765,27 @@ function renderCalcTab(records) {
 
 function renderReadingTab(records) {
   const s = records.reading.summary;
-  const genres = Object.keys(s.byGenre).map(g =>
-    `<span class="badge bg-light text-dark border me-1">${esc(g)}: ${s.byGenre[g].books}さつ</span>`).join('');
   document.getElementById('rtab-reading').innerHTML = `
+    <div id="reading-send-card" class="mb-3"></div>
+    <div class="alert alert-light border small">
+      ${icon('book')} どくしょのきろくは、<b>どくしょ ちょきんばこ</b>のきろくをおくると自動でふえるよ。
+      本を よんだら、まず どくしょ ちょきんばこで きろくしてね。
+    </div>
     <div class="card record-form-card shadow-sm mb-3"><div class="card-body">
       <div class="d-flex gap-4 flex-wrap">
         <div>よんだ本: <b class="fs-5 text-primary">${s.totalBooks}</b> さつ</div>
         <div>よんだページ: <b class="fs-5 text-primary">${s.totalPages}</b> ページ</div>
       </div>
-      <div class="mt-2">${genres}</div>
     </div></div>
     ${records.reading.records.map(r => `
       <div class="card record-form-card shadow-sm mb-2"><div class="card-body py-2">
         <div class="d-flex justify-content-between flex-wrap">
           <b class="text-primary">${esc(r.title)}</b>
-          <span class="small text-muted">${r.date} / ${esc(r.genre)} / ${r.pages}ページ / ${'★'.repeat(r.rating)}${'☆'.repeat(Math.max(0, 5 - r.rating))}</span>
+          <span class="small text-muted">${r.date} / ${r.pages}ページ / ${'★'.repeat(r.rating)}${'☆'.repeat(Math.max(0, 5 - r.rating))}</span>
         </div>
         ${r.comment ? `<div class="small mt-1">${esc(r.comment)}</div>` : ''}
       </div></div>`).join('') || emptyMessage('まだきろくがありません')}`;
+  renderStudySendPanels();
 }
 
 function renderNotesTab(records) {
@@ -2297,7 +2264,7 @@ function renderBookshelf() {
               <div class="flex-grow-1">
                 <div class="fw-bold">${esc(book.title)}</div>
                 <div class="small text-muted">
-                  ${esc(book.genre)} ・ ${book.readers}人が読んだ
+                  ${book.readers}人が読んだ
                   ${book.avgRating ? ` ・ <span class="no-furigana">⭐</span> ${book.avgRating}` : ''}
                 </div>
               </div>

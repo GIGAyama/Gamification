@@ -235,21 +235,26 @@ function sendCheer(payload) {
 /**
  * クラスの読書記録を本だなとして返します。
  * 同じ本は1つにまとめ、読んだ人数・評価の平均・おすすめコメントを付けます。
+ *
+ * まとめる鍵は **ISBN があれば ISBN**、なければ題名です。
+ * 読書記録は「どくしょ ちょきんばこ」からの転記で作られ、書誌が取れた本には
+ * ISBN が入ります。ISBN でまとめると、副題や表記ゆれで同じ本が分かれません。
  */
 function getClassBookshelf_(ss, nicknameMap) {
   const sheet = ss.getSheetByName(SHEETS.READING);
   if (!sheet || sheet.getLastRow() < 2) return [];
 
   const books = {};
-  sheet.getRange(2, 1, sheet.getLastRow() - 1, 7).getValues().forEach(row => {
+  const cols = Math.min(READING_COLS.NUM, sheet.getLastColumn());
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues().forEach(row => {
     const email = String(row[1]).toLowerCase().trim();
     const title = String(row[2] || '').trim();
     if (!nicknameMap[email] || !title) return;
     const rating = Number(row[5]) || 0;
-    const key = title;
+    const isbn = String(row[7] || '').trim();
+    const key = isbn || title;
     const book = books[key] = books[key] || {
       title,
-      genre: String(row[3] || '分類なし'),
       readers: {},
       ratingSum: 0,
       ratingCount: 0,
@@ -272,7 +277,6 @@ function getClassBookshelf_(ss, nicknameMap) {
       const book = books[key];
       return {
         title: book.title,
-        genre: book.genre,
         readers: Object.keys(book.readers).length,
         avgRating: book.ratingCount > 0 ? Math.round((book.ratingSum / book.ratingCount) * 10) / 10 : null,
         comments: book.comments
