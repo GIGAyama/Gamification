@@ -32,17 +32,12 @@ function saveRecord(payload) {
       let aiCoach = '';
       // 自己ベスト更新の判定に使う「今回の値」（種目ごとに詰めます）
       let bestContext = null;
-      // タイピングの目標判定で使う「今回の記録そのもの」
+      // タイピングのめあて判定で使う「今回の記録そのもの」。
+      // タイピングは Typa からの受信に一本化したため、この画面からは入りません
+      // （判定は 10_studylog.gs の receiveStudyRecords_ で行います）
       let goalContext = null;
 
       switch (type) {
-        case 'typing': {
-          const r = saveTypingRecord_(ss, email, formData, config);
-          gainedExp = r.gainedExp;
-          bestContext = { kind: 'typingSpeed', value: r.speed, previous: r.previousBestSpeed };
-          goalContext = { typingSpeed: r.speed, typingAccuracy: r.accuracy };
-          break;
-        }
         case 'growth': gainedExp = saveGrowthRecord_(ss, email, formData, config); break;
         case 'study': gainedExp = saveStudyRecord_(ss, email, formData, config); break;
         case 'lesson': {
@@ -116,31 +111,10 @@ function saveRecord(payload) {
 // 各記録の保存処理（バリデーション + 追記 + 経験値計算）
 // ---------------------------------------------------------------------
 
-function saveTypingRecord_(ss, email, data, config) {
-  const correct = parseInt(data.correct, 10);
-  const total = parseInt(data.total, 10);
-  const time = parseFloat(data.time);
-  if (isNaN(correct) || isNaN(total) || isNaN(time) || total <= 0 || time <= 0 || correct < 0 || correct > total) {
-    throw new Error('入力された数値が正しくありません。');
-  }
-  const speed = total / time;
-  const accuracy = (correct / total) * 100;
-
-  // 自己ベストは「今回を含めない」これまでの最高記録と比べます（追記の前に読みます）
-  const previous = getBestTypingRecord_(ss, email);
-  const previousBestSpeed = previous ? Number(previous.bestSpeed) : null;
-
-  ss.getSheetByName(SHEETS.TYPING).appendRow([new Date(), email, correct, total, accuracy, 100 - accuracy, speed]);
-
-  const coefficient = getConfigNumber_(config, 'タイピング経験値係数', 1);
-  const gainedExp = Math.floor(speed * (accuracy / 100) * coefficient);
-
-  return { gainedExp, speed, accuracy, previousBestSpeed };
-}
-
-// ※ 100マス計算と読書は自己申告の手入力を廃止し、それぞれ 100マス計算アプリ／
-//    どくしょ ちょきんばこ（study.v1）から届いたレコードを 10_studylog.gs が
-//    「100マス計算記録」「読書記録」シートへ自動転記します。
+// ※ タイピング・100マス計算・読書は自己申告の手入力を廃止し、それぞれ
+//    Typa ／ 100マス計算アプリ ／ どくしょ ちょきんばこ（study.v1）から届いたレコードを
+//    10_studylog.gs が「タイピング記録」「100マス計算記録」「読書記録」シートへ自動転記します。
+//    タイピングの自己ベスト（速さ）と、めあての達成判定も受信時に行います。
 
 function saveGrowthRecord_(ss, email, data, config) {
   if (!data.content) throw new Error('「どんなことができるようになった？」を入力してください。');
@@ -558,9 +532,13 @@ function formatDate_(value, pattern) {
   return d ? Utilities.formatDate(d, 'JST', pattern || 'yyyy/MM/dd') : '';
 }
 
+/**
+ * タイピング記録（Typa から自動転記された行）を読み出します。
+ * 日時は日付までしか入らないため（仕様 §4.1）、時刻は表示しません。
+ */
 function getTypingRecords_(ss, email) {
   return getUserRows_(ss, SHEETS.TYPING, email, 7, LIMITS.RECORDS_DISPLAY).map(row => ({
-    date: formatDate_(row[0], 'yyyy/MM/dd HH:mm'),
+    date: formatDate_(row[0]),
     accuracy: Number(row[4]).toFixed(1),
     speed: Number(row[6]).toFixed(2)
   }));
