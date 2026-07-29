@@ -216,7 +216,7 @@ const PRAISE_STAMPS = [
  * app には、その記録を作る学習アプリの名前を入れます（案内メッセージに使います）。
  */
 const RECORD_TYPES = {
-  typing: { label: 'タイピング', log: LOG_ACTIONS.RECORD_TYPING },
+  typing: { label: 'タイピング', log: LOG_ACTIONS.RECORD_TYPING, appOnly: true, app: 'Typa（タイピング）' },
   calc: { label: '100マス計算', log: LOG_ACTIONS.RECORD_CALC, appOnly: true, app: '100マス計算アプリ' },
   reading: { label: '読書', log: LOG_ACTIONS.RECORD_READING, appOnly: true, app: 'どくしょ ちょきんばこ' },
   growth: { label: '成長のきろく', log: LOG_ACTIONS.RECORD_GROWTH },

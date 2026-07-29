@@ -784,7 +784,7 @@ function studySendPanelHtml() {
 
 /** ホームと「きろく」タブの送信パネルをまとめて描き直します */
 function renderStudySendPanels() {
-  ['home-send-card', 'apps-send-card', 'calc-send-card', 'reading-send-card'].forEach(id => {
+  ['home-send-card', 'apps-send-card', 'typing-send-card', 'calc-send-card', 'reading-send-card'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.innerHTML = studySendPanelHtml();
@@ -823,11 +823,13 @@ function handlePortalSendResult(msg) {
 
   const r = msg.reward || {};
   const lines = [`<b>${msg.saved}件</b>の きろくを おくりました！`];
+  if (r.typingRecords > 0) lines.push(`${icon('keyboard')} タイピング <b>${r.typingRecords}回分</b> がきろくされたよ`);
   if (r.calcRecords > 0) lines.push(`${icon('calc')} 100マス計算 <b>${r.calcRecords}回分</b> がきろくされたよ`);
   if (r.readingRecords > 0) lines.push(`${icon('book')} どくしょ <b>${r.readingRecords}さつ分</b> がきろくされたよ`);
   if (msg.gainedExp > 0) lines.push(`<b class="text-primary fs-5">+${msg.gainedExp} EXP</b> ゲット！`);
   const detail = [];
   if (r.appExp > 0) detail.push(`学習時間 +${r.appExp}`);
+  if (r.typingExp > 0) detail.push(`タイピング +${r.typingExp}`);
   if (r.calcExp > 0) detail.push(`100マスの点数 +${r.calcExp}`);
   if (r.readingExp > 0) detail.push(`よんだページ +${r.readingExp}`);
   if (r.sendExp > 0) detail.push(`そうしんボーナス +${r.sendExp}`);
@@ -838,12 +840,16 @@ function handlePortalSendResult(msg) {
   if (r.exchangePoints > 0) lines.push(`${icon('gift')} 交換ポイント <b>+${r.exchangePoints}</b>`);
   if (msg.duplicate > 0) lines.push(`<span class="small text-muted">${msg.duplicate}件は おくりずみでした</span>`);
   if (msg.kept > 0) lines.push(`<span class="small text-warning">${msg.kept}件は まだ おくれません（きろくは のこしてあります）</span>`);
-  if (msg.personalBest) {
-    const b = msg.personalBest;
+  // じこベストは 100マスのタイムと タイピングの速さの 両方が同時に更新されることがあります
+  const bests = msg.personalBests || (msg.personalBest ? [msg.personalBest] : []);
+  bests.slice().reverse().forEach(b => {
     lines.unshift(`${icon('star')} <b class="text-danger">じこベスト更新！</b> ${esc(b.label)} ${b.value}${esc(b.unit)}（まえは ${b.previous}${esc(b.unit)}）`);
-  }
+  });
+  (msg.achievedGoals || []).forEach(g => {
+    lines.unshift(`${icon('trophy')} <b class="text-success">めあて たっせい！</b> ${esc(g.kindLabel)}${g.memo ? `「${esc(g.memo)}」` : ''}${g.exp > 0 ? ` +${g.exp} EXP` : ''}`);
+  });
 
-  Swal.fire({ icon: 'success', title: msg.personalBest ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
+  Swal.fire({ icon: 'success', title: bests.length > 0 ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
     if (msg.leveledUp) {
       showLevelUp(msg.level).then(refreshStudentData);
     } else {
@@ -990,13 +996,14 @@ function renderBadges(earnedBadges, allBadges) {
 /* ---------------- きろく（書く） ---------------- */
 
 /**
- * きろくの種類を3つのグループにまとめています。
- * 7種類をいちどにならべると児童には多すぎるので、
+ * きろくの種類をグループにまとめています。
+ * 種類をいちどにならべると児童には多すぎるので、
  * 「グループをえらぶ → 種類をえらぶ → 1問ずつ答える」の3段階にしています。
+ *
+ * タイピング・100マス計算・どくしょは、それぞれ Typa・100マス計算アプリ・
+ * どくしょ ちょきんばこ のきろくから自動で入るため、ここにはありません。
  */
 const RECORD_GROUPS = [
-  { key: 'practice', icon: 'run', title: 'まいにちの れんしゅう', note: 'タイピング',
-    door: 'door-blue', types: ['typing'] },
   { key: 'lesson', icon: 'note', title: 'じゅぎょうの ふり返り', note: 'じゅぎょう・テスト・どうとく',
     door: 'door-cyan', types: ['lesson', 'test', 'moral'] },
   { key: 'self', icon: 'sprout', title: 'じぶんの こと', note: 'せいちょう・じしゅ学習',
@@ -1028,8 +1035,8 @@ function renderRecordGroupMenu() {
         <span class="door-arrow">${icon('chevron-right')}</span>
       </button>`).join('')}
     <p class="mq-hint mt-3">
-      100マス計算と どくしょは、<b>100マス計算アプリ</b>・<b>どくしょ ちょきんばこ</b>の
-      きろくを おくると じどうで 入ります。
+      タイピング・100マス計算・どくしょは、<b>Typa</b>・<b>100マス計算アプリ</b>・
+      <b>どくしょ ちょきんばこ</b>の きろくを おくると じどうで 入ります。
     </p>`;
 
   panel.querySelectorAll('[data-record-group]').forEach(btn => {
@@ -1241,8 +1248,6 @@ function renderStudyAppTab(d) {
  * 「いま どのきろくを 書いているか」が 色でも分かるようにしています。
  */
 const RECORD_STYLES = {
-  typing: { icon: 'keyboard', label: 'タイピング', note: 'そくどと 正かくさ',
-            door: 'door-blue', accent: 'accent-blue', btn: 'mq-btn' },
   growth: { icon: 'sprout', label: 'せいちょう', note: 'できるようになったこと',
             door: 'door-green', accent: 'accent-green', btn: 'mq-btn-green' },
   study:  { icon: 'bulb', label: 'じしゅ学習', note: 'じぶんでしらべたこと',
@@ -1255,10 +1260,11 @@ const RECORD_STYLES = {
             door: 'door-pink', accent: 'accent-pink', btn: 'mq-btn-pink' }
 };
 
-// どくしょ（reading）と100マス計算（calc）はアプリのきろくから自動で入るため、
-// 入力フォームを持ちません。この2つは RECORD_STYLES / RECORD_LABELS にも載せていません。
+// タイピング（typing）・100マス計算（calc）・どくしょ（reading）はアプリのきろくから
+// 自動で入るため、入力フォームを持ちません。
+// この3つは RECORD_STYLES / RECORD_LABELS にも載せていません。
 const RECORD_LABELS = {
-  typing: 'タイピング', growth: 'せいちょうのきろく',
+  growth: 'せいちょうのきろく',
   study: 'じしゅ学習', lesson: 'じゅぎょうのふり返り', test: 'テストのふり返り', moral: 'どうとくノート'
 };
 
@@ -1380,16 +1386,9 @@ const SUBJECTS = ['国語', '社会', '算数', '理科', '英語', '音楽', '�
  */
 function recordSteps(type) {
   switch (type) {
-    case 'typing': return [
-      { icon: 'keyboard', question: 'ぜんぶで 何もじ 打った？', html: stepper('f-total', { min: 0, step: 5 }), require: 'f-total' },
-      { icon: 'check', question: 'そのうち 正しく打てたのは？', html: stepper('f-correct', { min: 0, step: 5 }), require: 'f-correct' },
-      { icon: 'timer', question: '何びょう かかった？', html: stepper('f-time', { min: 0, step: 10 }),
-        hint: 'いまの目標は つぎの画面で かくにんできるよ', require: 'f-time' },
-      { icon: 'target', question: 'いまの目標', html: `<div class="p-3 rounded-3" style="background:var(--mq-blue-s);" id="typing-goal-info"></div>` }
-    ];
-
-    // どくしょは「どくしょ ちょきんばこ」アプリのきろくから自動で入るため、
-    // 入力フォームを持ちません（100マス計算と同じ扱い。RECORD_TYPES.reading.appOnly）
+    // タイピング・100マス計算・どくしょは、Typa／100マス計算アプリ／
+    // どくしょ ちょきんばこ のきろくから自動で入るため、入力フォームを持ちません
+    // （RECORD_TYPES の appOnly。サーバー側の saveRecord も受け付けません）
 
     case 'growth': return [
       { icon: 'sprout', question: 'どんなことが できるように なった？',
@@ -1478,7 +1477,6 @@ function collectFormData(type) {
   // 押して選ぶタイプの選択肢は、えらんだ値を data-value に持っています
   const c = id => (document.getElementById(id) ? document.getElementById(id).dataset.value : '');
   switch (type) {
-    case 'typing': return { correct: v('f-correct'), total: v('f-total'), time: v('f-time') };
     case 'growth': return { content: v('f-content'), comment: v('f-gcomment') };
     case 'study': return { theme: v('f-theme'), summary: v('f-summary'), next: v('f-next') };
     case 'lesson': return {
@@ -1625,24 +1623,10 @@ function onStepNext() {
   submitRecordForm(RecordForm.type);
 }
 
-/** 入力フォームの中の、種類ごとの追加のうごき（星・目標表示・単元の連動） */
+/** 入力フォームの中の、種類ごとの追加のうごき（単元の連動など） */
 function bindRecordFormExtras(type) {
-  // タイピング: 目標表示 + 目標セットボタン
-  const goalInfo = document.getElementById('typing-goal-info');
-  if (goalInfo) {
-    const goal = App.data.records.goalData.currentGoal;
-    if (goal) {
-      const parts = [];
-      if (goal.speedGoal) parts.push(`速さ ${goal.speedGoal} 打/秒`);
-      if (goal.accuracyGoal) parts.push(`正答率 ${goal.accuracyGoal}%`);
-      goalInfo.innerHTML = `${icon('target')} いまの目標: <b>${parts.join(' ・ ')}</b>`;
-    } else {
-      goalInfo.innerHTML = `目標が まだ ありません。
-        <button type="button" class="mq-btn mt-2" style="min-height:2.6rem;padding:.4rem 1rem;font-size:.95rem;" id="set-goal-btn">目標をセットする</button>`;
-      const btn = document.getElementById('set-goal-btn');
-      if (btn) btn.addEventListener('click', () => openGoalDialog('typing'));
-    }
-  }
+  // ※ タイピングの目標表示はここにありました。タイピングの入力フォームを廃止したため、
+  //   めあての確認とセットは「きろくを見かえす → はやさ」タブに移しています。
 
   // テスト: 教科 → 単元の連動
   const tsubject = document.getElementById('f-tsubject');
@@ -1728,6 +1712,11 @@ function renderTypingTab(records) {
     ? `<div class="small text-muted mt-1">たっせいした目標: ${records.goalData.achievedGoals.length}こ ${icon('trophy')}</div>` : '';
 
   document.getElementById('rtab-typing').innerHTML = `
+    <div id="typing-send-card" class="mb-3"></div>
+    <div class="alert alert-light border small">
+      ${icon('keyboard')} タイピングのきろくは、<b>Typa（タイパ）</b>のきろくをおくると自動でふえるよ。
+      速さは「正しく打てた数 ÷ びょう」なので、まちがえずに打つほど のびるよ。
+    </div>
     <div class="card record-form-card shadow-sm mb-3">
       <div class="card-body d-flex flex-wrap gap-3 align-items-center">
         <div>${goalHtml}${achievedHtml}</div>
@@ -1740,6 +1729,7 @@ function renderTypingTab(records) {
       records.typing.map(r => [r.date, r.speed, r.accuracy]))}</div></div>`;
   const goalBtn = document.getElementById('typing-tab-goal-btn');
   if (goalBtn) goalBtn.addEventListener('click', () => openGoalDialog('typing'));
+  renderStudySendPanels();
   if (isShown_('rtab-typing')) drawTypingChart(records.typingChart);
 }
 

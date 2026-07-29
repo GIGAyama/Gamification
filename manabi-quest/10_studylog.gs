@@ -22,6 +22,12 @@
  * - どくしょ ちょきんばこのレコードは「読書記録」シートへも自動転記する
  *   （読書の手入力フォームを廃止し、記録は読書アプリに一本化した。冊数・ページ数は
  *     従来どおりランキング・バッジ・ミッション・ポートフォリオPDFに反映される）
+ * - Typa のレコードは「タイピング記録」シートへも自動転記する
+ *   （タイピングの手入力フォームを廃止し、記録は Typa に一本化した。速さ・正答率は
+ *     アプリの実測値になり、ランキング・バッジ・めあて・グラフの土台になる）
+ * - 自己ベスト（100マスのタイム／タイピングの速さ）と、立てためあての達成判定も
+ *   この受信のなかで行う。タイピングの記録経路がここだけになったため、
+ *   ここで判定しないと「速さ◯打/秒」のめあてが永久に達成できない
  * - 読書アプリの elapsedMs は「記録する操作」の時間であり読書時間ではないため、
  *   学習時間の合計・ランキング・時間あたりの経験値からは除外する（§3.8.2）。
  *   読書の取り組み量は冊数とページ数で数える
@@ -54,7 +60,8 @@ const STUDY_APPS = {
   'keisan-block': 'さんすうブロック',
   'square100': '100マス計算',
   'kuku-card': '九九カード',
-  'reading-books': 'どくしょ ちょきんばこ'
+  'reading-books': 'どくしょ ちょきんばこ',
+  'typa': 'Typa（タイピング）'
 };
 
 /**
@@ -78,6 +85,9 @@ const SQUARE100_APP_ID = 'square100';
 
 /** 「読書記録」シートへ自動転記する対象アプリ（どくしょ ちょきんばこ） */
 const READING_APP_ID = 'reading-books';
+
+/** 「タイピング記録」シートへ自動転記する対象アプリ（Typa） */
+const TYPING_APP_ID = 'typa';
 
 /**
  * 学習時間（elapsedMs / activeMs）を合計に加えないアプリ（仕様 §3.8.2）。
@@ -229,10 +239,12 @@ function receiveStudyRecords_(payload, options) {
     const expCap = getConfigNumber_(config, '学習アプリ経験値上限', 30);
     const calcCoeff = getConfigNumber_(config, '100マス計算アプリ経験値係数', 0.5);
     const readingCoeff = getConfigNumber_(config, '読書記録経験値係数', 1);
+    const typingCoeff = getConfigNumber_(config, 'タイピング経験値係数', 1);
     const now = new Date();
 
-    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [], calcRows = [], readingRows = [];
-    let appExp = 0, calcExp = 0, readingExp = 0;
+    const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [];
+    const calcRows = [], readingRows = [], typingRows = [];
+    let appExp = 0, calcExp = 0, readingExp = 0, typingExp = 0;
 
     records.forEach(rec => {
       const v = validateStudyRecord_(rec, now);
@@ -273,6 +285,13 @@ function receiveStudyRecords_(payload, options) {
         readingRows.push(book);
         if (readingCoeff > 0) readingExp += Math.floor(book.pages * readingCoeff);
       }
+      // Typa のレコードは「タイピング記録」シートへも転記し、速さ×正答率ぶんの経験値を追加
+      // （手入力フォームだったころと同じ計算式・同じ設定項目です）
+      const typing = buildTypingRecordRow_(v, student);
+      if (typing) {
+        typingRows.push(typing);
+        if (typingCoeff > 0) typingExp += Math.floor(typing.speed * (typing.accuracy / 100) * typingCoeff);
+      }
       saved.push(v.rec.id);
     });
 
@@ -280,63 +299,99 @@ function receiveStudyRecords_(payload, options) {
       return { success: true, saved, duplicate, rejected, gainedExp: 0, reward: emptyStudyReward_() };
     }
 
-    // 100マスの自己ベスト判定は、今回の記録を追記する「前」の最速タイムと比べます
+    // 自己ベストの判定は、今回の記録を追記する「前」の記録と比べます
     const previousCalcBest = getBestCalcTime_(ss, student.email);
+    const previousTypingBestRow = getBestTypingRecord_(ss, student.email);
+    const previousTypingBest = previousTypingBestRow ? Number(previousTypingBestRow.bestSpeed) : null;
 
     sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
     logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
     appendCalcRecords_(ss, student, calcRows);
     appendReadingRecords_(ss, student, readingRows);
+    appendTypingRecords_(ss, student, typingRows);
 
     // 送信ボーナスは「今日はじめての送信」だけに付くので、ログを書く前に判定する
-    const reward = grantStudySendReward_(ss, student, config, now, rows.length, calcRows.length, readingRows.length);
+    const reward = grantStudySendReward_(ss, student, config, now, rows.length,
+      calcRows.length, readingRows.length, typingRows.length);
     reward.appExp = appExp;
     reward.calcExp = calcExp;
     reward.readingExp = readingExp;
+    reward.typingExp = typingExp;
 
-    let leveledUp = false;
-    const applyExp = (amount, label) => {
-      const r = addExp_(ss, student.email, amount, label);
-      if (r && r.leveledUp) leveledUp = true;
-      return r;
-    };
+    // レベルアップの判定は、この受信でEXPを足しはじめる前のレベルと最後に比べます
+    // （じこベスト・めあて達成のぶんも addExp_ を通るため、最後にまとめて見ます）
+    const levelBefore = calculateLevel(getUserTotalExp_(ss, student.email), config).level;
+    const applyExp = (amount, label) => addExp_(ss, student.email, amount, label);
     applyExp(appExp, '学習アプリ');
     applyExp(calcExp, '100マス計算');
     applyExp(readingExp, RECORD_TYPES.reading.label);
+    applyExp(typingExp, RECORD_TYPES.typing.label);
     applyExp(reward.sendExp, '学習きろくのそうしんボーナス');
     applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
 
-    // A-2 じこベスト更新（100マス計算のタイム。同じ問題数どうしで比べます）
-    let personalBest = null;
+    // 記録シートが変わったので、自己ベストとめあての判定を回す前にキャッシュを捨てます
+    // （順番は saveRecord と同じです。古い集計のままだと、いま追記した記録が
+    //   めあての進みぐあいに反映されません）
+    clearRecordStoreCache_();
+    clearInsightsCache_(student.email);
+
+    // A-2 じこベスト更新。100マス計算のタイムとタイピングの速さの両方が対象で、
+    // どちらも更新することがあるため配列で返します（personalBest は旧クライアント互換）
+    const personalBests = [];
+    // 100マス計算は同じ問題数どうしでないとタイムを比べられないので100問だけ
     const fastest = calcRows
       .filter(c => c.row[3] === 100)
       .map(c => c.row[5])
       .sort((a, b) => a - b)[0];
     if (fastest !== undefined) {
       const best = applyPersonalBest_(ss, student.email, config, 'calcTime', fastest, previousCalcBest);
-      if (best.updated) {
-        personalBest = best;
-        reward.personalBestExp = best.exp;
-      }
+      if (best.updated) personalBests.push(best);
     }
+    // タイピングは今回いちばん速かった記録で判定します
+    const topTyping = typingRows.map(t => t.speed).sort((a, b) => b - a)[0];
+    if (topTyping !== undefined) {
+      const best = applyPersonalBest_(ss, student.email, config, 'typingSpeed', topTyping, previousTypingBest);
+      if (best.updated) personalBests.push(best);
+    }
+    reward.personalBestExp = personalBests.reduce((sum, b) => sum + (b.exp || 0), 0);
 
     // A-1 その日はじめてのきろくに連続ボーナス（アプリからの送信でも積み上がります）
     const streakBonus = applyRecordStreakBonus_(ss, student.email, config);
     reward.recordStreakExp = streakBonus.exp;
     reward.recordStreak = streakBonus.streak;
 
+    // B-1/B-3 めあての達成判定。
+    // タイピングの記録は手入力を廃止してこの経路だけになったため、
+    // ここで判定しないと「速さ◯打/秒」のめあてが永久に達成できません。
+    // ついでに読書・100マス・学習アプリのめあても、送信のたびに進み具合を見ます。
+    const goalContext = topTyping !== undefined
+      ? { typingSpeed: topTyping, typingAccuracy: bestTypingAccuracy_(typingRows, topTyping) }
+      : null;
+    const achievedGoals = checkGoalsAfterRecord_(ss, student.email, config, goalContext);
+    const goalExp = achievedGoals.reduce((sum, g) => sum + (g.exp || 0), 0);
+
     clearInsightsCache_(student.email);
     clearRecordStoreCache_();
     clearClassLogStatsCache_();
 
-    const gainedExp = appExp + calcExp + readingExp + reward.sendExp + reward.streakExp
-      + (reward.personalBestExp || 0) + (reward.recordStreakExp || 0);
+    const gainedExp = appExp + calcExp + readingExp + typingExp + reward.sendExp + reward.streakExp
+      + (reward.personalBestExp || 0) + (reward.recordStreakExp || 0) + goalExp;
     const levelInfo = calculateLevel(getUserTotalExp_(ss, student.email), config);
     return {
       success: true, saved, duplicate, rejected, gainedExp, reward,
-      level: levelInfo.level, leveledUp, personalBest
+      level: levelInfo.level,
+      leveledUp: levelInfo.level > levelBefore,
+      personalBests,
+      personalBest: personalBests[0] || null,   // 旧クライアント互換（1つだけを見ます）
+      achievedGoals
     };
   });
+}
+
+/** 今回いちばん速かった記録の正答率（めあての「正答率」の判定に使います） */
+function bestTypingAccuracy_(typingRows, topSpeed) {
+  const hit = typingRows.filter(t => t.speed === topSpeed)[0];
+  return hit ? hit.accuracy : 0;
 }
 
 /**
@@ -360,8 +415,8 @@ function getBestCalcTime_(ss, email) {
 /** ボーナスなしの初期値 */
 function emptyStudyReward_() {
   return {
-    appExp: 0, calcExp: 0, readingExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
-    streak: 0, calcRecords: 0, readingRecords: 0, records: 0,
+    appExp: 0, calcExp: 0, readingExp: 0, typingExp: 0, sendExp: 0, streakExp: 0, exchangePoints: 0,
+    streak: 0, calcRecords: 0, readingRecords: 0, typingRecords: 0, records: 0,
     personalBestExp: 0, recordStreakExp: 0, recordStreak: 0
   };
 }
@@ -374,11 +429,12 @@ function emptyStudyReward_() {
  * 「送るとはっきり得をする」ことで、学習アプリでの学びをまなびクエストに持ち込む動機づけにします。
  * ※ 経験値の加算は呼び出し側（他のEXPとまとめてレベルアップ判定するため）で行います。
  */
-function grantStudySendReward_(ss, student, config, now, recordCount, calcCount, readingCount) {
+function grantStudySendReward_(ss, student, config, now, recordCount, calcCount, readingCount, typingCount) {
   const reward = emptyStudyReward_();
   reward.records = recordCount;
   reward.calcRecords = calcCount;
   reward.readingRecords = readingCount || 0;
+  reward.typingRecords = typingCount || 0;
 
   const days = getStudySendDays_(ss, student.email);
   const today = Utilities.formatDate(now, 'JST', 'yyyy-MM-dd');
@@ -523,6 +579,74 @@ function readingComment_(ext) {
 function readingIsbn_(ext) {
   const isbn = ext && ext.isbn;
   return (typeof isbn === 'string' && /^\d{13}$/.test(isbn)) ? isbn : '';
+}
+
+// ---------------------------------------------------------------------
+// タイピング記録への自動転記
+// ---------------------------------------------------------------------
+
+/**
+ * Typa（typa）のレコードを「タイピング記録」シートの1行に変換します。
+ *
+ * タイピングの記録はまなびクエスト側の手入力フォームを廃止し、この転記に
+ * 一本化しました。自己申告だったころは「打った数」も「かかった秒数」も
+ * 児童の記憶と申告に頼っていましたが、いまはアプリの実測値が入ります。
+ *
+ * 対象は **通常出題（course）× 客観採点（objective）× ソロプレイ × 完走（completed）**
+ * のうち、**打鍵数を持つレコードだけ**です。Typa の「ショートカット」ステージは
+ * キーを打った数を数えないため（ext.totalKeys = 0）ここでは除かれ、学習ログ側にだけ
+ * 残ります。速さや正答率を同じ土俵で比べられない記録を混ぜないためです。
+ *
+ * ■ 「速さ」は正しく打てた数でかぞえます
+ * アプリが送ってくる `ext.kps` は `正しく打てた数 ÷ 秒` です（手入力時代の
+ * 「打った合計数 ÷ 秒」ではありません）。実測になった以上、でたらめな連打で
+ * 速さのランキングが伸びてしまう数え方は使えないためです。
+ * 正しく打てているほど、ふたつの数え方の差は小さくなります。
+ *
+ * @returns {{row: Array, speed: number, accuracy: number}|null}
+ */
+function buildTypingRecordRow_(v, student) {
+  const r = v.rec;
+  if (r.appId !== TYPING_APP_ID) return null;
+  if (r.status !== 'completed' || r.multiplayer) return null;
+  if (r.source !== 'course' || r.grading !== 'objective') return null;
+
+  const ext = r.extJson ? safeParseJson_(r.extJson) : null;
+  const total = Number(ext && ext.totalKeys);
+  const correct = Number(ext && ext.correctKeys);
+  if (!isFinite(total) || total <= 0) return null;                 // ショートカットのステージなど
+  if (!isFinite(correct) || correct < 0 || correct > total) return null;
+
+  const accuracy = (correct / total) * 100;
+  // ext.kps が無い／こわれている古い版のために、経過時間から計算し直せるようにします
+  let speed = Number(ext && ext.kps);
+  if (!isFinite(speed) || speed <= 0) {
+    if (!r.elapsedMs || r.elapsedMs <= 0) return null;
+    speed = correct / (r.elapsedMs / 1000);
+  }
+  if (speed > 100) return null;                                     // 人の手では出ない値は受け取りません
+
+  const day = new Date(Utilities.formatDate(v.started, 'JST', 'yyyy/MM/dd') + ' 00:00:00');
+  const round2 = n => Math.round(n * 100) / 100;
+  return {
+    row: [day, student.email, Math.round(correct), Math.round(total),
+          round2(accuracy), round2(100 - accuracy), round2(speed)],
+    speed: round2(speed),
+    accuracy: round2(accuracy)
+  };
+}
+
+/** 変換したタイピング記録をまとめて追記し、ミッション・バッジ判定用のログも残します */
+function appendTypingRecords_(ss, student, typingRows) {
+  if (!typingRows || typingRows.length === 0) return;
+  const sheet = ss.getSheetByName(SHEETS.TYPING);
+  if (!sheet) return;
+  sheet.getRange(sheet.getLastRow() + 1, 1, typingRows.length, 7)
+    .setValues(typingRows.map(t => t.row));
+  typingRows.forEach(t => {
+    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_TYPING,
+      `${RECORD_TYPES.typing.label}を記録: ${t.speed} 打/秒 ／ 正答率 ${t.accuracy}%`);
+  });
 }
 
 /** JSON文字列を安全に解析します（壊れていれば null） */
