@@ -1230,7 +1230,12 @@ function renderStudyAppTab(d) {
               <tr>
                 <td class="small">${esc(r.day)}</td>
                 <td class="small">${esc(r.app)}</td>
-                <td class="small">${esc(r.unit)}${r.status === 'aborted' ? ' <span class="badge bg-light text-secondary border">とちゅう</span>' : ''}</td>
+                <td class="small">${esc(r.unit)}${r.status !== 'aborted' ? ''
+                  : r.abortNormal
+                    /* Typa は「すきま時間に少しだけ」がふつうの使い方なので、
+                       「とちゅう」と出すと、こまめに練習した子ほど中途半端に見えてしまう（仕様 §5.4） */
+                    ? ' <span class="badge bg-success-subtle text-success-emphasis border border-success">すきま練習</span>'
+                    : ' <span class="badge bg-light text-secondary border">とちゅう</span>'}</td>
                 <td class="small text-center">${r.firstTry}/${r.attempted}</td>
                 <td class="small">${min(r.minutes)}</td>
               </tr>`).join('')}
