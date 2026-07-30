@@ -33,6 +33,12 @@
  *   読書の取り組み量は冊数とページ数で数える
  * - 送信そのものにも「そうしんボーナス」「れんぞくボーナス」を用意し、
  *   きろくを送ることが児童にとってはっきり得になるようにする
+ * - 中断（aborted）は事実の記録であって評価ではない。区切りを作らないことで
+ *   すきま時間の練習を成立させているアプリ（Typa）では中断が正常な使い方なので、
+ *   「中断」の回数には数えない（§5.4。STUDY_ABORT_NORMAL_APPS）
+ * - 拡張層（ext）は横断集計には使わないが、アプリの中で見れば明日の授業を変えられる。
+ *   仕様が「他アプリにない指導価値がある」と名指しした値だけを
+ *   「指導のてがかり」として先生の画面へ出す（buildStudyTeachingHints_）
  *
  * 受信の経路は 2 つあります（どちらも最終的に receiveStudyRecords_ に入ります）:
  *
@@ -99,6 +105,28 @@ const TYPING_APP_ID = 'typa';
  */
 const STUDY_NO_TIME_APPS = {};
 STUDY_NO_TIME_APPS[READING_APP_ID] = true;
+
+/**
+ * 「中断（status: aborted）」が正常な使い方であるアプリ（仕様 §5.4）。
+ *
+ * Typa は「はじまり」も「おわり」も決めない設計で、数十秒の練習でも打ったぶんが
+ * 残ることを設計の中心に据えています。そのため `aborted` が普通の終わり方であり、
+ * これを「未完了」「途中でやめた」として先生の画面に並べると、
+ * **すきま時間にこまめに練習した児童ほど「中断が多い子」に見えてしまいます。**
+ *
+ * ここに登録したアプリのレコードは中断の回数に数えません。
+ * 取り組み量は `count` の合計と `activeMs` の合計で見ます（仕様 §5.4）。
+ */
+const STUDY_ABORT_NORMAL_APPS = {};
+STUDY_ABORT_NORMAL_APPS[TYPING_APP_ID] = true;
+
+/**
+ * 中断の回数に数えるレコードか（仕様 §5.4）。
+ * 中断が正常な使い方であるアプリ（§STUDY_ABORT_NORMAL_APPS）は数えません。
+ */
+function isStudyAbortNotable_(r) {
+  return r.status === 'aborted' && !STUDY_ABORT_NORMAL_APPS[r.appId];
+}
 
 /** study.v1 の mode → 「100マス計算記録」の「モード」表示名 */
 const SQUARE100_MODE_LABELS = {
@@ -594,8 +622,14 @@ function readingIsbn_(ext) {
  *
  * 対象は **通常出題（course）× 客観採点（objective）× ソロプレイ × 完走（completed）**
  * のうち、**打鍵数を持つレコードだけ**です。Typa の「ショートカット」ステージは
- * キーを打った数を数えないため（ext.totalKeys = 0）ここでは除かれ、学習ログ側にだけ
+ * キーを打った数を数えないため（`ext.keys` が 0）ここでは除かれ、学習ログ側にだけ
  * 残ります。速さや正答率を同じ土俵で比べられない記録を混ぜないためです。
+ *
+ * ■ 3打のまぐれを「自己ベスト」にしません（`ext.eligibleForBest`／仕様 §3.9）
+ * Typa は 20打以上打った回にだけ `ext.eligibleForBest: true` を立てます。
+ * 数打で終えた回はたまたま速い数字が出やすく、これを最高記録にしてしまうと
+ * 自己ベストもランキングも二度と更新できない値で埋まります。
+ * アプリ内の線引き（MIN_RECORD_KEYS）を、先生の画面でもそのまま使います。
  *
  * ■ 「速さ」は正しく打てた数でかぞえます
  * アプリが送ってくる `ext.kps` は `正しく打てた数 ÷ 秒` です（手入力時代の
@@ -612,10 +646,14 @@ function buildTypingRecordRow_(v, student) {
   if (r.source !== 'course' || r.grading !== 'objective') return null;
 
   const ext = r.extJson ? safeParseJson_(r.extJson) : null;
-  const total = Number(ext && ext.totalKeys);
-  const correct = Number(ext && ext.correctKeys);
-  if (!isFinite(total) || total <= 0) return null;                 // ショートカットのステージなど
-  if (!isFinite(correct) || correct < 0 || correct > total) return null;
+  // まぐれ記録は最高記録・ランキングの土台にしません（§3.9）。
+  // 学習ログ側には残るので、取り組んだ事実そのものは消えません。
+  if (ext && ext.eligibleForBest === false) return null;
+
+  const keys = typingKeyCounts_(ext);
+  if (!keys) return null;                                          // ショートカットのステージなど
+  const total = keys.total;
+  const correct = keys.correct;
 
   const accuracy = (correct / total) * 100;
   // ext.kps が無い／こわれている古い版のために、経過時間から計算し直せるようにします
@@ -634,6 +672,35 @@ function buildTypingRecordRow_(v, student) {
     speed: round2(speed),
     accuracy: round2(accuracy)
   };
+}
+
+/**
+ * Typa の ext から「打った合計数」と「正しく打てた数」を取り出します（仕様 §3.9）。
+ *
+ * 仕様で決まっている名前は `keys`（打った合計数）／`correctKeys`（正しく打てた数）／
+ * `missKeys`（打ちまちがい）です。`totalKeys` は連携をつくった時期に使っていた
+ * 旧い名前で、今も送ってくる版がありうるため受け取れるようにしてあります。
+ * どちらも無ければ `correctKeys + missKeys` から組み立てます。
+ *
+ * ここで名前を取りちがえると、タイピングの記録が1件もシートに載りません。
+ * 手入力フォームを廃止して受信だけになった以上、それは
+ * 「タイピングの記録がまるごと消える」ことと同じです。
+ *
+ * @returns {{total: number, correct: number}|null} 打鍵数を持たないレコードは null
+ */
+function typingKeyCounts_(ext) {
+  if (!ext) return null;
+  const correct = Number(ext.correctKeys);
+  if (!isFinite(correct) || correct < 0) return null;
+
+  let total = Number(ext.keys);
+  if (!isFinite(total) || total <= 0) total = Number(ext.totalKeys);      // 旧名
+  if (!isFinite(total) || total <= 0) {
+    const miss = Number(ext.missKeys);
+    if (isFinite(miss) && miss >= 0) total = correct + miss;              // 差から組み立てる
+  }
+  if (!isFinite(total) || total <= 0 || correct > total) return null;
+  return { total: total, correct: correct };
 }
 
 /** 変換したタイピング記録をまとめて追記し、ミッション・バッジ判定用のログも残します */
@@ -1011,6 +1078,222 @@ function studyMinutes_(ms) {
 }
 
 // ---------------------------------------------------------------------
+// 指導のてがかり（拡張層 ext の利活用）
+// ---------------------------------------------------------------------
+/**
+ * ここから下は、これまで受け取るだけで使っていなかった **拡張層（ext）** を
+ * 先生の画面へつなぐ処理です。
+ *
+ * 拡張層は横断集計には使いません（仕様 §2.11）。アプリごとに意味が違うからです。
+ * けれども仕様が「必ず記録する」「他アプリにない指導価値がある」と名指しした値が
+ * いくつかあり、それらは**そのアプリの中で見れば明日の授業を変えられます**。
+ * 採否は仕様 §4.2 の基準（この値が明日の指導のどの判断を変えるか、を1文で言えること）で
+ * 決めています。1文が書けない値は、届いていても画面には出していません。
+ *
+ * | てがかり | 出どころ | 明日の指導のどこが変わるか |
+ * |---|---|---|
+ * | 漢字の4技能 | 漢字タウン `ext.skills`（§3.3） | 「読めるが書けない」学級なら、書く時間を増やす |
+ * | 作戦べつの定着 | さんすうブロック `ext.strategyStats`（§3.5） | 減減法だけ低ければ、その作戦をもう一度教え直す |
+ * | ミスの多い指 | Typa `ext.missByFinger`（§3.9） | 右小指のミスが多い＝人さし指2本打ちの癖。運指指導の的が絞れる |
+ * | 入力のしかた | 100マス計算 `ext.input`（§3.6） | 手書きとキーボードのタイムを同じ土俵で並べない |
+ * | よくある誤答 | 設問層の `wrong`（§2.10） | 何人が同じ問題を落としたかに加え、**どう間違えたか**が分かる |
+ */
+
+/** 漢字タウンの4技能（§3.3 の ext.skills）の表示順とラベル */
+const KANJI_SKILL_LABELS = [
+  { key: 'reading', label: 'よみ' },
+  { key: 'meaning', label: 'いみ' },
+  { key: 'writing', label: 'かき' },
+  { key: 'stroke', label: 'ひつじゅん' }
+];
+
+/**
+ * さんすうブロックの作戦（§3.5 の ext.strategyStats）のラベル。
+ *
+ * 繰り下がりのひき算の2つの解き方だけを載せます。たし算やタイムアタックは
+ * 「作戦」ではないので、ここに混ぜると学級の姿がぼやけます。
+ */
+const BLOCK_STRATEGY_LABELS = {
+  'genka': '減加法（10からひいてたす）',
+  'gengen': '減減法（ばらからひいて10からひく）'
+};
+
+/** Typa の指（§3.9 の ext.missByFinger）のラベル */
+const TYPING_FINGER_LABELS = {
+  'l-pinky': '左こゆび', 'l-ring': '左くすりゆび', 'l-middle': '左なかゆび', 'l-index': '左ひとさしゆび',
+  'r-index': '右ひとさしゆび', 'r-middle': '右なかゆび', 'r-ring': '右くすりゆび', 'r-pinky': '右こゆび',
+  'thumb': 'おやゆび', 'l-thumb': '左おやゆび', 'r-thumb': '右おやゆび'
+};
+
+/** 100マス計算の入力方法（§3.6 の ext.input）のラベル */
+const SQUARE100_INPUT_LABELS = {
+  'handwriting': 'AI手書き', 'numpad': 'テンキー', 'mixed': '手書き＋テンキー', 'keyboard': 'キーボード'
+};
+
+/** { キー: 回数 } の連想配列を、多い順の配列にします（数値でない値は捨てます） */
+function topCountEntries_(map, labels, limit) {
+  if (!map || typeof map !== 'object') return [];
+  return Object.keys(map)
+    .map(key => ({ key: key, label: (labels && labels[key]) || key, count: Number(map[key]) }))
+    .filter(e => isFinite(e.count) && e.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
+}
+
+/**
+ * 期間内のレコードから「指導のてがかり」を組み立てます。
+ * 値が1件も無いてがかりは null を返し、画面にはカードごと出しません
+ * （空のカードが並ぶと、届いていないのか0なのかが分からなくなるため）。
+ */
+function buildStudyTeachingHints_(records) {
+  // --- 漢字の4技能（§3.3）------------------------------------------------
+  // ext.skills は「いまの習熟度」であって、1回ぶんの成績ではありません。
+  // 足し合わせると熱心な児童ほど重みが増してしまうので、
+  // **児童ごとにいちばん新しい1件**をとって、その平均を学級の姿とします。
+  const latestSkills = {};
+  // --- 作戦べつの定着（§3.5）--------------------------------------------
+  const strategyTotals = {};
+  // --- ミスの多い指・キー（§3.9）----------------------------------------
+  const fingerMisses = {}, keyMisses = {};
+  const typingStudents = new Set();
+  let typingMissTotal = 0;
+  // --- 入力のしかた（§3.6）----------------------------------------------
+  const inputStats = {};
+
+  records.forEach(r => {
+    const ext = parseStudyExt_(r);
+    if (!ext) return;
+
+    if (r.appId === 'kanji-town' && ext.skills && typeof ext.skills === 'object') {
+      const when = r.receivedAt ? r.receivedAt.getTime() : 0;
+      const prev = latestSkills[r.email];
+      if (!prev || when >= prev.when) latestSkills[r.email] = { when: when, skills: ext.skills };
+    }
+
+    if (r.appId === 'keisan-block' && isStudyRateEligible_(r)) {
+      // ミックスは1レコードに両方の作戦が混ざるため ext.strategyStats を使います。
+      // 作戦がひとつだけのモードは、モード名がそのまま作戦なので summary から数えます。
+      const stats = ext.strategyStats;
+      if (stats && typeof stats === 'object') {
+        Object.keys(stats).forEach(key => {
+          if (!BLOCK_STRATEGY_LABELS[key]) return;     // ひき算の作戦だけを見ます
+          const s = stats[key];
+          if (!s || typeof s !== 'object') return;
+          const count = Number(s.count), firstTry = Number(s.firstTryCorrect);
+          if (!isFinite(count) || count <= 0) return;
+          if (!isFinite(firstTry) || firstTry < 0 || firstTry > count) return;
+          const t = strategyTotals[key] = strategyTotals[key] || { count: 0, firstTry: 0, students: new Set() };
+          t.count += count; t.firstTry += firstTry; t.students.add(r.email);
+        });
+      } else if (BLOCK_STRATEGY_LABELS[ext.strategy] || BLOCK_STRATEGY_LABELS[r.mode]) {
+        const key = BLOCK_STRATEGY_LABELS[ext.strategy] ? ext.strategy : r.mode;
+        const t = strategyTotals[key] = strategyTotals[key] || { count: 0, firstTry: 0, students: new Set() };
+        t.count += studyAttempted_(r); t.firstTry += studyFirstTry_(r); t.students.add(r.email);
+      }
+    }
+
+    if (r.appId === TYPING_APP_ID) {
+      // 打ち直し（おまけの周）のミスは ext.retry に分けて入っています（§3.9.3）。
+      // 正答率の分母には入れませんが、つまずきとしては同じ価値があるので合算します。
+      const sources = [ext.missByFinger, ext.retry && ext.retry.missByFinger];
+      const keySources = [ext.missByKey, ext.retry && ext.retry.missByKey];
+      let hit = false;
+      sources.forEach(map => {
+        if (!map || typeof map !== 'object') return;
+        Object.keys(map).forEach(f => {
+          const n = Number(map[f]);
+          if (!isFinite(n) || n <= 0) return;
+          fingerMisses[f] = (fingerMisses[f] || 0) + n;
+          typingMissTotal += n;
+          hit = true;
+        });
+      });
+      keySources.forEach(map => {
+        if (!map || typeof map !== 'object') return;
+        Object.keys(map).forEach(k => {
+          const n = Number(map[k]);
+          if (!isFinite(n) || n <= 0) return;
+          keyMisses[k] = (keyMisses[k] || 0) + n;
+        });
+      });
+      if (hit) typingStudents.add(r.email);
+    }
+
+    if (r.appId === SQUARE100_APP_ID && typeof ext.input === 'string' && SQUARE100_INPUT_LABELS[ext.input]) {
+      const st = inputStats[ext.input] = inputStats[ext.input] || {
+        key: ext.input, label: SQUARE100_INPUT_LABELS[ext.input],
+        records: 0, students: new Set(), timedRecords: 0, ms: 0
+      };
+      st.records++;
+      st.students.add(r.email);
+      // タイムの平均は100問どうしでしか比べられません（§3.6 の unit.id はマス数を含みます）
+      if (r.status === 'completed' && Number(ext.cells) === 100 && r.elapsedMs > 0) {
+        st.timedRecords++;
+        st.ms += r.elapsedMs;
+      }
+    }
+  });
+
+  // 4技能をクラス平均に
+  const skillEmails = Object.keys(latestSkills);
+  let kanjiSkills = null;
+  if (skillEmails.length > 0) {
+    const skills = KANJI_SKILL_LABELS.map(def => {
+      let sum = 0, n = 0;
+      skillEmails.forEach(email => {
+        const v = Number(latestSkills[email].skills[def.key]);
+        if (isFinite(v) && v >= 0 && v <= 100) { sum += v; n++; }
+      });
+      return { key: def.key, label: def.label, score: n > 0 ? Math.round(sum / n) : null, students: n };
+    }).filter(s => s.score !== null);
+    if (skills.length >= 2) {
+      const sorted = skills.slice().sort((a, b) => b.score - a.score);
+      kanjiSkills = {
+        students: skillEmails.length,
+        skills: skills,
+        high: sorted[0],
+        low: sorted[sorted.length - 1],
+        diff: sorted[0].score - sorted[sorted.length - 1].score
+      };
+    } else if (skills.length > 0) {
+      kanjiSkills = { students: skillEmails.length, skills: skills, high: null, low: null, diff: 0 };
+    }
+  }
+
+  // 作戦べつの初回正答率
+  const strategies = Object.keys(strategyTotals).map(key => {
+    const t = strategyTotals[key];
+    return {
+      key: key, label: BLOCK_STRATEGY_LABELS[key] || key,
+      count: t.count, firstTry: t.firstTry, students: t.students.size,
+      rate: t.count > 0 ? Math.round(100 * t.firstTry / t.count) : null
+    };
+  }).sort((a, b) => (a.rate === null ? 999 : a.rate) - (b.rate === null ? 999 : b.rate));
+
+  // 入力のしかた
+  const inputs = Object.keys(inputStats).map(key => {
+    const st = inputStats[key];
+    return {
+      key: st.key, label: st.label, records: st.records, students: st.students.size,
+      avgSec: st.timedRecords > 0 ? Math.round(st.ms / st.timedRecords / 1000) : null,
+      timedRecords: st.timedRecords
+    };
+  }).sort((a, b) => b.records - a.records);
+
+  const fingers = topCountEntries_(fingerMisses, TYPING_FINGER_LABELS, 5);
+  return {
+    kanjiSkills: kanjiSkills,
+    strategies: strategies.length > 0 ? strategies : null,
+    typing: fingers.length > 0
+      ? { students: typingStudents.size, misses: typingMissTotal, fingers: fingers,
+          keys: topCountEntries_(keyMisses, null, 8) }
+      : null,
+    // 入力のしかたが1種類しかない学級では、比べるものが無いので出しません
+    inputs: inputs.length >= 2 ? inputs : null
+  };
+}
+
+// ---------------------------------------------------------------------
 // 教員用API
 // ---------------------------------------------------------------------
 
@@ -1043,7 +1326,7 @@ function getStudyLogDashboard(period) {
     roster.forEach(s => { nameByEmail[s.email] = s; });
 
     // 全体・アプリ別・児童別
-    const totals = { records: records.length, ms: 0, aborted: 0, books: 0, pages: 0 };
+    const totals = { records: records.length, ms: 0, aborted: 0, abortNormal: 0, books: 0, pages: 0 };
     const activeStudents = new Set();
     const apps = {};
     const perStudent = {};
@@ -1061,7 +1344,9 @@ function getStudyLogDashboard(period) {
       totals.ms += ms;
       totals.books += read.books;
       totals.pages += read.pages;
-      if (r.status === 'aborted') totals.aborted++;
+      // 中断が正常な使い方であるアプリ（Typa）は数えません（§5.4）
+      if (isStudyAbortNotable_(r)) totals.aborted++;
+      else if (r.status === 'aborted') totals.abortNormal++;
       activeStudents.add(r.email);
 
       const app = apps[r.appId] = apps[r.appId] || {
@@ -1080,7 +1365,7 @@ function getStudyLogDashboard(period) {
         st.ms += ms;
         st.books += read.books;
         st.pages += read.pages;
-        if (r.status === 'aborted') st.aborted++;
+        if (isStudyAbortNotable_(r)) st.aborted++;
         if (!st.lastDay || (r.day && r.day > st.lastDay)) st.lastDay = r.day;
       }
       if (isStudyRateEligible_(r)) {
@@ -1093,6 +1378,11 @@ function getStudyLogDashboard(period) {
 
     // クラスのつまずき問題（設問層から、初回誤答が多い順）
     // custom は児童ごとに設問IDの意味が異なるため対象外（§2.4）— course のみ集計
+    //
+    // 「何人が落としたか」に加えて、**どう間違えたか**（設問層の wrong）と
+    // **どれだけ手を借りたか**（hint）も数えます。「18人が 13-9 を落とした」だけでは
+    // まだ手が打てませんが、「そのうち14人が 5 と答えた」まで分かれば、
+    // 何をどう取りちがえているのかが見えて、明日の授業の入り方が決まります（§2.10）。
     const stumbleMap = {};
     records.forEach(r => {
       if (!(r.grading === 'objective' && !r.multiplayer && r.source === 'course')) return;
@@ -1104,15 +1394,29 @@ function getStudyLogDashboard(period) {
         if (!it || it.firstTry !== false) return;
         const key = `${r.appId}|${r.unitId}|${it.q}`;
         const entry = stumbleMap[key] = stumbleMap[key] || {
-          app: r.appLabel, unit: r.unitTitle, q: String(it.q), misses: 0, students: new Set()
+          app: r.appLabel, unit: r.unitTitle, q: String(it.q),
+          misses: 0, hints: 0, wrong: {}, students: new Set()
         };
         entry.misses++;
         entry.students.add(r.email);
+        // 答えを見せてもらった回（§2.10）。多ければ「自力では解けていない」問題です
+        if (it.hint === true) entry.hints++;
+        if (Array.isArray(it.wrong)) {
+          it.wrong.forEach(w => {
+            if (typeof w !== 'string' || w === '') return;
+            entry.wrong[w] = (entry.wrong[w] || 0) + 1;
+          });
+        }
       });
     });
     const stumbles = Object.keys(stumbleMap).map(k => {
       const sb = stumbleMap[k];
-      return { app: sb.app, unit: sb.unit, q: sb.q, misses: sb.misses, students: sb.students.size };
+      return {
+        app: sb.app, unit: sb.unit, q: sb.q, misses: sb.misses, students: sb.students.size,
+        hints: sb.hints,
+        // よくある誤答は上位3つまで。全部並べても指導の判断は変わりません
+        wrong: topCountEntries_(sb.wrong, null, 3)
+      };
     }).sort((a, b) => b.students - a.students || b.misses - a.misses).slice(0, 15);
 
     // 最近の学習
@@ -1129,7 +1433,9 @@ function getStudyLogDashboard(period) {
           count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
           minutes: studyMinutes_(studyLearnMs_(r)),
           timed: !STUDY_NO_TIME_APPS[r.appId], pages: read.pages,
-          multiplayer: r.multiplayer, grading: r.grading, source: r.source
+          multiplayer: r.multiplayer, grading: r.grading, source: r.source,
+          // 中断が正常な使い方であるアプリは、画面で否定的に見せません（§5.4）
+          abortNormal: !!STUDY_ABORT_NORMAL_APPS[r.appId]
         };
       });
 
@@ -1147,6 +1453,9 @@ function getStudyLogDashboard(period) {
         students: activeStudents.size,
         minutes: Math.round(totals.ms / 60000),
         aborted: totals.aborted,
+        // 中断が正常な使い方であるアプリ（Typa）の中断回数。
+        // 「中断」には数えず、なぜ数えないかを画面で説明するためだけに返します（§5.4）
+        abortNormal: totals.abortNormal,
         // 読書は学習時間に含めず、冊数とページ数で見せます（§3.8.2）
         books: totals.books,
         pages: totals.pages
@@ -1175,6 +1484,8 @@ function getStudyLogDashboard(period) {
         };
       }),
       stumbles,
+      // 拡張層（ext）から取り出した指導のてがかり。§4.2 の基準を満たす値だけを載せています
+      hints: buildStudyTeachingHints_(records),
       recent
     };
   } catch (e) {
@@ -1205,7 +1516,8 @@ function getStudyLogForUser_(ss, email, recentLimit) {
     sum.ms += ms;
     sum.books += read.books;
     sum.pages += read.pages;
-    if (r.status === 'aborted') sum.aborted++;
+    // 中断が正常な使い方であるアプリ（Typa）は数えません（§5.4）
+    if (isStudyAbortNotable_(r)) sum.aborted++;
     if (isStudyRateEligible_(r)) {
       sum.attempted += studyAttempted_(r);
       sum.firstTry += studyFirstTry_(r);
@@ -1224,7 +1536,9 @@ function getStudyLogForUser_(ss, email, recentLimit) {
       count: r.count, attempted: studyAttempted_(r), firstTry: studyFirstTry_(r),
       minutes: studyMinutes_(studyLearnMs_(r)),
       timed: !STUDY_NO_TIME_APPS[r.appId], pages: studyReadingAmount_(r).pages,
-      multiplayer: r.multiplayer, grading: r.grading, source: r.source
+      multiplayer: r.multiplayer, grading: r.grading, source: r.source,
+      // 中断が正常な使い方であるアプリは、画面で否定的に見せません（§5.4）
+      abortNormal: !!STUDY_ABORT_NORMAL_APPS[r.appId]
     }));
 
   return {

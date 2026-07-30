@@ -711,6 +711,13 @@
           </div>
         </div>
       </div>
+      <!-- 指導のてがかり（学習ログの拡張層 ext から。届いた分だけカードが出ます） -->
+      <div id="tl-hints-section" class="mb-4 d-none">
+        <h5 class="fw-bold text-secondary mb-1"><i class="bi bi-lightbulb"></i> 指導のてがかり</h5>
+        <p class="small text-muted mb-3">回数と正答率だけでは「次に何をすればいいか」までは決まりません。各アプリが固有に記録している値のうち、<b>明日の指導の判断を変えられるもの</b>だけを出しています。アプリごとに意味がちがうため、ここの数字はアプリをまたいで比べないでください（仕様 §2.11 / §4.2）。</p>
+        <div class="row g-4" id="tl-hints"></div>
+      </div>
+
       <div class="card shadow-sm border-0 rounded-4">
         <div class="card-header bg-transparent fw-bold"><i class="bi bi-clock-history"></i> 最近の学習</div>
         <div class="card-body p-0 custom-scrollbar" style="max-height:360px;overflow-y:auto;">

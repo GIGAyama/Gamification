@@ -717,7 +717,14 @@ function studyFlagBadges(r) {
   if (r.source === 'weak') badges.push('<span class="badge bg-warning-subtle text-warning-emphasis border border-warning">にがて</span>');
   if (r.source === 'review') badges.push('<span class="badge bg-secondary-subtle text-secondary border">復習</span>');
   if (r.source === 'custom') badges.push('<span class="badge bg-secondary-subtle text-secondary border">じさく</span>');
-  if (r.status === 'aborted') badges.push('<span class="badge bg-light text-secondary border">中断</span>');
+  // 中断が正常な使い方であるアプリ（Typa）は「中断」と出しません（仕様 §5.4）。
+  // 区切りを設けないことで、すきま時間の練習を成立させているアプリです。
+  // ここで「中断」と並べると、こまめに練習した児童ほど中断が多い子に見えてしまいます。
+  if (r.status === 'aborted') {
+    badges.push(r.abortNormal
+      ? '<span class="badge bg-success-subtle text-success-emphasis border border-success">すきま練習</span>'
+      : '<span class="badge bg-light text-secondary border">中断</span>');
+  }
   return badges.join(' ');
 }
 
@@ -778,9 +785,20 @@ function renderStudyLog(d) {
     card('学習の回数', `${t.records ?? 0}<span class="fs-6 text-muted">回</span>`, 'text-primary') +
     card('とりくんだ児童', `${t.students ?? 0}<span class="fs-6 text-muted">人</span>`, 'text-success') +
     card(`合計学習時間${t.books > 0 ? '<span class="fw-normal">（読書のぞく）</span>' : ''}`, fmtStudyMinutes(t.minutes), 'text-info') +
+    // 中断は「難しすぎる」「量が多すぎる」のサインですが、Typa のように
+    // 区切りを作らないことですきま時間の練習を成立させているアプリでは、
+    // 中断が正常な使い方です。数に入れず、下に注記だけ出します（仕様 §5.4）
     card('中断', `${t.aborted ?? 0}<span class="fs-6 text-muted">回</span>`, t.aborted > 0 ? 'text-warning' : 'text-secondary') +
     (t.books > 0
       ? card('読書', `${t.books}<span class="fs-6 text-muted">さつ / ${t.pages}ページ</span>`, 'text-warning-emphasis')
+      : '') +
+    (t.abortNormal > 0
+      ? `<div class="col-12"><div class="alert alert-light border small mb-0 py-2">
+           <i class="bi bi-info-circle"></i> Typa（タイピング）の途中でやめた ${t.abortNormal} 回は「中断」に数えていません。
+           Typa は<b>区切りを作らないことで、すきま時間の練習を成立させている</b>アプリです。
+           打ったぶんがそのまま残る設計なので、途中でやめるのが正常な使い方になります。
+           とりくみ量は上の「合計学習時間」と下の「初回正答/解答」で見てください。
+         </div></div>`
       : '');
 
   // 児童別
@@ -823,12 +841,26 @@ function renderStudyLog(d) {
   }).join('') || emptyMessage('この期間の記録はまだありません');
 
   // つまずき問題
-  document.getElementById('tl-stumbles').innerHTML = (d.stumbles || []).map(sb => `
+  // 「何人が落としたか」だけでは手が打てないので、どう間違えたか（wrong）と
+  // 答えを見せてもらった回数（hint）も並べます（仕様 §2.10）
+  document.getElementById('tl-stumbles').innerHTML = (d.stumbles || []).map(sb => {
+    const wrong = (sb.wrong || []).length > 0
+      ? `<div class="text-muted mt-1">よくある誤答: ${sb.wrong.map(w =>
+          `<span class="badge bg-danger-subtle text-danger-emphasis border border-danger">${esc(w.key)}<span class="fw-normal"> ${w.count}</span></span>`).join(' ')}</div>`
+      : '';
+    const hints = sb.hints > 0
+      ? `<div class="text-muted mt-1"><i class="bi bi-lightbulb"></i> ${sb.hints}回は答えやヒントを見て解いています（自力では解けていません）</div>`
+      : '';
+    return `
     <div class="border-bottom py-2 small">
       <b class="fs-6">${esc(sb.q)}</b>
       <span class="text-muted">｜${esc(sb.unit)}（${esc(sb.app)}）</span>
       <div><span class="badge bg-danger">${sb.students}人</span> がはじめの1回でまちがえました（のべ${sb.misses}回）</div>
-    </div>`).join('') || emptyMessage('つまずきの多い問題はまだ検出されていません');
+      ${wrong}${hints}
+    </div>`;
+  }).join('') || emptyMessage('つまずきの多い問題はまだ検出されていません');
+
+  renderStudyHints(d.hints || {});
 
   // 最近の学習
   document.getElementById('tl-recent-rows').innerHTML = (d.recent || []).map(r => `
@@ -844,6 +876,133 @@ function renderStudyLog(d) {
       <td class="small">${r.timed === false ? `${r.pages}ページ` : fmtStudyMinutes(r.minutes)}</td>
       <td class="small">${studyFlagBadges(r)}</td>
     </tr>`).join('') || `<tr><td colspan="8">${emptyMessage('この期間の記録はまだありません')}</td></tr>`;
+}
+
+/**
+ * 「指導のてがかり」を描きます（学習ログの拡張層 ext から）。
+ *
+ * 回数や正答率だけでは「次に何をすればいいか」までは決まりません。
+ * ここに出すのは、仕様が「他アプリにない指導価値がある」と名指しした値だけです。
+ * どのカードにも「明日の指導のどこが変わるか」を1文で添えています（仕様 §4.2）。
+ * 届いていないてがかりはカードごと出しません（空欄が並ぶと0なのか未受信なのか分からないため）。
+ */
+function renderStudyHints(h) {
+  const box = document.getElementById('tl-hints');
+  if (!box) return;
+  const cards = [];
+
+  // 漢字の4技能（漢字タウン ext.skills / 仕様 §3.3）
+  if (h.kanjiSkills && h.kanjiSkills.skills.length > 0) {
+    const k = h.kanjiSkills;
+    const bars = k.skills.map(s => `
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="small text-muted" style="width:5.5em;">${esc(s.label)}</span>
+        <div class="progress flex-grow-1" style="height:14px;">
+          <div class="progress-bar ${s.score < 60 ? 'bg-danger' : 'bg-primary'}" style="width:${s.score}%"></div>
+        </div>
+        <b class="small" style="width:3em;text-align:right;">${s.score}%</b>
+      </div>`).join('');
+    // 「読めるが書けない」は他のアプリからは見えない、漢字タウンだけが持つ次元です
+    const gap = (k.high && k.low && k.diff >= 10)
+      ? `<div class="alert alert-warning small py-2 mb-0 mt-2">
+           <b>「${esc(k.high.label)}」は ${k.high.score}%、「${esc(k.low.label)}」は ${k.low.score}%</b>（差 ${k.diff} ポイント）。
+           クラス全体で<b>${esc(k.low.label)}が弱い</b>傾向です。次の漢字の時間は${esc(k.low.label)}に時間を回すと効きます。
+         </div>`
+      : `<div class="small text-muted mt-2">4つの技能に大きな差はありません（差 ${k.diff} ポイント）。</div>`;
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-pencil"></i> 漢字の4技能（学級の平均）</div>
+          <div class="card-body">
+            <p class="small text-muted">漢字タウンが計っている「よみ・いみ・かき・ひつじゅん」の習熟度です。児童ごとにいちばん新しい記録の値を平均しました（${k.students}人）。<b>正答率ひとつでは見えない「読めるが書けない」</b>が分かります。</p>
+            ${bars}${gap}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  // 作戦べつの定着（さんすうブロック ext.strategyStats / 仕様 §3.5）
+  if (h.strategies) {
+    const rows = h.strategies.map(s => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(s.label)}</div>
+          <div class="text-muted" style="font-size:.7rem;">${s.count}問 / ${s.students}人</div>
+        </div>
+        <div class="text-end">
+          <b class="${s.rate !== null && s.rate < 60 ? 'text-danger' : 'text-success'}">${s.rate === null ? '-' : s.rate + '%'}</b>
+          <div class="text-muted" style="font-size:.7rem;">初回正答率</div>
+        </div>
+      </div>`).join('');
+    const worst = h.strategies[0];
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-diagram-3"></i> ひき算の作戦べつの定着</div>
+          <div class="card-body">
+            <p class="small text-muted">さんすうブロックは、繰り下がりのひき算をどの作戦で解いたかを記録しています。<b>同じ「ひき算」でも、減加法は解けるのに減減法でつまずく</b>ことがあり、モード名だけでは見えません。</p>
+            ${rows}
+            ${worst && worst.rate !== null && worst.rate < 70
+              ? `<div class="alert alert-warning small py-2 mb-0 mt-2"><b>${esc(worst.label)}</b>の初回正答率が ${worst.rate}% です。この作戦をもう一度ブロックで確かめる時間をとると効きます。</div>`
+              : ''}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  // ミスの多い指（Typa ext.missByFinger / 仕様 §3.9）
+  if (h.typing) {
+    const max = h.typing.fingers[0].count || 1;
+    const bars = h.typing.fingers.map(f => `
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <span class="small text-muted" style="width:7em;">${esc(f.label)}</span>
+        <div class="progress flex-grow-1" style="height:14px;">
+          <div class="progress-bar bg-warning" style="width:${Math.round(100 * f.count / max)}%"></div>
+        </div>
+        <b class="small" style="width:3.5em;text-align:right;">${f.count}回</b>
+      </div>`).join('');
+    const keys = (h.typing.keys || []).map(k =>
+      `<span class="badge bg-light text-dark border">${esc(k.key)} <span class="text-muted">${k.count}</span></span>`).join(' ');
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-keyboard"></i> タイピング：ミスの多い指</div>
+          <div class="card-body">
+            <p class="small text-muted">${h.typing.students}人ぶん・のべ${h.typing.misses}回の打ちまちがいを指べつに数えました。<b>「右こゆびのミスが多い」は、人さし指2本で打っている癖のサイン</b>です。キーべつのミスだけでは見えません。</p>
+            ${bars}
+            ${keys ? `<div class="small text-muted mt-2">ミスの多いキー: ${keys}</div>` : ''}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  // 入力のしかた（100マス計算 ext.input / 仕様 §3.6）
+  if (h.inputs) {
+    const rows = h.inputs.map(i => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(i.label)}</div>
+          <div class="text-muted" style="font-size:.7rem;">${i.records}回 / ${i.students}人</div>
+        </div>
+        <div class="text-end">
+          <b>${i.avgSec === null ? '-' : Math.floor(i.avgSec / 60) + '分' + (i.avgSec % 60) + '秒'}</b>
+          <div class="text-muted" style="font-size:.7rem;">100問の平均タイム</div>
+        </div>
+      </div>`).join('');
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-input-cursor"></i> 100マス計算：入力のしかた</div>
+          <div class="card-body">
+            <p class="small text-muted">100マス計算は<b>タイムが主な指標</b>ですが、AI手書き・テンキー・キーボードでは同じ実力でもタイムが大きく変わります。<b>入力のしかたがちがう記録どうしのタイムを、そのまま並べて比べないでください。</b></p>
+            ${rows}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  box.innerHTML = cards.join('');
+  box.parentElement.classList.toggle('d-none', cards.length === 0);
 }
 
 /** 児童詳細画面に出す「学習アプリのきろく」カード */
