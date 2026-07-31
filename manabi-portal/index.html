@@ -2,7 +2,12 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <!--
+    minimum-scale=1.0 … 指2本でつまむ操作（ピンチ）で 100% より小さくできないようにします。
+    縮めてしまうとアプリ全体が画面より小さくなり、まわりに背景のすきまが出たままになるためです。
+    （拡大は今までどおりできます。縮小だけを止めています）
+  -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
   <title>まなびクエスト｜学習ポータル</title>
   <meta name="description" content="まなびクエストと学習アプリのきろく送信をひとつの画面にまとめた学習ポータル">
 
@@ -92,10 +97,15 @@
 
     html, body {
       height: 100%;
+      width: 100%;
       margin: 0;
       /* PWA として起動したときに、ページ全体が引っぱられて動かないようにする */
       overscroll-behavior: none;
+      /* はみ出したものが横スクロールを生むと、ブラウザが画面を縮めて
+         表示することがあります。端末の画面いっぱいのままにするため止めます */
+      overflow: hidden;
     }
+    html { background: var(--bg); }
     body {
       font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
       background: var(--bg);
@@ -104,6 +114,7 @@
       flex-direction: column;
       height: 100vh;
       height: 100dvh;      /* アドレスバーの伸縮で高さが変わる端末に対応 */
+      max-width: 100%;
       overflow: hidden;
     }
 
@@ -1354,10 +1365,61 @@
   }
 
   /* ================================================================
+   * 画面いっぱいに表示する（縮んでしまったときの もどし）
+   * ----------------------------------------------------------------
+   * 指2本でつまむ操作（ピンチ）でうっかり縮めてしまうと、アプリだけが
+   * 端末の画面より小さくなり、まわりに背景のすきまが出たまま元に戻りません。
+   * meta viewport の minimum-scale=1.0 で縮小そのものを止めていますが、
+   * ブラウザの「ズームを強制的に有効にする」設定が入っている端末では
+   * それが無視されるため、縮んだことに気づいたら 100% に戻します。
+   *
+   * 拡大（見えにくい子が大きくする操作）はそのまま使えます。
+   * 止めるのは「100% より小さい表示」だけです。
+   * ================================================================ */
+  const VIEWPORT_CONTENT = 'width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover';
+
+  function initFullScreenGuard() {
+    const vv = window.visualViewport;
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!vv || !meta) return;
+    let restoring = false;
+    let tries = 0;   // どうしても戻せない環境で、やり直しが止まらなくならないように
+
+    /** 表示が 100% より縮んでいるか（ピンチ縮小と、ブラウザの自動縮小の両方を見ます） */
+    const isShrunk = () => {
+      const layoutWidth = document.documentElement.clientWidth;
+      if (typeof vv.scale === 'number' && vv.scale > 0 && vv.scale < 0.995) return true;
+      // 自動縮小されると「見えている範囲」だけがレイアウトより広くなります
+      return !!layoutWidth && vv.width > layoutWidth + 1;
+    };
+
+    const restore = () => {
+      if (restoring || tries >= 3 || !isShrunk()) return;
+      restoring = true;
+      tries += 1;
+      // 拡大の上限をいったん 100% にすると、ブラウザが表示を 100% に戻します。
+      // すぐ元にもどして、必要なときの拡大は残します。
+      meta.setAttribute('content', VIEWPORT_CONTENT + ', maximum-scale=1.0');
+      setTimeout(() => {
+        meta.setAttribute('content', VIEWPORT_CONTENT);
+        restoring = false;
+        // うまく戻せたら、次にまた縮んだときのためにやり直し回数を戻します
+        if (!isShrunk()) tries = 0;
+      }, 320);
+    };
+
+    vv.addEventListener('resize', restore);
+    window.addEventListener('orientationchange', () => { tries = 0; setTimeout(restore, 320); });
+    window.addEventListener('pageshow', () => { tries = 0; restore(); });
+    restore();
+  }
+
+  /* ================================================================
    * 初期化
    * ================================================================ */
 
   applyUrlParams();
+  initFullScreenGuard();
   initHistoryGuard();
   initPwa();
 
