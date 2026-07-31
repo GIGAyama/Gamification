@@ -332,21 +332,131 @@ function toast(title, icon = 'success') {
   });
 }
 
-/** ローディング付きでAPIを呼ぶ */
+/* ---------------------------------------------------------------------
+ * 「待たせ方」のきまり
+ * -------------------------------------------------------------------
+ * このアプリのサーバーは Google スプレッドシートなので、どんな操作も
+ * 0.5〜2秒ほどかかります。そこをどう見せるかで、体感がおおきく変わります。
+ *
+ *   ① 押したボタンの中で待つ（busyButton / withBusy）……ふつうの操作はこれ。
+ *      押したところがそのまま「じゅんび中」になるので、どこが動いているのか
+ *      すぐ分かり、画面もかくれません。二重タップもここで止まります。
+ *   ② 画面全体をふさいで待つ（apiWithLoading）……PDF作成やAIなど、
+ *      待っているあいだ他をさわられると困る重い処理だけ。
+ *      しかも 400ms 以内に返ってきたときは出しません。
+ *      一瞬だけ暗くなって消える「ちらつき」は、遅く感じるだけだからです。
+ *
+ * そして返事が来たら、まず画面を新しい状態に書きかえ、そのあとで演出を出します。
+ * 「おいわいしているのに、ボタンはまだ押す前のまま」を作らないためです。
+ * ------------------------------------------------------------------- */
+
+/** 画面全体をふさぐ待機表示を出すまでの猶予（これより速い応答では出しません） */
+const BLOCKING_LOADER_DELAY_MS = 400;
+
+/** ローディング付きでAPIを呼ぶ（重い処理むけ。軽い操作は withBusy を使います） */
 async function apiWithLoading(message, funcName, ...args) {
-  Swal.fire({
-    title: message, allowOutsideClick: false, allowEscapeKey: false,
-    didOpen: () => Swal.showLoading()
-  });
+  let opened = false;
+  const timer = setTimeout(() => {
+    opened = true;
+    Swal.fire({
+      title: message, allowOutsideClick: false, allowEscapeKey: false,
+      didOpen: () => Swal.showLoading()
+    });
+  }, BLOCKING_LOADER_DELAY_MS);
   try {
     const result = await api(funcName, ...args);
-    Swal.close();
+    clearTimeout(timer);
+    if (opened) Swal.close();
     return result;
   } catch (e) {
-    Swal.close();
+    clearTimeout(timer);
+    if (opened) Swal.close();
     Swal.fire('エラー', esc(e.message), 'error');
     throw e;
   }
+}
+
+/**
+ * ボタンを「じゅんび中」の見た目にします。
+ *
+ * 待っているあいだにボタンの大きさが変わると、まわりの文字までずれて
+ * 「画面がガタッと動いた」ように見えます。そこで、
+ *   ・文字を出すとき   … 押す前の幅より小さくならないようにします
+ *   ・文字を出さないとき … 押す前の幅のまま、くるくるだけを出します
+ * 小さなボタン（ミッションの「うけとる！」など）には文字を渡さないでください。
+ *
+ * @param {HTMLElement} btn
+ * @param {string} [label] - 待っているあいだに出す文字（例: 'ほぞん中'）
+ * @returns {Function} もとにもどす関数
+ */
+function busyButton(btn, label) {
+  if (!btn) return () => {};
+  const originalHtml = btn.innerHTML;
+  const originalWidth = btn.offsetWidth;
+  btn.dataset.mqBusy = '1';
+  btn.disabled = true;
+  btn.setAttribute('aria-busy', 'true');
+  btn.classList.add('is-busy');
+  if (originalWidth) {
+    btn.style.minWidth = `${originalWidth}px`;
+    if (!label) btn.style.width = `${originalWidth}px`;
+  }
+  // 文字を出さないときも、読み上げには「じゅんび中」が伝わるようにします
+  btn.innerHTML = `<span class="mq-spin" aria-hidden="true"></span>`
+    + (label ? `<span>${esc(label)}</span>` : '<span class="mq-sr-only">じゅんび中</span>');
+  return () => {
+    delete btn.dataset.mqBusy;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+    btn.classList.remove('is-busy');
+    btn.style.minWidth = '';
+    btn.style.width = '';
+    btn.innerHTML = originalHtml;
+  };
+}
+
+/**
+ * ボタンを「じゅんび中」にしたまま処理を待ちます。
+ * すでに処理中のボタンをもう一度押しても、なにも起きません（二重送信よけ）。
+ * @param {HTMLElement} btn
+ * @param {string} label - 待っているあいだに出す文字
+ * @param {Function} task - 実行する非同期処理
+ * @returns {Promise<*>} task の結果。処理中の二重タップだったときは undefined
+ */
+async function withBusy(btn, label, task) {
+  if (btn && btn.dataset.mqBusy === '1') return undefined;
+  const restore = busyButton(btn, label);
+  try {
+    return await task();
+  } finally {
+    restore();
+  }
+}
+
+/**
+ * api() のうすいラッパー。つうしんに失敗しても例外を投げず、
+ * サーバーが返す失敗と同じ形（{ success: false, message }）で返します。
+ * 呼ぶ側は「うまくいったか」だけを見れば済むようになります。
+ */
+async function apiSafe(funcName, ...args) {
+  try {
+    const result = await api(funcName, ...args);
+    if (result && typeof result === 'object') return result;
+    return { success: false, message: 'サーバーからの返事が ありませんでした。' };
+  } catch (e) {
+    return {
+      success: false, networkError: true,
+      message: 'つうしんが うまくいきませんでした。もういちど ためしてね。'
+    };
+  }
+}
+
+/**
+ * 押したボタンの中で待ちながら、サーバーを呼びます（いちばんよく使う形）。
+ * @returns {Promise<Object|undefined>} 処理中のボタンをもう一度押したときは undefined
+ */
+function busyApi(btn, label, funcName, ...args) {
+  return withBusy(btn, label, () => apiSafe(funcName, ...args));
 }
 
 /** いま表示しているメインビューのID */
