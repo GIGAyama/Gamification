@@ -17,6 +17,7 @@ const PANEL_HEADS = [
   ['p-news-head', 'megaphone', 'おしらせ', 'p-more'],
   ['p-missions-head', 'target', 'ミッション', 'p-more'],
   ['p-goals-head', 'flag', 'わたしのめあて', 'p-more'],
+  ['p-apps-head', 'gamepad', 'がくしゅうアプリ', 'p-home'],
   ['p-send-head', 'send', 'きろくを おくる', 'p-home'],
   ['p-weekly-head', 'journal', '今週のふり返り', 'p-home'],
   ['p-my-effort-head', 'fire', 'がんばり', 'p-my'],
@@ -57,6 +58,7 @@ function handlePanelShown(panelId) {
   if (panelId === 'p-rec-words') loadAlbumTab();
   if (panelId === 'p-rec-lessons') drawTestChart(App.data.records.test);
   if (panelId === 'p-send') renderStudySendPanels();
+  if (panelId === 'p-apps') { renderAppLauncher('apps-launcher'); renderStudySendPanels(); }
 }
 
 function initStudentApp(data) {
@@ -169,6 +171,10 @@ function renderHome(data) {
   renderGrowthCard();
   renderTotals();
   renderFlashback();
+
+  // 学習アプリへの入口（ひらくのは新しいタブ）
+  renderAppsDoor();
+  renderAppLauncher('apps-launcher');
 
   // ホームは「いま一番やってほしいこと」1つだけを大きく出します
   renderTodayCard();
@@ -718,6 +724,90 @@ function showWeeklyHistory() {
   });
 }
 
+/* ---------------- 学習アプリを ひらく ---------------- */
+
+/**
+ * ならべる学習アプリの一覧（サーバーの STUDY_APP_LINKS から届きます）。
+ * 先生がまだスクリプトを新しくしていない間は空になるので、
+ * 呼び出し側は「0件ならその場所ごと出さない」ようにしています。
+ */
+function studyAppLinks_() {
+  return ((App.data && App.data.studyApp && App.data.studyApp.links) || []);
+}
+
+/**
+ * 学習アプリ1つぶんのタイル。
+ *
+ * 学習アプリは まなびクエストとは別のサイト（GitHub Pages）にあり、
+ * この画面の中には入れられません（同一オリジンでないと学習ログを読めないため）。
+ * そこで target="_blank" の**ふつうのリンク**にして、新しいタブでひらきます。
+ * まなびクエストは開いたまま残るので、あそんだあと ここへ帰ってきて
+ * そのまま「きろくを おくる」を押せます。
+ *
+ * rel="noopener noreferrer" は、ひらいた先のページから この画面を
+ * 勝手に別のURLへ飛ばされないようにするためのものです。
+ */
+function appTileHtml(app, compact) {
+  const name = app.name || app.label || app.id;
+  return `<a class="mq-app app-${esc(app.color || 'blue')}" href="${esc(app.url)}"
+    target="_blank" rel="noopener noreferrer"
+    aria-label="${esc(name)}を 新しいタブで ひらく">
+    <span class="app-icon">${icon(app.icon || 'gamepad')}</span>
+    <span class="app-body">
+      <span class="app-name">${esc(name)}</span>
+      ${compact ? '' : `${app.subject ? `<span class="app-subject">${esc(app.subject)}</span>` : ''}
+      ${app.note ? `<span class="app-note">${esc(app.note)}</span>` : ''}`}
+    </span>
+    <span class="app-open no-furigana">${icon('external')}</span>
+  </a>`;
+}
+
+/**
+ * 学習アプリの一覧を描きます。
+ * @param {string} containerId - 描く場所
+ * @param {Object} [options] - compact: せまい場所（きろくの画面）用の小さいタイル
+ * @returns {boolean} 1つでも描けたか
+ */
+function renderAppLauncher(containerId, options) {
+  const el = document.getElementById(containerId);
+  if (!el) return false;
+  const compact = !!(options && options.compact);
+  const apps = studyAppLinks_();
+  if (apps.length === 0) {
+    el.innerHTML = '';
+    el.classList.add('d-none');
+    return false;
+  }
+  el.classList.remove('d-none');
+  el.innerHTML = `
+    ${compact ? '' : `<div class="mq-card accent-purple mb-3">
+      <div class="mq-card-head">
+        <span class="mq-card-icon">${icon('external')}</span>
+        <h2 class="mq-card-title">あたらしいタブで ひらきます</h2>
+      </div>
+      <div class="mq-card-body tight">
+        <p class="mb-0" style="font-size:.9rem;line-height:1.7;">
+          やりたいアプリを えらんでね。まなびクエストは この画面に のこっているので、
+          あそんだあと もどってきて「きろくを おくる」を おせば けいけんちに なるよ。
+        </p>
+      </div>
+    </div>`}
+    <div class="mq-applist${compact ? ' compact' : ''}">
+      ${apps.map(a => appTileHtml(a, compact)).join('')}
+    </div>`;
+  return true;
+}
+
+/** ホームの「がくしゅうアプリ」のとびらは、ならべるアプリがあるときだけ出します */
+function renderAppsDoor() {
+  const door = document.getElementById('home-apps-door');
+  if (!door) return;
+  const apps = studyAppLinks_();
+  door.classList.toggle('d-none', apps.length === 0);
+  const note = door.querySelector('.door-note');
+  if (note && apps.length > 0) note.textContent = `${apps.length}この アプリを ひらけるよ`;
+}
+
 /* ---------------- 学習アプリのきろくを おくる ---------------- */
 
 /**
@@ -797,7 +887,7 @@ function studySendPanelHtml() {
 
 /** ホームと「きろく」タブの送信パネルをまとめて描き直します */
 function renderStudySendPanels() {
-  ['home-send-card', 'apps-send-card', 'typing-send-card', 'calc-send-card', 'reading-send-card'].forEach(id => {
+  ['home-send-card', 'apps-launch-send', 'apps-send-card', 'typing-send-card', 'calc-send-card', 'reading-send-card'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
     el.innerHTML = studySendPanelHtml();
@@ -1331,12 +1421,14 @@ function renderStudyAppTab(d) {
   if (!s.records) {
     area.innerHTML = `
       <div id="apps-send-card" class="mb-3"></div>
-      <div class="card record-form-card shadow-sm"><div class="card-body text-center py-4">
+      <div class="card record-form-card shadow-sm mb-3"><div class="card-body text-center py-4">
         <div style="font-size:2rem;">${icon('gamepad')}</div>
         <p class="fw-bold mb-1">学習アプリのきろくは、まだとどいていません</p>
-        <p class="small text-muted mb-0">Qalc・漢字タウン・けいさんカード・さんすうブロック・100マス計算であそんだら、<br>上の「きろくを おくる」ボタンでおくると、ここに表示されるよ。</p>
-      </div></div>`;
+        <p class="small text-muted mb-0">学習アプリであそんだら、上の「きろくを おくる」ボタンでおくると、ここに表示されるよ。</p>
+      </div></div>
+      <div id="rtab-apps-launcher"></div>`;
     renderStudySendPanels();
+    renderAppLauncher('rtab-apps-launcher', { compact: true });
     return;
   }
   const min = m => (!m || m <= 0) ? '0分' : (m >= 60 ? `${Math.floor(m / 60)}時間${m % 60 > 0 ? `${m % 60}分` : ''}` : `${m}分`);
@@ -1381,8 +1473,11 @@ function renderStudyAppTab(d) {
         </table>
       </div>
       <div class="card-footer small text-muted">「せいかい」は、はじめの1回でとけた数だよ。まちがえてもチャレンジしたことが大切！</div>
-    </div>`;
+    </div>
+    <h3 class="mq-section-title mt-3">${icon('external')} アプリを ひらく</h3>
+    <div id="rtab-apps-launcher"></div>`;
   renderStudySendPanels();
+  renderAppLauncher('rtab-apps-launcher', { compact: true });
 }
 
 /**

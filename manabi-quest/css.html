@@ -411,6 +411,80 @@
   .mq-door.door-cyan   { --door: var(--mq-cyan);   --door-soft: var(--mq-cyan-s); }
   .mq-door.door-gold   { --door: var(--mq-gold);   --door-soft: var(--mq-gold-s); }
 
+  /* =================================================================
+   * 学習アプリのタイル（がくしゅうアプリ）
+   * ---------------------------------------------------------------
+   * 「とびら」と同じ手ざわりにしつつ、こちらは**新しいタブ**へ出ていく
+   * リンクなので、右上に外向きの矢印を出して行き先のちがいを見せます。
+   * 名前が読めない学年でも、絵と色で「いつものアプリ」を見つけられます。
+   * ================================================================= */
+  .mq-applist {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: .8rem;
+  }
+  @media (min-width: 576px) { .mq-applist { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (min-width: 992px) { .mq-applist { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+
+  .mq-app {
+    --app: var(--mq-blue);
+    --app-soft: var(--mq-blue-s);
+    position: relative;
+    display: flex; align-items: flex-start; gap: .85rem;
+    padding: .95rem 1rem;
+    border: 2px solid var(--app-soft);
+    border-radius: var(--mq-radius-lg);
+    background: linear-gradient(135deg, #fff 45%, var(--app-soft));
+    color: var(--mq-ink);
+    text-decoration: none;
+    box-shadow: 0 5px 0 var(--app-soft), var(--mq-shadow);
+    transition: transform .1s ease, box-shadow .1s ease, border-color .15s;
+  }
+  .mq-app:hover { border-color: var(--app); color: var(--mq-ink); }
+  .mq-app:active { transform: translateY(5px); box-shadow: 0 0 0 var(--app-soft), var(--mq-shadow); }
+  .mq-app .app-icon {
+    flex: 0 0 auto;
+    display: flex; align-items: center; justify-content: center;
+    width: 3.2rem; height: 3.2rem; border-radius: 1rem;
+    background: #fff; box-shadow: inset 0 0 0 2px var(--app-soft);
+    font-size: 1.8rem; color: var(--app); line-height: 1;
+  }
+  .mq-app .app-body { flex: 1 1 auto; min-width: 0; }
+  .mq-app .app-name {
+    display: block;
+    font-size: 1.1rem; font-weight: 700; line-height: 1.35;
+    /* 右上の「新しいタブ」マークとかさならないよう、1行目だけよけます */
+    padding-right: 1.5rem;
+  }
+  .mq-app .app-subject {
+    display: inline-block; margin-top: .15rem;
+    padding: .05rem .5rem; border-radius: 999px;
+    background: var(--app-soft); color: var(--app);
+    font-size: .74rem; font-weight: 700;
+  }
+  .mq-app .app-note {
+    display: block; margin-top: .3rem;
+    font-size: .84rem; line-height: 1.55; color: var(--mq-ink-2);
+  }
+  .mq-app .app-open {
+    position: absolute; top: .7rem; right: .8rem;
+    font-size: .95rem; color: var(--app); opacity: .75;
+  }
+  .mq-app.app-blue   { --app: var(--mq-blue-d);   --app-soft: var(--mq-blue-s); }
+  .mq-app.app-green  { --app: var(--mq-green-d);  --app-soft: var(--mq-green-s); }
+  .mq-app.app-orange { --app: var(--mq-orange-d); --app-soft: var(--mq-orange-s); }
+  .mq-app.app-pink   { --app: var(--mq-pink-d);   --app-soft: var(--mq-pink-s); }
+  .mq-app.app-purple { --app: var(--mq-purple-d); --app-soft: var(--mq-purple-s); }
+  .mq-app.app-cyan   { --app: var(--mq-cyan-d);   --app-soft: var(--mq-cyan-s); }
+  .mq-app.app-gold   { --app: var(--mq-gold-d);   --app-soft: var(--mq-gold-s); }
+
+  /* ---- せまい場所（きろくの画面）にならべる小さいタイル ---- */
+  .mq-applist.compact { grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .55rem; }
+  .mq-applist.compact .mq-app { flex-direction: column; align-items: center; text-align: center; padding: .7rem .5rem; gap: .4rem; }
+  .mq-applist.compact .app-icon { width: 2.6rem; height: 2.6rem; font-size: 1.45rem; border-radius: .8rem; }
+  .mq-applist.compact .app-name { font-size: .9rem; padding-right: 0; }
+  .mq-applist.compact .app-open { top: .35rem; right: .4rem; font-size: .8rem; }
+
   /* ---- ガチャの絵（押すまえにゆらゆらして、さそいます） ---- */
   .gacha-machine {
     font-size: 5rem; line-height: 1; color: var(--mq-purple);
