@@ -20,12 +20,15 @@ function doGet(e) {
     // 埋め込み表示のときはポータル側にヘッダーがあるので、アプリ側の余白を詰める
     template.embedded = !!(e && e.parameter && e.parameter.embed);
     // viewport-fit=cover: ノッチのある端末でも画面のはしまで使い、
-    // 下部バーは CSS の env(safe-area-inset-*) で安全な位置に置きます
+    //   下部バーは CSS の env(safe-area-inset-*) で安全な位置に置きます
+    // minimum-scale=1.0: 指2本でつまむ操作でうっかり縮めると、アプリだけが
+    //   端末の画面より小さくなって元に戻らなくなるため、縮小だけを止めます
+    //   （見えにくい子のための拡大は今までどおりできます）
     return template
       .evaluate()
       .setTitle('まなびクエスト')
       .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, viewport-fit=cover');
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover');
   } catch (err) {
     console.error(`doGet Error: ${err.message}`);
     return HtmlService.createHtmlOutput('<h1>エラー</h1><p>アプリの起動に失敗しました。管理者に連絡してください。</p>');

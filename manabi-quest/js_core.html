@@ -10,13 +10,60 @@ const App = {
   pendingAvatar: null // 保存前のアバター構成
 };
 
-/** google.script.run を Promise でラップ */
+/* ---------------------------------------------------------------------
+ * サーバー呼び出し
+ * -------------------------------------------------------------------
+ * google.script.run は、電波が切れたりログインの有効期限が切れたりすると
+ * 成功も失敗も返さないまま黙って止まることがあります。そのままだと
+ * ボタンの「じゅんび中」やローディングが出たまま永久に消えず、
+ * 児童には「こわれた」ようにしか見えません。
+ * そこで必ず時間の上限を決めて、返事が来なければ失敗として扱います。
+ * ------------------------------------------------------------------- */
+
+/** ふつうの処理で返事を待つ上限 */
+const API_TIMEOUT_MS = 45000;
+/** AI・PDFなど時間のかかる処理の上限（Apps Script の実行時間の上限に合わせています） */
+const API_TIMEOUT_SLOW_MS = 360000;
+/** 上の「時間のかかる処理」に当たるサーバー関数 */
+const SLOW_API_FUNCTIONS = new Set([
+  'createPortfolioPdf', 'createCertificatePdf', 'createInterviewSheet',
+  'runShokenExtraction', 'runBulkGeneralShokenDraft', 'generateShokenDraft',
+  'generateMoralShokenDraft', 'convertShokenToYouroku', 'exportAttitudeSummary'
+]);
+
+/** 返事が来なかったときのメッセージ（児童にも読める言い方にします） */
+const API_TIMEOUT_MESSAGE = 'サーバーから 返事が ありませんでした。つうしんを たしかめて、もういちど ためしてね。';
+
+/** google.script.run を Promise でラップ（返事が来ないときは時間切れにします） */
 function api(funcName, ...args) {
+  const limitMs = SLOW_API_FUNCTIONS.has(funcName) ? API_TIMEOUT_SLOW_MS : API_TIMEOUT_MS;
   return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(err => reject(new Error(err && err.message ? err.message : '通信エラーが発生しました')))
-      [funcName](...args);
+    let settled = false;
+    let timer = null;
+    // 成功・失敗・時間切れのうち、最初のひとつだけを通します
+    const once = fn => value => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      fn(value);
+    };
+    const succeed = once(resolve);
+    const fail = once(reject);
+
+    timer = setTimeout(() => {
+      const error = new Error(API_TIMEOUT_MESSAGE);
+      error.mqTimeout = true;   // 呼ぶ側が「時間切れ」だと分かるようにします
+      fail(error);
+    }, limitMs);
+    try {
+      google.script.run
+        .withSuccessHandler(succeed)
+        .withFailureHandler(err => fail(new Error(err && err.message ? err.message : '通信エラーが発生しました')))
+        [funcName](...args);
+    } catch (e) {
+      // 引数が送れない形だったときなど、その場で失敗するケース
+      fail(e instanceof Error ? e : new Error(String(e)));
+    }
   });
 }
 
@@ -446,7 +493,8 @@ async function apiSafe(funcName, ...args) {
   } catch (e) {
     return {
       success: false, networkError: true,
-      message: 'つうしんが うまくいきませんでした。もういちど ためしてね。'
+      // 時間切れのときは、その言葉のほうが「待てば直る」と分かるので そのまま伝えます
+      message: (e && e.mqTimeout) ? e.message : 'つうしんが うまくいきませんでした。もういちど ためしてね。'
     };
   }
 }

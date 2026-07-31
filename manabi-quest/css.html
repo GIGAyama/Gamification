@@ -594,6 +594,12 @@
     color: var(--mq-accent-color);
   }
   .mq-card-note { font-size: .82rem; color: var(--mq-muted); }
+
+  /* ほぞんできたかどうかの知らせ。ほぞんずみは緑、やり直しが必要なときは
+     赤で出して、児童が「このまま閉じてよいか」を見ただけで分かるようにします */
+  .mq-save-note { font-size: .82rem; font-weight: 700; color: var(--mq-green-d); }
+  .mq-save-note.is-waiting { color: var(--mq-muted); }
+  .mq-save-note.is-failed  { color: var(--mq-pink-d); }
   .mq-card-body { padding: .5rem 1rem 1rem; }
   .mq-card-body.tight { padding-top: 0; }
 

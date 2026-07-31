@@ -2160,7 +2160,26 @@ function drawTestChart(testRecords) {
   });
 }
 
-/* ---------------- クエスト（ガチャ・アバター・アイテム） ---------------- */
+/* ---------------- クエスト（ガチャ・アバター・アイテム） ----------------
+ *
+ * きせかえの「ほぞん」について
+ * ---------------------------------------------------------------
+ * アイテムをタップした時点では、まだ端末の中で着せかえただけです。
+ * 以前はここで「ほぞんする」を押さないと消えてしまい、押しても通信が
+ * 止まると「じゅんび中」のまま何も起きませんでした。
+ * そこで、
+ *   ・タップが落ち着いたら自動でほぞんする（押し忘れで消えない）
+ *   ・いまの状態を「ほぞんしています…／ほぞんしました」と必ず文字で出す
+ *   ・うまくいかなかったときは、そう言って「ほぞんする」でやり直せる
+ * の3つにしました。api() 側にも時間の上限があるので、待ちっぱなしにはなりません。
+ * ------------------------------------------------------------- */
+
+/** タップが止まってから自動でほぞんするまでの時間 */
+const AVATAR_AUTOSAVE_MS = 900;
+/** いま選んでいるカテゴリ（きせかえるたびに「すべて」へ戻らないよう覚えます） */
+let avatarFilterCategory;
+/** 自動ほぞんの待ちタイマー */
+let avatarSaveTimer = null;
 
 function renderQuestView(data) {
   document.getElementById('cost-gacha-1').textContent = data.gachaCost;
@@ -2169,8 +2188,11 @@ function renderQuestView(data) {
   const expNote = document.getElementById('quest-exp-note');
   if (expNote) expNote.textContent = data.profile.exp;
   App.pendingAvatar = { ...data.avatar };
+  if (avatarSaveTimer) { clearTimeout(avatarSaveTimer); avatarSaveTimer = null; }
+  avatarFilterCategory = undefined;
   renderItemGrid(data);
   renderAvatarPreview();
+  updateAvatarSaveState();
   const p = data.userProfile;
   document.getElementById('profile-motto').value = p.motto || '';
   document.getElementById('profile-favorite').value = p.favorite || '';
@@ -2178,6 +2200,7 @@ function renderQuestView(data) {
 }
 
 function renderItemGrid(data, filterCategory) {
+  avatarFilterCategory = filterCategory;
   const grid = document.getElementById('inventory-grid');
   const filterArea = document.getElementById('item-category-filter');
   const owned = new Set(data.inventory);
@@ -2223,14 +2246,16 @@ function onItemClick(slot, data) {
   const item = data.allItems.find(i => String(i['アイテムID']) === itemId);
 
   if (owned) {
-    // 装備の切り替え
+    // 装備の切り替え。えらんでいたカテゴリはそのまま残します
+    // （タップのたびに「すべて」へ戻ると、着せかえが続けられません）
     if (App.pendingAvatar[category] === item['アイテムID']) {
       delete App.pendingAvatar[category];
     } else {
       App.pendingAvatar[category] = item['アイテムID'];
     }
     renderAvatarPreview();
-    renderItemGrid(data, undefined);
+    renderItemGrid(data, avatarFilterCategory);
+    scheduleAvatarSave();
     return;
   }
   if (cost > 0) {
@@ -2246,7 +2271,7 @@ function onItemClick(slot, data) {
         applyProfileGains_(res);
         starBurst(slot, 10);   // 作り直す前の、いまの位置から星がとびます
         toast(res.message);
-        renderItemGrid(App.data, undefined);
+        renderItemGrid(App.data, avatarFilterCategory);
       } else {
         Swal.fire('こうかんできません', esc(res.message), 'warning');
       }
@@ -2259,6 +2284,87 @@ function onItemClick(slot, data) {
 function renderAvatarPreview() {
   renderAvatar(document.getElementById('avatar-layers'), App.pendingAvatar, App.data.allItems);
   renderAvatar(document.getElementById('home-avatar'), App.pendingAvatar, App.data.allItems);
+}
+
+/** 空っぽ（はずしている）を表す値をそろえます。'' と null と 未設定 は同じあつかいです */
+function avatarSlotValue_(composition, key) {
+  const value = composition ? composition[key] : undefined;
+  return (value === undefined || value === null) ? '' : String(value);
+}
+
+/** 画面のすがたが、サーバーにほぞんしてあるすがたと ちがうか */
+function avatarHasUnsavedChanges_() {
+  const saved = (App.data && App.data.avatar) || {};
+  const pending = App.pendingAvatar || {};
+  const keys = new Set(Object.keys(saved).concat(Object.keys(pending)));
+  for (const key of keys) {
+    if (avatarSlotValue_(saved, key) !== avatarSlotValue_(pending, key)) return true;
+  }
+  return false;
+}
+
+/**
+ * きせかえの「いまどうなっているか」を文字で出します。
+ * 児童が画面を閉じてよいかどうかを、迷わず判断できるようにするためです。
+ * @param {string} [state] - 'saving' | 'saved' | 'failed'（省略すると今の状態から決めます）
+ */
+function updateAvatarSaveState(state) {
+  const note = document.getElementById('avatar-save-note');
+  if (!note) return;
+  const mode = state || (avatarHasUnsavedChanges_() ? 'saving' : 'saved');
+  const text = {
+    saving: 'きせかえを ほぞんしています…',
+    saved: 'いまの すがたは ほぞんずみです',
+    failed: 'ほぞんできませんでした。「ほぞんする」を おしてね'
+  }[mode];
+  note.textContent = text;
+  note.classList.toggle('is-waiting', mode === 'saving');
+  note.classList.toggle('is-failed', mode === 'failed');
+}
+
+/**
+ * きせかえたあと、タップが落ち着いてから自動でほぞんします。
+ * 続けてタップされているあいだは待ち直すので、通信は最後の1回だけです。
+ */
+function scheduleAvatarSave() {
+  updateAvatarSaveState('saving');
+  if (avatarSaveTimer) clearTimeout(avatarSaveTimer);
+  avatarSaveTimer = setTimeout(() => {
+    avatarSaveTimer = null;
+    const btn = document.getElementById('btn-save-avatar');
+    // 前のほぞんがまだ動いているときは、終わるのを待ってからにします
+    if (btn && btn.dataset.mqBusy === '1') { scheduleAvatarSave(); return; }
+    saveAvatarNow(btn, { quiet: true });
+  }, AVATAR_AUTOSAVE_MS);
+}
+
+/**
+ * いまのすがたをサーバーへほぞんします。
+ * @param {HTMLElement} btn - 「ほぞんする」ボタン（中でくるくる待ちます）
+ * @param {Object} [options] - { quiet: true } 自動ほぞん（成功しても通知を出しません）
+ * @returns {Promise<boolean>} ほぞんできたか
+ */
+async function saveAvatarNow(btn, options) {
+  const quiet = !!(options && options.quiet);
+  if (avatarSaveTimer) { clearTimeout(avatarSaveTimer); avatarSaveTimer = null; }
+  if (!avatarHasUnsavedChanges_()) { updateAvatarSaveState('saved'); return true; }
+
+  // 送ったときの内容を控えておきます。待っているあいだに児童が
+  // さらに着せかえても、「送った内容」だけをほぞんずみにするためです。
+  const composition = { ...App.pendingAvatar };
+  const result = await busyApi(btn, 'ほぞん中', 'saveAvatar', composition);
+  if (!result) return false;   // ほぞん中にもう一度押されたとき
+
+  if (result.success) {
+    App.data.avatar = composition;
+    updateAvatarSaveState();
+    if (!quiet) toast(result.message);
+    return true;
+  }
+  updateAvatarSaveState('failed');
+  if (quiet) toast(result.message, 'warning');
+  else Swal.fire('ほぞんできません', esc(result.message), 'warning');
+  return false;
 }
 
 async function runGacha(count, btn) {
@@ -2312,7 +2418,7 @@ async function runGacha(count, btn) {
     html: `<div>${itemsHtml}</div>${result.summary && result.summary.awardedExchangePoints > 0 ? `<div class="mt-2 small">かさなったぶんは <b>+${result.summary.awardedExchangePoints} 交換Pt</b> になりました</div>` : ''}`,
     confirmButtonText: 'とじる', width: count === 10 ? 640 : undefined
   });
-  renderItemGrid(App.data, undefined);
+  renderItemGrid(App.data, avatarFilterCategory);
 }
 
 /* ---------------- ひろば ---------------- */
@@ -2568,13 +2674,10 @@ function bindStudentEvents() {
   const cta = document.getElementById('home-record-cta');
   if (cta) cta.addEventListener('click', () => tapDoorThen(cta, () => showView('view-records', { push: true })));
 
+  // ふだんは着せかえたあと自動でほぞんされます。このボタンは
+  // 「いますぐほぞんしたい」ときと、うまくいかなかったときのやり直し用です。
   const saveAvatarBtn = document.getElementById('btn-save-avatar');
-  saveAvatarBtn.addEventListener('click', async () => {
-    const result = await busyApi(saveAvatarBtn, 'ほぞん中', 'saveAvatar', App.pendingAvatar);
-    if (!result) return;
-    if (result.success) { App.data.avatar = { ...App.pendingAvatar }; toast(result.message); }
-    else Swal.fire('ほぞんできません', esc(result.message), 'warning');
-  });
+  saveAvatarBtn.addEventListener('click', () => saveAvatarNow(saveAvatarBtn));
 
   const saveProfileBtn = document.getElementById('btn-save-profile');
   saveProfileBtn.addEventListener('click', async () => {
