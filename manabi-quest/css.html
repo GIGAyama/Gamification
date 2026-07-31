@@ -570,6 +570,32 @@
   .mq-btn-gold   { --btn-bg: linear-gradient(180deg,#ffd257,#f0b022); --btn-edge:#c78d10; color:#5a4100; }
   .mq-btn-ghost  { --btn-bg: #fff; --btn-edge:#cdd9e6; color: var(--mq-ink-2); box-shadow: 0 3px 0 var(--btn-edge); border: 2px solid #e3ecf6; }
 
+  /* ---- 待っているあいだのボタン ----
+   * サーバーの返事を待つあいだは、画面ぜんたいをふさぐのではなく
+   * 押したボタンの中でくるくる回します。どこが動いているのかが一目で分かり、
+   * 見ていた画面もかくれません。
+   * 押せないあいだも色は変えません。灰色にすると「こわれた」ように見え、
+   * 待っているだけなのか、押してはいけないのかが分からなくなるためです。
+   * （:disabled の見た目に勝てるよう、あとに、同じ強さ以上で書いています） */
+  .is-busy { cursor: progress; }
+  .mq-btn.is-busy:disabled, .btn.is-busy:disabled, .mq-choice-item.is-busy:disabled {
+    filter: none; opacity: 1;
+  }
+  .mq-btn.is-busy:disabled { box-shadow: 0 4px 0 var(--btn-edge), 0 6px 12px rgba(47, 61, 79, .18); }
+  .mq-btn.is-busy:active { transform: none; }
+  .mq-spin {
+    display: inline-block; width: 1em; height: 1em; flex: 0 0 auto;
+    border: .16em solid currentColor; border-right-color: transparent;
+    border-radius: 50%;
+    animation: mq-spin .7s linear infinite;
+  }
+  @keyframes mq-spin { to { transform: rotate(360deg); } }
+  /* 目には見せず、読み上げにだけ伝える文字（Bootstrap に頼らず自前で持ちます） */
+  .mq-sr-only {
+    position: absolute !important; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
   /* =================================================================
    * 入力フォーム（大きく・見やすく）
    * 小さなテキストボックスをやめて、指でも押しやすい大きさにします。
@@ -703,9 +729,33 @@
     transition: border-color .15s, background-color .15s;
   }
   .mission-item.complete { background: #fffcf0; border-color: #ffdf8e; }
-  .mission-item.claimed { opacity: .5; }
+  /* うけとりずみは「もう用のない行」。うすくしすぎると読めないので、
+   * 色みだけを落として、文字は読める濃さのまま残します。 */
+  .mission-item.claimed { background: #f7f9fb; border-color: #e7edf3; opacity: .72; }
   .mission-type-badge { font-size: .7rem; }
   .mission-item .mission-text { font-size: 1rem; font-weight: 700; }
+  .mission-side { min-width: 104px; }
+  .mission-side .mission-reward {
+    font-weight: 700; font-size: .82rem; margin-top: .3rem; color: var(--mq-gold-d);
+  }
+  .mission-item.claimed .mission-reward { color: var(--mq-muted); }
+  .mission-side .claim-btn {
+    min-height: 2.5rem; padding: .4rem 1rem; font-size: .95rem;
+  }
+  .mission-side .mission-progress-text { font-weight: 700; color: var(--mq-ink-2); }
+  /* うけとりずみの目じるし。チェックを付けて、ボタンとは形からちがえます */
+  .mission-side .mission-claimed {
+    display: inline-flex; align-items: center; gap: .45rem;
+    padding: .34rem .8rem .34rem .7rem; border-radius: 999px;
+    background: var(--mq-green-s); color: var(--mq-green-d);
+    font-size: .82rem; font-weight: 700; white-space: nowrap;
+  }
+  .mission-side .mission-claimed::before {
+    content: ''; width: .42rem; height: .74rem; flex: 0 0 auto;
+    margin-top: -.16rem;
+    border: solid currentColor; border-width: 0 .15rem .15rem 0;
+    transform: rotate(45deg);
+  }
 
   /* ---- バッジ ---- */
   .badge-icon {
@@ -1075,6 +1125,9 @@
       transition-duration: .001ms !important;
     }
     .mq-confetti, .mq-levelup, .mq-burst { display: none !important; }
+    /* ボタンのくるくるは「いま待っている」ことを伝える合図なので、
+     * ゆっくりにするだけで、止めてしまわないようにします */
+    .mq-spin { animation-duration: 1.5s !important; animation-iteration-count: infinite !important; }
     /* 画面のすれちがいは、動かないと重なって見えてしまうので出しません */
     .mq-panel.leaving { display: none !important; }
   }

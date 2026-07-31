@@ -234,7 +234,7 @@ function calculateLevel(totalExp, config) {
  * @param {string} email
  * @param {number} amount - 加算する経験値
  * @param {string} sourceLabel - ログに残す獲得元の名前（例: '読書記録'）
- * @returns {{totalExp:number, exp:number, level:number, leveledUp:boolean}}
+ * @returns {{totalExp:number, exp:number, level:number, levelInfo:Object, leveledUp:boolean}}
  */
 function addExp_(ss, email, amount, sourceLabel) {
   if (!amount || amount <= 0) return null;
@@ -249,8 +249,9 @@ function addExp_(ss, email, amount, sourceLabel) {
   userSheet.getRange(found.row, USER_COLS.TOTAL_EXP, 1, 2).setValues([[newTotal, newExp]]);
   writeLog_(ss, email, LOG_ACTIONS.EXP_GAIN, `${sourceLabel}: +${amount}EXP`);
   const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
-  const level = calculateLevel(newTotal, config).level;
-  return { totalExp: newTotal, exp: newExp, level, leveledUp };
+  // つぎのレベルまでのバーも、この結果だけで引き直せるように levelInfo ごと返します
+  const levelInfo = calculateLevel(newTotal, config);
+  return { totalExp: newTotal, exp: newExp, level: levelInfo.level, levelInfo, leveledUp };
 }
 
 /**

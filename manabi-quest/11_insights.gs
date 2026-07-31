@@ -777,6 +777,10 @@ function saveWeeklyReflection(formData) {
         goalRegistered,
         leveledUp: expResult ? expResult.leveledUp : false,
         newLevel: expResult ? expResult.level : null,
+        // ふえたけいけんちを、その場で画面に出せるように返します
+        newExp: expResult ? expResult.exp : null,
+        newTotalExp: expResult ? expResult.totalExp : null,
+        levelInfo: expResult ? expResult.levelInfo : null,
         weekly: getWeeklyReflectionState_(ss, email),
         goalData: getGoalData_(ss, email),
         missions: getMissionStatus_(ss, email)

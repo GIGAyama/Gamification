@@ -359,6 +359,11 @@ function countMissionProgress_(logs, conditionKey) {
 
 /**
  * 達成済みミッションの報酬を受け取ります。
+ *
+ * 受け取ったあとの画面（けいけんち・交換Pt・レベルのバー・ミッションの見た目）を
+ * 作り直すのに必要なものは、すべてこの戻り値に入れて返します。
+ * 児童画面はこの結果だけで表示を更新できるので、
+ * 「うけとったのに、しばらくボタンが残ったまま」になりません。
  */
 function claimMissionReward(missionId) {
   return withLock_(() => {
@@ -368,7 +373,10 @@ function claimMissionReward(missionId) {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const status = getMissionStatus_(ss, email).find(m => m.id === cleanedId);
       if (!status) return { success: false, message: 'ミッションが見つかりません。' };
-      if (!status.isComplete || status.isClaimed) return { success: false, message: 'まだ受け取れません。' };
+      // すでに受け取りずみのときは、エラーではなく「受け取りずみ」として返します。
+      // （通信が重なったときなどに、うけとれたのに警告が出るのを防ぎます）
+      if (status.isClaimed) return { success: false, alreadyClaimed: true, missionId: cleanedId, message: 'このごほうびは うけとりずみです。' };
+      if (!status.isComplete) return { success: false, message: 'まだ受け取れません。' };
 
       const user = findUserRow_(ss, email);
       const userSheet = ss.getSheetByName(SHEETS.USERS);
@@ -378,17 +386,26 @@ function claimMissionReward(missionId) {
       let newExp = Number(user.data['経験値'] || 0);
       let newTotalExp = Number(user.data['累計経験値'] || 0);
       let newExchangePoints = Number(user.data['交換ポイント'] || 0);
+      const config = getConfig_();
+      let leveledUp = false;
 
       if (status.rewardType === '経験値') {
         newExp += status.rewardAmount;
         newTotalExp += status.rewardAmount;
         userSheet.getRange(user.row, USER_COLS.TOTAL_EXP, 1, 2).setValues([[newTotalExp, newExp]]);
-        checkLevelUp_(ss, email, newTotalExp - status.rewardAmount, newTotalExp, getConfig_());
+        leveledUp = checkLevelUp_(ss, email, newTotalExp - status.rewardAmount, newTotalExp, config);
       } else {
         newExchangePoints += status.rewardAmount;
         userSheet.getRange(user.row, USER_COLS.POINTS).setValue(newExchangePoints);
       }
-      return { success: true, message: 'ほうしゅうを受け取りました！', newExp, newTotalExp, newExchangePoints };
+      const levelInfo = calculateLevel(newTotalExp, config);
+      return {
+        success: true, message: 'ほうしゅうを受け取りました！',
+        missionId: cleanedId,
+        rewardType: status.rewardType, rewardAmount: status.rewardAmount,
+        newExp, newTotalExp, newExchangePoints,
+        leveledUp, newLevel: levelInfo.level, levelInfo
+      };
     } catch (e) {
       return { success: false, message: `エラー: ${e.message}` };
     }

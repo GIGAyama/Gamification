@@ -143,12 +143,10 @@ function isShown_(id) {
 
 function renderHome(data) {
   const p = data.profile;
+  if (App.data) App.data.profile = p;
   document.getElementById('home-nickname').textContent = p.nickname;
-  document.getElementById('home-level').textContent = p.level;
-  countUp(document.getElementById('home-exp'), p.exp);
-  countUp(document.getElementById('home-exchange'), p.exchangePoints);
-  document.getElementById('home-progress-text').textContent = `${p.currentLevelExp} / ${p.nextLevelExp}`;
-  setXpBar_(p.progress);
+  // けいけんち・交換Pt・レベルまわりは、操作のあとの部分更新と同じ道を通します
+  syncProfileDisplay_();
   const motto = data.userProfile && data.userProfile.motto;
   document.getElementById('home-motto').textContent = motto ? `「${motto}」` : '';
 
@@ -494,25 +492,32 @@ function renderGoals() {
   }).join('');
 
   el.querySelectorAll('[data-goal-done]').forEach(btn => {
-    btn.addEventListener('click', () => completeGoal(Number(btn.dataset.goalDone)));
+    btn.addEventListener('click', () => completeGoal(Number(btn.dataset.goalDone), btn));
   });
 }
 
 /** 自由記述のめあてを「できた！」にします */
-async function completeGoal(row) {
+async function completeGoal(row, btn) {
   const confirmed = await Swal.fire({
     icon: 'question', title: 'めあて たっせい？',
     text: 'このめあては できましたか？',
     showCancelButton: true, confirmButtonText: 'できた！', cancelButtonText: 'まだ'
   });
   if (!confirmed.isConfirmed) return;
-  const res = await apiWithLoading('ほぞん中...', 'completeManualGoal', row);
+  const res = await busyApi(btn, '', 'completeManualGoal', row);
+  if (!res) return;
   if (!res.success) { Swal.fire('できません', esc(res.message), 'warning'); return; }
   App.data.records.goalData = res.goalData;
   App.data.missions = res.missions;
+  // 先に画面を新しくしてから、おいわいを出します
   renderGoals();
   renderMissions(res.missions);
-  Swal.fire({ icon: 'success', title: 'やったね！', html: `めあてたっせい！<br><b class="text-primary">+${res.gainedExp} EXP</b>` });
+  renderMoreCounts();
+  renderTodayCard();
+  applyProfileGains_(res);
+  celebrate(45);
+  Swal.fire({ icon: 'success', title: 'やったね！', html: `めあてたっせい！<br><b class="text-primary">+${res.gainedExp} EXP</b>` })
+    .then(() => { if (res.leveledUp) showLevelUp(res.newLevel); });
 }
 
 /**
@@ -579,10 +584,13 @@ function openGoalDialog(presetKind) {
     if (!res.success) { Swal.fire('セットできません', esc(res.message), 'warning'); return; }
     App.data.records.goalData = res.goalData;
     App.data.missions = res.missions;
-    toast(res.message);
     renderGoals();
     renderMissions(res.missions);
     renderTypingTab(App.data.records);
+    // ホームの「きょう やること」と とびらの件数も、ここで合わせておきます
+    renderMoreCounts();
+    renderTodayCard();
+    toast(res.message);
   });
 }
 
@@ -673,9 +681,14 @@ function openWeeklyReflectionDialog() {
     App.data.insights.weekly = res.weekly;
     App.data.records.goalData = res.goalData;
     App.data.missions = res.missions;
+    // おいわいを出す前に、画面をぜんぶ新しい状態にしておきます
     renderWeeklyCard();
     renderGoals();
     renderMissions(res.missions);
+    renderMoreCounts();
+    renderTodayCard();
+    applyProfileGains_(res);
+    celebrate(60);
 
     let html = `今週のふり返りを書きました！<br><b class="text-primary">+${res.gainedExp} EXP</b>`;
     if (res.goalRegistered) html += `<br>${icon('target')} 来週のめあてをセットしました`;
@@ -849,50 +862,87 @@ function handlePortalSendResult(msg) {
     lines.unshift(`${icon('trophy')} <b class="text-success">めあて たっせい！</b> ${esc(g.kindLabel)}${g.memo ? `「${esc(g.memo)}」` : ''}${g.exp > 0 ? ` +${g.exp} EXP` : ''}`);
   });
 
-  Swal.fire({ icon: 'success', title: bests.length > 0 ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') }).then(() => {
-    if (msg.leveledUp) {
-      showLevelUp(msg.level).then(refreshStudentData);
-    } else {
-      refreshStudentData();
-    }
-  });
+  // おいわいを読んでもらっているあいだに、うしろで最新データを取りにいきます。
+  // 読み終えてダイアログを閉じたときには、もう新しい画面になっています。
+  const refreshing = refreshStudentData();
+  Swal.fire({ icon: 'success', title: bests.length > 0 ? 'きろく更新！' : 'やったね！', html: lines.join('<br>') })
+    .then(() => (msg.leveledUp ? showLevelUp(msg.level) : null))
+    .then(() => refreshing);
 }
 
-/** 送信後などに、サーバーの最新データで画面を作り直します */
-async function refreshStudentData() {
-  try {
-    const data = await api('getStudentAppData');
-    if (!data.success) return;
-    App.data = { ...App.data, ...data };
-    renderStudentHeader(data.profile);
-    renderHome(data);
-    renderCalcTab(data.records);
-    renderRankings('rankings-container', data.rankings);
-    studyAppLoaded = false;
-    if (isShown_('rtab-apps')) loadStudyAppTab();
-  } catch (e) { /* 表示更新の失敗は致命的ではない */ }
+/**
+ * サーバーの最新データで画面を作り直します。
+ *
+ * 同じ取得が重なって走らないよう、走っているものがあればそれを使いまわします。
+ * （おいわいの演出の裏で始めた取得と、そのあとの操作がぶつかるのを防ぎます）
+ */
+let studentRefreshing = null;
+function refreshStudentData() {
+  if (studentRefreshing) return studentRefreshing;
+  studentRefreshing = (async () => {
+    try {
+      const data = await api('getStudentAppData');
+      if (!data.success) return;
+      App.data = { ...App.data, ...data };
+      renderStudentHeader(data.profile);
+      renderHome(data);
+      renderCalcTab(data.records);
+      renderRankings('rankings-container', data.rankings);
+      studyAppLoaded = false;
+      if (isShown_('rtab-apps')) loadStudyAppTab();
+    } catch (e) { /* 表示更新の失敗は致命的ではない */ } finally {
+      studentRefreshing = null;
+    }
+  })();
+  return studentRefreshing;
+}
+
+/* ---------------- ミッション ---------------- */
+
+/**
+ * いま画面に出ているミッション一覧の「かたち」。
+ * 中身が変わっていないのに作り直すと、リストが毎回ふわっと出なおして
+ * ちらついて見えるので、変わったときだけ描きなおす目印にします。
+ */
+let missionListSignature = '';
+
+function missionSignature_(missions) {
+  return (missions || [])
+    .map(m => `${m.id}/${m.progress}/${m.target}/${m.isComplete ? 1 : 0}/${m.isClaimed ? 1 : 0}`)
+    .join('|');
+}
+
+/** ミッションの右はしに出すもの（すすみ具合／うけとるボタン／うけとりずみ） */
+function missionActionHtml_(m) {
+  if (m.isClaimed) return '<span class="mission-claimed">うけとりずみ</span>';
+  if (m.isComplete) return `<button type="button" class="mq-btn mq-btn-gold claim-btn" data-mission="${esc(m.id)}">うけとる！</button>`;
+  return `<span class="mission-progress-text">${m.progress} / ${m.target}</span>`;
 }
 
 function renderMissions(missions) {
   const container = document.getElementById('home-missions');
-  if (!missions || missions.length === 0) {
+  if (!container) return;
+  const list = missions || [];
+  if (list.length === 0) {
+    missionListSignature = '';
     container.innerHTML = emptyMessage('ミッションはまだありません');
     return;
   }
+  const signature = missionSignature_(list);
+  // 前とまったく同じなら、なにもしません（見えている画面を、そのまま残します）
+  if (signature === missionListSignature && container.querySelector('.mission-item')) return;
+
+  // ミッションの顔ぶれが変わったときだけ、上から順にふわっと出します。
+  // 進み具合が変わっただけのときは、その場で書きかわるほうが落ち着いて見えます。
+  const idsBefore = missionListSignature.split('|').map(s => s.split('/')[0]).join(',');
+  const idsAfter = list.map(m => String(m.id)).join(',');
+  container.classList.toggle('mq-stagger', idsBefore !== idsAfter);
+  missionListSignature = signature;
+
   const typeBadge = { 'デイリー': 'bg-info', 'ウィークリー': 'bg-primary', '協力': 'bg-danger' };
-  // 上から順にふわっと出てくると、一気に出るよりも目線が迷いません
-  container.classList.add('mq-stagger');
-  container.innerHTML = missions.map(m => {
-    const pct = m.target > 0 ? Math.floor((m.progress / m.target) * 100) : 0;
-    let action = '';
-    if (m.isClaimed) {
-      action = '<span class="badge bg-secondary">うけとりずみ</span>';
-    } else if (m.isComplete) {
-      action = `<button type="button" class="mq-btn mq-btn-gold claim-btn" style="min-height:2.5rem;padding:.4rem 1rem;font-size:.95rem;" data-mission="${esc(m.id)}">うけとる！</button>`;
-    } else {
-      action = `<span class="fw-bold" style="color:var(--mq-ink-2);">${m.progress} / ${m.target}</span>`;
-    }
-    return `<div class="mission-item ${m.isComplete ? 'complete' : ''} ${m.isClaimed ? 'claimed' : ''}">
+  container.innerHTML = list.map(m => {
+    const pct = m.target > 0 ? Math.min(100, Math.floor((m.progress / m.target) * 100)) : 0;
+    return `<div class="mission-item ${m.isComplete ? 'complete' : ''} ${m.isClaimed ? 'claimed' : ''}" data-mission-id="${esc(m.id)}">
       <div class="d-flex justify-content-between align-items-center gap-2">
         <div class="flex-grow-1">
           <span class="badge ${typeBadge[m.type] || 'bg-secondary'} mission-type-badge">${esc(m.type)}</span>
@@ -901,46 +951,134 @@ function renderMissions(missions) {
             <div class="progress-bar" style="width:${pct}%;border-radius:999px;background:linear-gradient(90deg,#35c47e,#8fe6b7);"></div>
           </div>
         </div>
-        <div class="text-end" style="min-width:92px;">
-          ${action}
-          <div class="fw-bold mt-1" style="font-size:.82rem;color:var(--mq-gold-d);">${esc(m.rewardType)} +${m.rewardAmount}</div>
+        <div class="text-end mission-side">
+          <div class="mission-action">${missionActionHtml_(m)}</div>
+          <div class="mission-reward">${esc(m.rewardType)} +${m.rewardAmount}</div>
         </div>
       </div>
     </div>`;
   }).join('');
 
-  container.querySelectorAll('.claim-btn').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const result = await apiWithLoading('うけとり中...', 'claimMissionReward', btn.dataset.mission);
-      if (result.success) {
-        starBurst(btn, 14);   // 押したボタンから星がはじけます
-        celebrate(45);
-        toast(result.message);
-        if (result.newExp !== undefined) {
-          App.data.profile.exp = result.newExp;
-          App.data.profile.exchangePoints = result.newExchangePoints;
-          countUp(document.getElementById('home-exp'), result.newExp);
-          countUp(document.getElementById('home-exchange'), result.newExchangePoints);
-          document.getElementById('quest-exchange').textContent = result.newExchangePoints;
-        }
-        refreshMissions();
-      } else {
-        Swal.fire('うけとれません', esc(result.message), 'warning');
-      }
-    });
+  bindMissionEvents_(container);
+}
+
+/**
+ * うけとるボタンの反応は、リストの親で1回だけ受けます。
+ * 行の中身を差しかえても押せなくならないようにするためです。
+ */
+function bindMissionEvents_(container) {
+  if (container.dataset.claimBound === '1') return;
+  container.dataset.claimBound = '1';
+  container.addEventListener('click', ev => {
+    const btn = ev.target.closest('.claim-btn');
+    if (btn) claimMissionFrom_(btn);
   });
 }
 
-async function refreshMissions() {
-  try {
-    const data = await api('getStudentAppData');
-    if (data.success) {
-      App.data = { ...App.data, ...data };
-      renderMissions(data.missions);
-      renderStudentHeader(data.profile);
-      renderHome(data);
+/** ミッションの行を、いまのデータの状態に合わせて書きかえます */
+function updateMissionRow_(missionId) {
+  const mission = (App.data.missions || []).find(m => String(m.id) === String(missionId));
+  const rows = document.querySelectorAll('#home-missions .mission-item');
+  const row = Array.prototype.filter.call(rows, r => r.dataset.missionId === String(missionId))[0];
+  if (row && mission) {
+    row.classList.toggle('complete', !!mission.isComplete);
+    row.classList.toggle('claimed', !!mission.isClaimed);
+    const slot = row.querySelector('.mission-action');
+    if (slot) {
+      slot.innerHTML = missionActionHtml_(mission);
+      popElement(slot.firstElementChild);   // 新しい表示が「ぽん」と出ます
     }
-  } catch (e) { /* 表示更新の失敗は致命的ではない */ }
+  }
+  // 画面を作り直したときに、また同じ状態を作れるようにしておきます
+  missionListSignature = missionSignature_(App.data.missions);
+  return row;
+}
+
+/** ごほうびを受け取ったことを、手もとのデータと画面に反映します */
+function markMissionClaimed_(missionId) {
+  const mission = (App.data.missions || []).find(m => String(m.id) === String(missionId));
+  if (mission) { mission.isComplete = true; mission.isClaimed = true; }
+  const row = updateMissionRow_(missionId);
+  // ホームの「きょう やること」や、とびらの件数バッジも、その場で合わせます
+  renderMoreCounts();
+  renderTodayCard();
+  return row;
+}
+
+/**
+ * ミッションのごほうびを受け取ります。
+ *
+ * 待つのは押したボタンの中だけ（画面はふさぎません）。
+ * サーバーの返事が来たら、まず「うけとりずみ」に書きかえてから演出を出します。
+ * 受け取りに必要なものはすべて返事に入っているので、
+ * このあとデータを取りなおすことはありません。
+ */
+async function claimMissionFrom_(btn) {
+  const missionId = btn.dataset.mission;
+  const result = await busyApi(btn, '', 'claimMissionReward', missionId);
+  if (!result) return;   // 処理中の二重タップ
+  if (!result.success) {
+    // すでに受け取りずみだったときは、画面のほうが古いだけなので、そっと追いつかせます
+    if (result.alreadyClaimed) {
+      markMissionClaimed_(missionId);
+      toast(result.message, 'info');
+      return;
+    }
+    Swal.fire('うけとれません', esc(result.message), 'warning');
+    return;
+  }
+
+  // ① さきに画面を新しい状態にします（演出のうしろに古いボタンが残らないように）
+  const row = markMissionClaimed_(missionId);
+  applyProfileGains_(result);
+  // ② そのうえで、おいわいします
+  starBurst((row && row.querySelector('.mission-action')) || btn, 14);
+  celebrate(45);
+  // レベルアップしたときは、そちらのお祝いだけにします（トーストと重ねません）
+  if (result.leveledUp) {
+    showLevelUp(result.newLevel);
+  } else {
+    const gain = result.rewardType === '経験値' ? `+${result.rewardAmount} EXP` : `+${result.rewardAmount} 交換Pt`;
+    toast(`ごほうびゲット！ ${gain}`);
+  }
+}
+
+/**
+ * サーバーの返事に入っていた けいけんち・交換Pt・レベルを、手もとのデータに取りこみます。
+ * ごほうび・ガチャ・こうかんなど、数がふえる操作すべてがここを通ります。
+ */
+function applyProfileGains_(res) {
+  const p = App.data.profile;
+  if (!p || !res) return;
+  const num = v => (v !== undefined && v !== null ? Number(v) : null);
+  const exp = num(res.newExp !== undefined ? res.newExp : res.newPoints);
+  const totalExp = num(res.newTotalExp);
+  const points = num(res.newExchangePoints);
+  if (exp !== null) p.exp = exp;
+  if (totalExp !== null) p.totalExp = totalExp;
+  if (points !== null) p.exchangePoints = points;
+  if (res.levelInfo) {
+    p.level = res.levelInfo.level;
+    p.progress = res.levelInfo.progress;
+    p.currentLevelExp = res.levelInfo.currentLevelExp;
+    p.nextLevelExp = res.levelInfo.nextLevelExp;
+  } else if (res.newLevel) {
+    p.level = res.newLevel;
+  }
+  syncProfileDisplay_();
+}
+
+/** けいけんち・交換Pt・レベル・つぎのレベルまでのバーを、いまのデータにそろえます */
+function syncProfileDisplay_() {
+  const p = (App.data && App.data.profile) || {};
+  countUp(document.getElementById('home-exp'), p.exp);
+  countUp(document.getElementById('home-exchange'), p.exchangePoints);
+  countUp(document.getElementById('quest-exchange'), p.exchangePoints);
+  const set = (id, value) => { const el = document.getElementById(id); if (el) el.textContent = value; };
+  set('home-level', p.level);
+  set('nav-level', p.level);
+  if (p.nextLevelExp !== undefined) set('home-progress-text', `${p.currentLevelExp} / ${p.nextLevelExp}`);
+  setXpBar_(p.progress);
 }
 
 function renderAnnouncements(containerId, announcements, forTeacher) {
@@ -1625,7 +1763,7 @@ function onStepNext() {
     gotoStep(RecordForm.index + 1);
     return;
   }
-  submitRecordForm(RecordForm.type);
+  submitRecordForm(RecordForm.type, document.getElementById('step-next'));
 }
 
 /** 入力フォームの中の、種類ごとの追加のうごき（単元の連動など） */
@@ -1648,9 +1786,10 @@ function bindRecordFormExtras(type) {
 }
 
 /** 入力しおわったきろくをサーバーへ送り、おいわいの演出を出します */
-async function submitRecordForm(type) {
+async function submitRecordForm(type, btn) {
   const formData = collectFormData(type);
-  const result = await apiWithLoading('ほぞん中...', 'saveRecord', { type, formData });
+  const result = await busyApi(btn, 'ほぞん中', 'saveRecord', { type, formData });
+  if (!result) return;   // 処理中の二重タップ
   if (!result.success) {
     Swal.fire('ほぞんできません', esc(result.message), 'warning');
     return;
@@ -1664,15 +1803,15 @@ async function submitRecordForm(type) {
   renderLessonTab(result.records);
   renderMissions(result.missions);
   renderGoals();
-  if (result.newExp !== null && result.newExp !== undefined) {
-    App.data.profile.exp = result.newExp;
-    App.data.profile.totalExp = result.newTotalExp;
-    countUp(document.getElementById('home-exp'), result.newExp);
-  }
+  applyProfileGains_(result);
 
   // 書きおわったら「なにを きろくする？」の入口までもどします
   navDropPrefix('panel:');
   goPanel('p-rec-menu', { silent: true });
+
+  // おいわいを読んでもらっているあいだに、うしろで最新データを取りにいきます。
+  // 待ってから取りにいくと、ダイアログを閉じたあとにもう一度待たされてしまいます。
+  const refreshing = refreshStudentData();
 
   // がんばったときほど、はでにおいわいします
   celebrate(result.personalBest || (result.achievedGoals || []).length ? 110 : 55);
@@ -1695,13 +1834,9 @@ async function submitRecordForm(type) {
     html += `<hr class="my-2"><div class="text-start small"><b>${icon('bulb')} AIコーチから</b><br>${esc(result.aiCoach)}</div>`;
   }
 
-  Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html }).then(() => {
-    if (result.leveledUp) {
-      showLevelUp(result.newLevel).then(() => refreshMissions());
-    } else {
-      refreshMissions();
-    }
-  });
+  Swal.fire({ icon: 'success', title: result.personalBest ? 'きろく更新！' : 'やったね！', html })
+    .then(() => (result.leveledUp ? showLevelUp(result.newLevel) : null))
+    .then(() => refreshing);
 }
 
 
@@ -2012,10 +2147,9 @@ function onItemClick(slot, data) {
       if (!result.isConfirmed) return;
       const res = await apiWithLoading('こうかん中...', 'exchangeItem', item['アイテムID']);
       if (res.success) {
-        App.data.profile.exchangePoints = res.newExchangePoints;
         App.data.inventory.push(item['アイテムID']);
-        document.getElementById('home-exchange').textContent = res.newExchangePoints;
-        document.getElementById('quest-exchange').textContent = res.newExchangePoints;
+        applyProfileGains_(res);
+        starBurst(slot, 10);   // 作り直す前の、いまの位置から星がとびます
         toast(res.message);
         renderItemGrid(App.data, undefined);
       } else {
@@ -2032,7 +2166,7 @@ function renderAvatarPreview() {
   renderAvatar(document.getElementById('home-avatar'), App.pendingAvatar, App.data.allItems);
 }
 
-async function runGacha(count) {
+async function runGacha(count, btn) {
   const cost = count === 10 ? App.data.gacha10Cost : App.data.gachaCost;
   if (App.data.profile.exp < cost) {
     Swal.fire('けいけんちがたりない！', `ガチャには ${cost} EXP ひつようです。<br>いまのけいけんち: ${App.data.profile.exp}`, 'warning');
@@ -2051,16 +2185,15 @@ async function runGacha(count) {
     void machine.offsetWidth;
     machine.classList.add('opening');
   }
-  const result = await apiWithLoading('ガチャをまわしています...', 'playGacha', count);
+  // 待つのはボタンの中だけにします。画面をふさぐと、
+  // せっかく回っているガチャの絵が見えなくなってしまいます。
+  const result = await busyApi(btn, 'まわしています', 'playGacha', count);
+  if (!result) return;
   if (!result.success) {
     Swal.fire('ガチャエラー', esc(result.message), 'warning');
     return;
   }
-  App.data.profile.exp = result.newPoints;
-  if (result.newExchangePoints !== undefined) App.data.profile.exchangePoints = result.newExchangePoints;
-  countUp(document.getElementById('home-exp'), App.data.profile.exp);
-  countUp(document.getElementById('home-exchange'), App.data.profile.exchangePoints);
-  document.getElementById('quest-exchange').textContent = App.data.profile.exchangePoints;
+  applyProfileGains_(result);
   // レアなアイテムが出たときは、はでにおいわいします
   const bestRarity = result.results.some(i => i['レアリティー'] === 'SR') ? 'SR'
     : result.results.some(i => i['レアリティー'] === 'R') ? 'R' : 'N';
@@ -2225,13 +2358,17 @@ function openCheerDialog(toEmail, nickname, stamps) {
     didOpen: () => {
       document.querySelectorAll('[data-stamp]').forEach(btn => {
         btn.addEventListener('click', async () => {
-          Swal.close();
-          const res = await apiWithLoading('おくっています...', 'sendCheer', { to: toEmail, stamp: btn.dataset.stamp });
+          // ダイアログは開いたまま、えらんだスタンプの中で待ちます。
+          // 「消えた画面のうしろで、なにかが起きている」を作らないためです。
+          const res = await busyApi(btn, '', 'sendCheer', { to: toEmail, stamp: btn.dataset.stamp });
+          if (!res) return;
           if (!res.success) { Swal.fire('おくれません', esc(res.message), 'warning'); return; }
+          Swal.close();
           App.data.social = res.social;
           App.data.missions = res.missions;
           renderCheerBoard();
           renderMissions(res.missions);
+          renderMoreCounts();
           toast(res.message);
         });
       });
@@ -2324,8 +2461,10 @@ function renderRankings(containerId, rankings) {
 /* ---------------- イベント ---------------- */
 
 function bindStudentEvents() {
-  document.getElementById('btn-gacha-1').addEventListener('click', () => runGacha(1));
-  document.getElementById('btn-gacha-10').addEventListener('click', () => runGacha(10));
+  const gacha1 = document.getElementById('btn-gacha-1');
+  const gacha10 = document.getElementById('btn-gacha-10');
+  gacha1.addEventListener('click', () => runGacha(1, gacha1));
+  gacha10.addEventListener('click', () => runGacha(10, gacha10));
 
   const addGoalBtn = document.getElementById('home-add-goal-btn');
   if (addGoalBtn) addGoalBtn.addEventListener('click', () => openGoalDialog());
@@ -2334,19 +2473,23 @@ function bindStudentEvents() {
   const cta = document.getElementById('home-record-cta');
   if (cta) cta.addEventListener('click', () => tapDoorThen(cta, () => showView('view-records', { push: true })));
 
-  document.getElementById('btn-save-avatar').addEventListener('click', async () => {
-    const result = await apiWithLoading('ほぞん中...', 'saveAvatar', App.pendingAvatar);
+  const saveAvatarBtn = document.getElementById('btn-save-avatar');
+  saveAvatarBtn.addEventListener('click', async () => {
+    const result = await busyApi(saveAvatarBtn, 'ほぞん中', 'saveAvatar', App.pendingAvatar);
+    if (!result) return;
     if (result.success) { App.data.avatar = { ...App.pendingAvatar }; toast(result.message); }
     else Swal.fire('ほぞんできません', esc(result.message), 'warning');
   });
 
-  document.getElementById('btn-save-profile').addEventListener('click', async () => {
+  const saveProfileBtn = document.getElementById('btn-save-profile');
+  saveProfileBtn.addEventListener('click', async () => {
     const profileData = {
       motto: document.getElementById('profile-motto').value,
       favorite: document.getElementById('profile-favorite').value,
       goal: document.getElementById('profile-goal').value
     };
-    const result = await apiWithLoading('ほぞん中...', 'saveProfile', profileData);
+    const result = await busyApi(saveProfileBtn, 'ほぞん中', 'saveProfile', profileData);
+    if (!result) return;
     if (result.success) {
       App.data.userProfile = profileData;
       document.getElementById('home-motto').textContent = profileData.motto ? `「${profileData.motto}」` : '';

@@ -95,6 +95,7 @@ function saveRecord(payload) {
         goalAchieved: achieved.length > 0,
         leveledUp: expResult ? expResult.leveledUp : false,
         newLevel: expResult ? expResult.level : null,
+        levelInfo: expResult ? expResult.levelInfo : null,
         newExp: expResult ? expResult.exp : null,
         newTotalExp: expResult ? expResult.totalExp : null,
         records: getMyRecords(email),
@@ -219,8 +220,9 @@ function readExpState_(ss, email, levelBefore) {
   if (!found.data) return null;
   const totalExp = Number(found.data['累計経験値'] || 0);
   const exp = Number(found.data['経験値'] || 0);
-  const level = calculateLevel(totalExp, getConfig_()).level;
-  return { totalExp, exp, level, leveledUp: level > levelBefore };
+  // つぎのレベルまでのバーも、この結果だけで引き直せるように levelInfo ごと返します
+  const levelInfo = calculateLevel(totalExp, getConfig_());
+  return { totalExp, exp, level: levelInfo.level, levelInfo, leveledUp: levelInfo.level > levelBefore };
 }
 
 function saveMoralRecord_(ss, email, data, config) {
@@ -464,13 +466,19 @@ function completeManualGoal(goalRow) {
       markGoalAchieved_(ss, goal.row);
       const bonus = Math.max(0, Math.floor(getConfigNumber_(config, '目標達成ボーナス経験値', 100)));
       writeLog_(ss, email, LOG_ACTIONS.ACHIEVE_GOAL, `めあて達成: ${goal.memo || goal.kindLabel}${bonus > 0 ? ` (+${bonus}EXP)` : ''}`);
-      addExp_(ss, email, bonus, 'めあて達成');
+      const expResult = addExp_(ss, email, bonus, 'めあて達成');
       clearInsightsCache_(email);
 
       return {
         success: true,
         message: 'めあてたっせい！おめでとう🎉',
         gainedExp: bonus,
+        // ふえたけいけんちを、その場で画面に出せるように返します
+        newExp: expResult ? expResult.exp : null,
+        newTotalExp: expResult ? expResult.totalExp : null,
+        levelInfo: expResult ? expResult.levelInfo : null,
+        leveledUp: expResult ? expResult.leveledUp : false,
+        newLevel: expResult ? expResult.level : null,
         goalData: getGoalData_(ss, email, config),
         missions: getMissionStatus_(ss, email)
       };
