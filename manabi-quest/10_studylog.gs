@@ -71,6 +71,76 @@ const STUDY_APPS = {
 };
 
 /**
+ * 学習アプリの「ひらく」リンク（児童画面のアプリ一覧に出します）。
+ *
+ * 児童はこれまで、学習アプリを開くのに別のブックマークやランチャーを使う必要があり、
+ * 「まなびクエスト＝きろくを見るところ／学習アプリ＝別のところ」に分かれていました。
+ * ここに登録したアプリは児童画面の「がくしゅうアプリ」に絵と説明つきでならび、
+ * タップすると**新しいタブ**でひらきます（まなびクエストは開いたまま残るので、
+ * あそんだあとそのまま「きろくを おくる」にもどれます）。
+ *
+ * 新しい学習アプリを公開したときは、上の STUDY_APPS（受信の許可リスト）と
+ * ここの両方に追加してください。片方だけだと「ひらけるのにきろくが届かない」
+ * 「きろくは届くのにアプリが見つからない」のどちらかになります。
+ *
+ * - id      … STUDY_APPS の appId と同じ値（学習ログとアプリ一覧をひもづけます）
+ * - name    … 一覧に出す短い名前（STUDY_APPS の表示名は説明つきで長いので分けています）
+ * - subject … 「どの勉強か」がひと目で分かるようにするラベル
+ * - note    … 児童向けのひとこと説明。低学年でも読めるやさしい言葉で書きます
+ * - icon    … icons.html のアイコン名、color … css.html の app-* 色
+ * - url     … https のみ。GitHub Pages の公開URL
+ */
+const STUDY_APP_LINKS = [
+  { id: 'qalc', name: 'Qalc', subject: 'さんすう', icon: 'gamepad', color: 'blue',
+    url: 'https://gigayama.github.io/Qalc/',
+    note: 'けいさんの もんだいを ゲームみたいに たくさん とけるよ。' },
+  { id: 'kanji-town', name: '漢字タウン', subject: 'こくご', icon: 'pencil', color: 'orange',
+    url: 'https://gigayama.github.io/KANJI_Town/',
+    note: 'かん字の よみ・いみ・書きじゅんを おぼえると、じぶんの町が大きくなるよ。' },
+  { id: 'keisan-card', name: 'けいさんカード', subject: 'さんすう', icon: 'calc', color: 'green',
+    url: 'https://gigayama.github.io/Keisan-Card/',
+    note: 'たしざん・ひきざんの カードを めくって、はやく こたえる れんしゅう。' },
+  { id: 'keisan-block', name: 'さんすうブロック', subject: 'さんすう', icon: 'box', color: 'cyan',
+    url: 'https://gigayama.github.io/KEISAN-BLOCK/',
+    note: 'ブロックを うごかして、くり上がり・くり下がりの しくみが 目で見て わかるよ。' },
+  { id: 'square100', name: '100マス計算', subject: 'さんすう', icon: 'score', color: 'purple',
+    url: 'https://gigayama.github.io/online-100square-calculation/',
+    note: '100この もんだいに ちょうせん。タイムと せいかいすうが きろくに のこるよ。' },
+  { id: 'kuku-card', name: '九九カード', subject: 'さんすう', icon: 'target', color: 'gold',
+    url: 'https://gigayama.github.io/KAKE_Master/',
+    note: '九九を カードで れんしゅう。ふたりで きょうそうすることも できるよ。' },
+  { id: 'reading-books', name: 'どくしょ ちょきんばこ', subject: 'どくしょ', icon: 'books', color: 'pink',
+    url: 'https://gigayama.github.io/Reading-Books/',
+    note: 'よんだ本を きろくすると、さつ数と ページ数が どんどん たまっていくよ。' },
+  { id: 'typa', name: 'Typa', subject: 'タイピング', icon: 'keyboard', color: 'blue',
+    url: 'https://gigayama.github.io/Typa/',
+    note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' }
+];
+
+/**
+ * 児童画面に出す学習アプリ一覧をつくります。
+ *
+ * 学年や学級によっては使わないアプリもあるため、「初期設定」の
+ * `学習アプリリンク非表示` に appId を書くと一覧から外せます
+ * （例: `kuku-card, keisan-block`）。空欄なら全部ならびます。
+ */
+function getStudyAppLinks_(config) {
+  const hidden = {};
+  String((config && config['学習アプリリンク非表示']) || '')
+    .split(/[,、\s]+/)
+    .forEach(id => { if (id) hidden[id.trim()] = true; });
+
+  return STUDY_APP_LINKS
+    // URLの取りちがえでフィッシングまがいのリンクを児童に出さないよう、https だけを通します
+    .filter(a => !hidden[a.id] && /^https:\/\//i.test(a.url))
+    .map(a => ({
+      id: a.id, name: a.name, subject: a.subject, note: a.note,
+      icon: a.icon, color: a.color, url: a.url,
+      label: STUDY_APPS[a.id] || a.name
+    }));
+}
+
+/**
  * 拒否理由ごとの再送可否（仕様 §9.3）。
  *
  * true = レコードは正しいのに受信側が未対応なだけの「一時エラー」。
@@ -1448,6 +1518,8 @@ function getStudyLogDashboard(period) {
       portalUrl: String(config['学習ポータルURL'] || '').trim(),
       everReceived: all.length > 0,   // 期間で0件でも、一度でも届いていれば設定案内は出しません
       timePrecision: String(config['学習ログ時刻精度'] || '時間帯'),
+      // 先生も児童と同じ一覧からアプリを新しいタブでひらけます（中身の確認用）
+      links: getStudyAppLinks_(config),
       totals: {
         records: totals.records,
         students: activeStudents.size,
@@ -1593,6 +1665,8 @@ function getStudyAppPanelData_(ss, email, config) {
     // 本体経由の送信は常に受け付けるので、児童の送信パネルはいつでも出します
     // （「学習ログ送信キー」は匿名POSTの受け口だけを制御するので、ここでは見ません）
     portalUrl: String(config['学習ポータルURL'] || '').trim(),
+    // 児童画面の「がくしゅうアプリ」にならべるリンク（新しいタブでひらきます）
+    links: getStudyAppLinks_(config),
     sentToday,
     streak: sentToday ? streakIfSent : Math.max(0, streakIfSent - 1),
     nextStreak: streakIfSent,

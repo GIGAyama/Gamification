@@ -146,7 +146,17 @@
           <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
         </button>
 
-        <!-- ③ そのほか（ミッション・めあて・おしらせ） -->
+        <!-- ③ 学習アプリをひらく（新しいタブ） -->
+        <button type="button" class="mq-door door-purple d-none" id="home-apps-door" data-go-panel="p-apps">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-gamepad"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">がくしゅうアプリ</span>
+            <span class="door-note">アプリをひらいて れんしゅうしよう</span>
+          </span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+
+        <!-- ④ そのほか（ミッション・めあて・おしらせ） -->
         <button type="button" class="mq-door door-cyan" data-go-panel="p-more">
           <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
           <span class="door-body">
@@ -232,6 +242,13 @@
         <button type="button" class="mq-btn mq-btn-pink mq-btn-lg mq-btn-block mt-3" id="home-add-goal-btn">
           <svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-plus"></use></svg> あたらしいめあてを立てる
         </button>
+      </div>
+
+      <!-- 学習アプリをひらく（アプリは新しいタブでひらき、この画面はのこります） -->
+      <div class="mq-panel" id="p-apps">
+        <div id="p-apps-head"></div>
+        <div id="apps-launch-send" class="mb-3"></div>
+        <div id="apps-launcher"></div>
       </div>
 
       <!-- 学習アプリのきろくを送る -->
@@ -701,6 +718,13 @@
           <div class="card shadow-sm border-0 rounded-4 mb-4">
             <div class="card-header bg-transparent fw-bold"><i class="bi bi-grid"></i> アプリ別</div>
             <div class="card-body" id="tl-app-list"></div>
+          </div>
+          <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-header bg-transparent fw-bold"><i class="bi bi-box-arrow-up-right"></i> アプリをひらく</div>
+            <div class="card-body">
+              <p class="small text-muted mb-2">児童が使う学習アプリを新しいタブで開けます（児童画面の「がくしゅうアプリ」と同じ一覧です）。ならべるアプリは「初期設定」の <code>学習アプリリンク非表示</code> で調整できます。</p>
+              <div id="tl-app-links"></div>
+            </div>
           </div>
           <div class="card shadow-sm border-warning rounded-4">
             <div class="card-header bg-warning text-dark fw-bold"><i class="bi bi-exclamation-triangle"></i> クラスのつまずき問題</div>

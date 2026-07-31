@@ -840,6 +840,17 @@ function renderStudyLog(d) {
     </div>`;
   }).join('') || emptyMessage('この期間の記録はまだありません');
 
+  // アプリをひらく（児童画面の「がくしゅうアプリ」と同じ一覧。新しいタブでひらきます）
+  document.getElementById('tl-app-links').innerHTML = (d.links || []).length === 0
+    ? emptyMessage('ひらけるアプリが登録されていません')
+    : `<div class="mq-applist compact">${(d.links || []).map(a => `
+        <a class="mq-app app-${esc(a.color || 'blue')}" href="${esc(a.url)}" target="_blank" rel="noopener noreferrer"
+           title="${esc(a.note || '')}">
+          <span class="app-icon">${icon(a.icon || 'gamepad')}</span>
+          <span class="app-body"><span class="app-name">${esc(a.name || a.label)}</span></span>
+          <span class="app-open">${icon('external')}</span>
+        </a>`).join('')}</div>`;
+
   // つまずき問題
   // 「何人が落としたか」だけでは手が打てないので、どう間違えたか（wrong）と
   // 答えを見せてもらった回数（hint）も並べます（仕様 §2.10）
