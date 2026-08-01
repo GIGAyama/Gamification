@@ -746,13 +746,23 @@ function studyAppLinks_() {
  *
  * rel="noopener noreferrer" は、ひらいた先のページから この画面を
  * 勝手に別のURLへ飛ばされないようにするためのものです。
+ *
+ * 絵は、そのアプリが自分で用意しているPWAアイコン（iconUrl）を出します。
+ * 児童がホーム画面に入れているアイコンと同じ絵になるので、
+ * 名前を読まなくても「いつも使っているあれ」だと分かります。
+ * 画像は別サイトから読むため、学校のネットワークで止められることもあります。
+ * そのときのために自前のSVG（app.icon）も一緒に置いておき、
+ * bindAppIconFallback_() が読み込み失敗を見つけたら そちらに切りかえます。
  */
 function appTileHtml(app, compact) {
   const name = app.name || app.label || app.id;
   return `<a class="mq-app app-${esc(app.color || 'blue')}" href="${esc(app.url)}"
     target="_blank" rel="noopener noreferrer"
     aria-label="${esc(name)}を 新しいタブで ひらく">
-    <span class="app-icon">${icon(app.icon || 'gamepad')}</span>
+    <span class="app-icon${app.iconUrl ? ' has-logo' : ''}">
+      ${app.iconUrl ? `<img class="app-logo" src="${esc(app.iconUrl)}" alt="" width="192" height="192" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : ''}
+      ${icon(app.icon || 'gamepad')}
+    </span>
     <span class="app-body">
       <span class="app-name">${esc(name)}</span>
       ${compact ? '' : `${app.subject ? `<span class="app-subject">${esc(app.subject)}</span>` : ''}
@@ -760,6 +770,24 @@ function appTileHtml(app, compact) {
     </span>
     <span class="app-open no-furigana">${icon('external')}</span>
   </a>`;
+}
+
+/**
+ * アプリのアイコン画像が読めなかったときに、自前のSVGへ切りかえます。
+ *
+ * 画像は別サイト（gigayama.github.io）から読むので、学校のフィルタや
+ * オフラインで落ちることがあります。落ちたまま放っておくと
+ * タイルの左が空白になり、どのアプリか分からなくなってしまいます。
+ * error イベントは親へ伝わらないので、img ごとに直接ひろいます。
+ * 読み込みずみで失敗していた場合（キャッシュ）は complete で拾えます。
+ */
+function bindAppIconFallback_(root) {
+  (root || document).querySelectorAll('.app-logo').forEach(img => {
+    const box = img.parentElement;
+    const fail = () => box && box.classList.add('logo-missing');
+    if (img.complete && img.naturalWidth === 0) fail();
+    img.addEventListener('error', fail);
+  });
 }
 
 /**
@@ -795,6 +823,7 @@ function renderAppLauncher(containerId, options) {
     <div class="mq-applist${compact ? ' compact' : ''}">
       ${apps.map(a => appTileHtml(a, compact)).join('')}
     </div>`;
+  bindAppIconFallback_(el);
   return true;
 }
 
