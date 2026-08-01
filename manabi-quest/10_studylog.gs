@@ -87,33 +87,50 @@ const STUDY_APPS = {
  * - name    … 一覧に出す短い名前（STUDY_APPS の表示名は説明つきで長いので分けています）
  * - subject … 「どの勉強か」がひと目で分かるようにするラベル
  * - note    … 児童向けのひとこと説明。低学年でも読めるやさしい言葉で書きます
- * - icon    … icons.html のアイコン名、color … css.html の app-* 色
+ * - color   … css.html の app-* 色（タイルのふちと背景）
  * - url     … https のみ。GitHub Pages の公開URL
+ * - iconUrl … そのアプリが**自分のリポジトリで用意しているPWAアイコン**（192px）。
+ *             児童がホーム画面に入れているアイコンとそろうので、
+ *             「いつも使っているあれ」だと名前を読まなくても分かります。
+ *             アプリ側で描きかえたら、こちらは何もしなくても新しい絵になります
+ * - icon    … iconUrl が読めなかったときに代わりに出す icons.html のアイコン名。
+ *             学校のネットワークで画像がブロックされても、タイルが空にならないようにします
+ *
+ * ※ iconUrl は各アプリの `base` と公開場所から決まります（Vite のアプリは public/ の中身が
+ *   サイト直下に出ます）。アプリ側でアイコンの置き場所を変えたときは、ここも直してください。
  */
 const STUDY_APP_LINKS = [
   { id: 'qalc', name: 'Qalc', subject: 'さんすう', icon: 'gamepad', color: 'blue',
     url: 'https://gigayama.github.io/Qalc/',
+    iconUrl: 'https://gigayama.github.io/Qalc/icon-192.png',
     note: 'けいさんの もんだいを ゲームみたいに たくさん とけるよ。' },
   { id: 'kanji-town', name: '漢字タウン', subject: 'こくご', icon: 'pencil', color: 'orange',
     url: 'https://gigayama.github.io/KANJI_Town/',
+    iconUrl: 'https://gigayama.github.io/KANJI_Town/icons/icon-192.png',
     note: 'かん字の よみ・いみ・書きじゅんを おぼえると、じぶんの町が大きくなるよ。' },
   { id: 'keisan-card', name: 'けいさんカード', subject: 'さんすう', icon: 'calc', color: 'green',
     url: 'https://gigayama.github.io/Keisan-Card/',
+    iconUrl: 'https://gigayama.github.io/Keisan-Card/icons/icon-192.png',
     note: 'たしざん・ひきざんの カードを めくって、はやく こたえる れんしゅう。' },
   { id: 'keisan-block', name: 'さんすうブロック', subject: 'さんすう', icon: 'box', color: 'cyan',
     url: 'https://gigayama.github.io/KEISAN-BLOCK/',
+    iconUrl: 'https://gigayama.github.io/KEISAN-BLOCK/icons/icon-192.png',
     note: 'ブロックを うごかして、くり上がり・くり下がりの しくみが 目で見て わかるよ。' },
   { id: 'square100', name: '100マス計算', subject: 'さんすう', icon: 'score', color: 'purple',
     url: 'https://gigayama.github.io/online-100square-calculation/',
+    iconUrl: 'https://gigayama.github.io/online-100square-calculation/pwa-192x192.png',
     note: '100この もんだいに ちょうせん。タイムと せいかいすうが きろくに のこるよ。' },
   { id: 'kuku-card', name: '九九カード', subject: 'さんすう', icon: 'target', color: 'gold',
     url: 'https://gigayama.github.io/KAKE_Master/',
+    iconUrl: 'https://gigayama.github.io/KAKE_Master/icons/icon-192.png',
     note: '九九を カードで れんしゅう。ふたりで きょうそうすることも できるよ。' },
   { id: 'reading-books', name: 'どくしょ ちょきんばこ', subject: 'どくしょ', icon: 'books', color: 'pink',
     url: 'https://gigayama.github.io/Reading-Books/',
+    iconUrl: 'https://gigayama.github.io/Reading-Books/icons/icon-192.png',
     note: 'よんだ本を きろくすると、さつ数と ページ数が どんどん たまっていくよ。' },
   { id: 'typa', name: 'Typa', subject: 'タイピング', icon: 'keyboard', color: 'blue',
     url: 'https://gigayama.github.io/Typa/',
+    iconUrl: 'https://gigayama.github.io/Typa/icons/icon-192.png',
     note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' }
 ];
 
@@ -136,6 +153,8 @@ function getStudyAppLinks_(config) {
     .map(a => ({
       id: a.id, name: a.name, subject: a.subject, note: a.note,
       icon: a.icon, color: a.color, url: a.url,
+      // アイコンも https だけ。読めなかったときは icon（自前のSVG）に切りかわります
+      iconUrl: /^https:\/\//i.test(a.iconUrl || '') ? a.iconUrl : '',
       label: STUDY_APPS[a.id] || a.name
     }));
 }

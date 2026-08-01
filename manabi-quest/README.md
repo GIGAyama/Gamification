@@ -194,7 +194,7 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 
 学習アプリ（`gigayama.github.io` 配下）は、まなびクエストとは別のサイトにあり、
 **この画面の中には入れられません**（同一オリジンでないと学習ログを読めないため）。
-そこでホームの「がくしゅうアプリ」に**アイコン・教科ラベル・ひとこと説明つきのタイル**をならべ、
+そこでホームの「がくしゅうアプリ」に**アプリ自身のアイコン・教科ラベル・ひとこと説明つきのタイル**をならべ、
 タップすると **新しいタブ** でアプリがひらくようにしています
 （`target="_blank" rel="noopener noreferrer"` のふつうのリンクです）。
 
@@ -204,6 +204,8 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 - 一覧は「マイページ → きろくを見かえす → スピード → 学習アプリ」にも
   小さいタイルで出ます。きろくがまだ0件のときは、ここが「まずアプリをひらく」入口になります
 - 教員画面の「学習アプリ」タブにも同じ一覧が出ます（アプリの中身を確認するとき用）
+- タイルの絵は**各アプリのリポジトリが持っているPWAアイコン**をそのまま読み込みます
+  （ホーム画面に追加したときのアイコンと同じ絵）。読めなかったときは自前のSVGに切りかわります
 - ならべる内容は `10_studylog.gs` の **`STUDY_APP_LINKS`**（名前・教科・説明・アイコン・色・URL）。
   `https` のURLだけを通します
 - 学年で使わないアプリは「初期設定」の **`学習アプリリンク非表示`** に `appId` を
@@ -578,8 +580,34 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 | `name` | タイルに出す短い名前（`STUDY_APPS` の表示名は説明つきで長いため分けています） |
 | `subject` | 教科ラベル（さんすう / こくご / どくしょ / タイピング） |
 | `note` | 児童向けのひとこと説明。低学年でも読めるやさしい言葉で書きます |
-| `icon` / `color` | `icons.html` のアイコン名 / `css.html` の `app-*` 色 |
+| `color` | `css.html` の `app-*` 色（タイルのふちと背景） |
 | `url` | GitHub Pages の公開URL（`https` のみ） |
+| `iconUrl` | **そのアプリ自身のPWAアイコン**（192px）のURL（`https` のみ） |
+| `icon` | `iconUrl` が読めなかったときに代わりに出す `icons.html` のアイコン名 |
+
+#### アイコンは各アプリのものをそのまま使います
+
+タイルの絵は、**各アプリのリポジトリが用意しているPWAアイコン**（ホーム画面に追加したときに出るあの絵）を
+そのまま読み込みます。児童が普段見ているアイコンと同じなので、名前を読まなくても目的のアプリを見つけられます。
+アプリ側でアイコンを描きかえれば、まなびクエストは**何もしなくても新しい絵になります**（画像を持たず、URLで参照しているため）。
+
+| `appId` | `iconUrl` |
+|---|---|
+| `qalc` | `/Qalc/icon-192.png` |
+| `kanji-town` | `/KANJI_Town/icons/icon-192.png` |
+| `keisan-card` | `/Keisan-Card/icons/icon-192.png` |
+| `keisan-block` | `/KEISAN-BLOCK/icons/icon-192.png` |
+| `square100` | `/online-100square-calculation/pwa-192x192.png` |
+| `kuku-card` | `/KAKE_Master/icons/icon-192.png` |
+| `reading-books` | `/Reading-Books/icons/icon-192.png` |
+| `typa` | `/Typa/icons/icon-192.png` |
+
+（いずれも `https://gigayama.github.io` からの相対パス。Vite のアプリは `public/` の中身が
+`vite.config.js` の `base` の直下に出るため、リポジトリ内の場所と公開パスが一致しません）
+
+画像は別サイトから読むので、学校のフィルタやオフラインで**読めないことがあります**。
+そのときタイルの左が空白になってどのアプリか分からなくなるのを防ぐため、`icon`（自前のSVG）も
+一緒に置いてあり、`bindAppIconFallback_()` が読み込み失敗を見つけたら自動で切りかえます。
 
 ### 拒否したレコードの扱い（仕様 §9.3）
 
