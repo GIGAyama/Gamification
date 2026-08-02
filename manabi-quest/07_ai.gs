@@ -498,7 +498,7 @@ function saveTeachingPointsBulk(text) {
       });
 
       if (rows.length > 0) {
-        sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 5).setValues(rows);
+        appendRows_(sheet, rows, 5);
       }
       let message = `${rows.length}件の指導事項を登録しました。`;
       if (skipped.length > 0) message += `（教科と単元/ねらいが不足した ${skipped.length}行はスキップしました）`;

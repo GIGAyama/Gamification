@@ -284,11 +284,7 @@ function grantPoints(data) {
 
       if (processed > 0) {
         range.setValues(values);
-        const logSheet = ss.getSheetByName(SHEETS.LOG);
-        logSheet.getRange(logSheet.getLastRow() + 1, 1, logsToAdd.length, 4).setValues(logsToAdd);
-        // writeLog_ を通さない一括追記なので、読み込みキャッシュはここで捨てます
-        clearLogRowsCache_();
-        clearClassLogStatsCache_();
+        writeLogs_(ss, logsToAdd);
       }
       return { success: true, message: `${processed}人の児童にポイントを配布しました。` };
     } catch (e) {

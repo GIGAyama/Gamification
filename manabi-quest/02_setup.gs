@@ -238,7 +238,7 @@ function ensureConfigRows_(ss) {
   );
   const missing = DEFAULT_CONFIG.filter(row => !existing.has(String(row[0])));
   if (missing.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 3).setValues(missing);
+    appendRows_(sheet, missing, 3);
   }
 }
 
@@ -266,7 +266,7 @@ function appendMissingRowsById_(ss, sheetName, rows) {
   );
   const missing = rows.filter(row => !existing.has(String(row[0]).trim()));
   if (missing.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, missing[0].length).setValues(missing);
+    appendRows_(sheet, missing);
   }
   return missing.length;
 }

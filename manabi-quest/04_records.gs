@@ -537,6 +537,41 @@ function getUserRows_(ss, sheetName, email, numCols, limit) {
   return rows;
 }
 
+/** グリッドを広げるときに、あわせて確保しておく余白の行数 */
+const GRID_ROW_BUFFER = 200;
+
+/**
+ * 指定の範囲を書き込めるだけの行・列をシートに確保し、その Range を返します。
+ *
+ * 読み取り側は `getUserRows_` がシートの実際の列数までに丸めていますが、
+ * 書き込み側には同じ備えがありませんでした。行や列が足りないシートに
+ * 書き込もうとしたときに落ちないよう、足りないぶんだけ広げてから渡します。
+ * 行は毎回1行ずつ広げると往復が増えるので、GRID_ROW_BUFFER ぶんまとめて確保します。
+ */
+function ensureCapacity_(sheet, startRow, numRows, numCols) {
+  const needRows = startRow + numRows - 1;
+  const maxRows = sheet.getMaxRows();
+  if (maxRows < needRows) {
+    sheet.insertRowsAfter(maxRows, needRows - maxRows + GRID_ROW_BUFFER);
+  }
+  const maxCols = sheet.getMaxColumns();
+  if (maxCols < numCols) {
+    sheet.insertColumnsAfter(maxCols, numCols - maxCols);
+  }
+  return sheet.getRange(startRow, 1, numRows, numCols);
+}
+
+/**
+ * シートの末尾に複数行をまとめて追記します。
+ * @param {Array<Array>} values - 追記する行
+ * @param {number} [numCols] - 書き込む列数（省略時は1行目の長さ）
+ */
+function appendRows_(sheet, values, numCols) {
+  if (!values || values.length === 0) return;
+  const cols = numCols || values[0].length;
+  ensureCapacity_(sheet, sheet.getLastRow() + 1, values.length, cols).setValues(values);
+}
+
 function formatDate_(value, pattern) {
   const d = parseTimestamp_(value);
   return d ? Utilities.formatDate(d, 'JST', pattern || 'yyyy/MM/dd') : '';

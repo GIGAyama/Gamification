@@ -199,7 +199,7 @@ function playGacha(count) {
       if (newItems.length > 0) {
         const rows = newItems.map(item => [new Date(), email, item['アイテムID'], `${email}-${item['アイテムID']}`]);
         const invSheet = ss.getSheetByName(SHEETS.INVENTORY);
-        invSheet.getRange(invSheet.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
+        appendRows_(invSheet, rows, 4);
       }
 
       if (times === 10) {

@@ -497,8 +497,11 @@ function receiveStudyRecords_(payload, options) {
     const previousTypingBestRow = getBestTypingRecord_(ss, student.email);
     const previousTypingBest = previousTypingBestRow ? Number(previousTypingBestRow.bestSpeed) : null;
 
-    sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, STUDY_LOG_NUM_COLS).setValues(rows);
-    logMessages.forEach(msg => writeLog_(ss, student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg));
+    appendRows_(sheet, rows, STUDY_LOG_NUM_COLS);
+    // 受け取ったレコードのぶんだけログを書きます。1行ずつ書くと最大
+    // STUDY_MAX_RECORDS_PER_POST 回の往復になり、その間ずっとロックを握ったままになります
+    writeLogs_(ss, logMessages.map(msg =>
+      [new Date(), student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg]));
     appendCalcRecords_(ss, student, calcRows);
     appendReadingRecords_(ss, student, readingRows);
     appendTypingRecords_(ss, student, typingRows);
@@ -706,11 +709,10 @@ function appendCalcRecords_(ss, student, calcRows) {
   if (!calcRows || calcRows.length === 0) return;
   const sheet = ss.getSheetByName(SHEETS.CALC);
   if (!sheet) return;
-  sheet.getRange(sheet.getLastRow() + 1, 1, calcRows.length, 6).setValues(calcRows.map(c => c.row));
-  calcRows.forEach(c => {
-    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_CALC,
-      `${RECORD_TYPES.calc.label}（${c.mode}）を記録: ${c.score}点`);
-  });
+  appendRows_(sheet, calcRows.map(c => c.row), 6);
+  writeLogs_(ss, calcRows.map(c =>
+    [new Date(), student.email, LOG_ACTIONS.RECORD_CALC,
+      `${RECORD_TYPES.calc.label}（${c.mode}）を記録: ${c.score}点`]));
 }
 
 // ---------------------------------------------------------------------
@@ -873,12 +875,10 @@ function appendTypingRecords_(ss, student, typingRows) {
   if (!typingRows || typingRows.length === 0) return;
   const sheet = ss.getSheetByName(SHEETS.TYPING);
   if (!sheet) return;
-  sheet.getRange(sheet.getLastRow() + 1, 1, typingRows.length, 7)
-    .setValues(typingRows.map(t => t.row));
-  typingRows.forEach(t => {
-    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_TYPING,
-      `${RECORD_TYPES.typing.label}を記録: ${t.speed} 打/秒 ／ 正答率 ${t.accuracy}%`);
-  });
+  appendRows_(sheet, typingRows.map(t => t.row), 7);
+  writeLogs_(ss, typingRows.map(t =>
+    [new Date(), student.email, LOG_ACTIONS.RECORD_TYPING,
+      `${RECORD_TYPES.typing.label}を記録: ${t.speed} 打/秒 ／ 正答率 ${t.accuracy}%`]));
 }
 
 /** JSON文字列を安全に解析します（壊れていれば null） */
@@ -912,12 +912,10 @@ function appendReadingRecords_(ss, student, readingRows) {
   if (!readingRows || readingRows.length === 0) return;
   const sheet = ensureReadingSheet_(ss);
   if (!sheet) return;
-  sheet.getRange(sheet.getLastRow() + 1, 1, readingRows.length, READING_COLS.NUM)
-    .setValues(readingRows.map(b => b.row));
-  readingRows.forEach(b => {
-    writeLog_(ss, student.email, LOG_ACTIONS.RECORD_READING,
-      `${RECORD_TYPES.reading.label}を記録: 「${b.title}」${b.pages > 0 ? ` ${b.pages}ページ` : ''}`);
-  });
+  appendRows_(sheet, readingRows.map(b => b.row), READING_COLS.NUM);
+  writeLogs_(ss, readingRows.map(b =>
+    [new Date(), student.email, LOG_ACTIONS.RECORD_READING,
+      `${RECORD_TYPES.reading.label}を記録: 「${b.title}」${b.pages > 0 ? ` ${b.pages}ページ` : ''}`]));
 }
 
 /** 「学習ログ」シートを取得し、なければヘッダー付きで作成します */

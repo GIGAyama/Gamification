@@ -48,6 +48,21 @@ function clearLogRowsCache_() {
   LOG_ROWS_CACHE_ = null;
 }
 
+/**
+ * 「ログ」に書いた行を、実行中の読み込みキャッシュにも足します。
+ *
+ * キャッシュを捨てて読み直させると、書き込みのたびに「ログ」シート全体を
+ * もう一度読むことになります。ホーム表示のように「ログインボーナスを書く →
+ * バッジを判定する → ミッションを数える」と続く流れでは、これが毎回起きていました。
+ * 書いた内容は分かっているので、足すだけで読み直しは要りません。
+ *
+ * @param {Array<Array>} rows - [日時, メールアドレス, 種別, 詳細] の配列
+ */
+function appendLogRowsToCache_(rows) {
+  if (!LOG_ROWS_CACHE_ || !rows || rows.length === 0) return;
+  rows.forEach(row => LOG_ROWS_CACHE_.push(row));
+}
+
 /** 「ログ」シートの末尾から最大 maxRows 行を読みます */
 function readRecentLogRows_(ss, maxRows) {
   const rows = getAllLogRows_(ss);

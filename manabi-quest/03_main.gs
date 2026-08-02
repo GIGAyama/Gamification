@@ -314,17 +314,34 @@ function findRowData_(ss, sheetName, col, value) {
   return { row: null, data: null };
 }
 
-/** 「ログ」シートに1行追記します */
-function writeLog_(ss, email, actionType, details) {
+/**
+ * 「ログ」シートに複数行をまとめて追記します。
+ *
+ * 1行ずつ appendRow すると、行の数だけスプレッドシートとの往復が起きます。
+ * 学習アプリの受信は1回で最大 STUDY_MAX_RECORDS_PER_POST 件ぶんのログを書くため、
+ * 往復のぶんだけで実行時間の上限に近づき、その間ずっと排他ロックを握ったままになります。
+ *
+ * @param {Array<Array>} rows - [日時, メールアドレス, 種別, 詳細] の配列
+ */
+function writeLogs_(ss, rows) {
+  if (!rows || rows.length === 0) return;
   try {
     const logSheet = ss.getSheetByName(SHEETS.LOG);
-    if (logSheet) logSheet.appendRow([new Date(), email, actionType, details]);
-    // 実行中に使い回している「ログ」の読み込みキャッシュを捨て、次の集計で最新を読み直します
-    clearLogRowsCache_();
+    if (logSheet) appendRows_(logSheet, rows, 4);
+    // 実行中に使い回している「ログ」の読み込みキャッシュは、捨てずに書いた行を足します。
+    // 捨ててしまうと、同じ実行の次の集計でシート全体を読み直すことになります
+    // （ホーム表示のように「書いてから集計する」流れでは、これが毎回起きていました）。
+    appendLogRowsToCache_(rows);
+    // 集計ずみの結果は作り直す必要があるので、こちらは捨てます
     clearClassLogStatsCache_();
   } catch (e) {
     console.error(`ログ書き込みエラー: ${e.message}`);
   }
+}
+
+/** 「ログ」シートに1行追記します */
+function writeLog_(ss, email, actionType, details) {
+  writeLogs_(ss, [[new Date(), email, actionType, details]]);
 }
 
 /**
