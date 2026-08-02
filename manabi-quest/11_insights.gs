@@ -429,7 +429,8 @@ function getRecordStore_(ss, email) {
     study: getUserRows_(ss, SHEETS.STUDY, target, 5, 0),
     growth: getUserRows_(ss, SHEETS.GROWTH, target, 4, 0),
     lesson: getUserRows_(ss, SHEETS.LESSON, target, 8, 0),
-    studyLog: readStudyLog_(ss).filter(r => r.email === target)
+    // 児童でしぼってから組み立てます（この関数は児童ページの毎回の表示で通ります）
+    studyLog: readStudyLog_(ss, { email: target })
   };
   return RECORD_STORE_CACHE_;
 }

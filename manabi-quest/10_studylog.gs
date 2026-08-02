@@ -1117,12 +1117,88 @@ function buildStudyLogRow_(v, student, receivedAt, precision) {
 // 読み出し・集計の共通処理
 // ---------------------------------------------------------------------
 
-/** 「学習ログ」シートの全レコードをオブジェクト配列で読み出します */
-function readStudyLog_(ss) {
+/** 「学習ログ」の列区分。items だけを飛ばして読めるように分けています */
+const STUDY_LOG_HEAD_COLS = 24;   // A〜X（受信日時〜最終正答）
+const STUDY_LOG_ITEMS_COL = 25;   // Y（items）— 1レコードで数万文字になりうる
+const STUDY_LOG_TAIL_COL = 26;    // Z〜AA（ext / レコードID）
+
+/**
+ * 受信日時から見て、`since` 以降の学習日を含みうる最初の行を返します。
+ *
+ * 「学習ログ」は追記のみで受信日時の順に並び、`validateStudyRecord_` が
+ * 未来10分より先の `startedAt` を弾くので、**学習日 ≤ 受信日時**が必ず成り立ちます。
+ * したがって受信日時が `since` の1日前より古い行に、`since` 以降の学習日は存在しません。
+ * （1日のマージンは日付境界と10分のずれを吸収するためのものです）
+ *
+ * A列だけを読むので、行数が増えても軽いままです。
+ */
+function studyLogStartRow_(sheet, lastRow, since) {
+  const cutoff = since.getTime() - 24 * 60 * 60 * 1000;
+  const stamps = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  // 前から見て、最初に cutoff 以降になった行を開始位置にします。
+  // 万一並びが乱れていても「読みすぎる」側に倒れるので、取りこぼしません。
+  for (let i = 0; i < stamps.length; i++) {
+    const d = parseTimestamp_(stamps[i][0]);
+    if (!d || d.getTime() >= cutoff) return i + 2;   // 読めない値は捨てずに含める
+  }
+  return lastRow + 1;   // すべて古い
+}
+
+/**
+ * 「学習ログ」が一度でも届いているか。
+ * 読み込み範囲を絞った配列の件数では「まだ一度も届いていない」と区別できないため、
+ * シートの行数だけを見て判定します（セルは読みません）。
+ */
+function hasAnyStudyLog_(ss) {
+  const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
+  return !!sheet && sheet.getLastRow() >= 2;
+}
+
+/**
+ * 「学習ログ」シートのレコードをオブジェクト配列で読み出します。
+ *
+ * 既定では **`items`（設問層）を読みません**。1レコードで数万文字になりうる列で、
+ * 読み込みバイト数の大半を占めるためです。`items` を使うのは
+ * 「つまずきマップ」だけなので、そこだけ `withItems: true` を渡します。
+ *
+ * @param {Spreadsheet} ss
+ * @param {{since?: Date, email?: string, withItems?: boolean}} [opts]
+ *   - `since`: **読み込み範囲を狭めるためだけ**の指定です（受信日時が基準）。
+ *     学習日での絞り込みは呼び出し側の `.filter` が引き続き担当します。
+ *     この関数は `since` より古い学習日のレコードを返すことがあります。
+ *   - `email`: オブジェクトを作る前に絞ります（30人分作って29人分捨てるのを避ける）
+ *   - `withItems`: `itemsJson` を読むかどうか。既定は false（空文字が入ります）
+ */
+function readStudyLog_(ss, opts) {
+  const o = opts || {};
   const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, STUDY_LOG_NUM_COLS).getValues()
-    .map(row => ({
+
+  const lastRow = sheet.getLastRow();
+  const startRow = o.since ? studyLogStartRow_(sheet, lastRow, o.since) : 2;
+  if (startRow > lastRow) return [];
+  const numRows = lastRow - startRow + 1;
+
+  // 列が足りない古いシートでも落ちないように、読む幅は実際の列数までに丸めます
+  // （読み出し側の作法は getUserRows_ に合わせています）
+  const maxCols = sheet.getMaxColumns();
+  const head = sheet.getRange(startRow, 1, numRows, Math.min(STUDY_LOG_HEAD_COLS, maxCols)).getValues();
+  const tail = maxCols >= STUDY_LOG_TAIL_COL
+    ? sheet.getRange(startRow, STUDY_LOG_TAIL_COL, numRows, Math.min(2, maxCols - STUDY_LOG_TAIL_COL + 1)).getValues()
+    : null;
+  const items = (o.withItems && maxCols >= STUDY_LOG_ITEMS_COL)
+    ? sheet.getRange(startRow, STUDY_LOG_ITEMS_COL, numRows, 1).getValues()
+    : null;
+
+  const email = o.email ? String(o.email).toLowerCase().trim() : null;
+  const out = [];
+  for (let i = 0; i < numRows; i++) {
+    const row = head[i];
+    if (email && String(row[1]).toLowerCase().trim() !== email) continue;
+    const t = tail ? tail[i] : [];
+    const id = String(t[1] || '');
+    if (!id) continue;
+    out.push({
       receivedAt: parseTimestamp_(row[0]),
       email: String(row[1]).toLowerCase().trim(),
       number: row[2],
@@ -1146,11 +1222,12 @@ function readStudyLog_(ss) {
       attempted: (row[21] === '' || row[21] === null) ? null : Number(row[21]),
       firstTryCorrect: Number(row[22]) || 0,
       correct: (row[23] === '' || row[23] === null) ? null : Number(row[23]),
-      itemsJson: String(row[24] || ''),
-      extJson: String(row[25] || ''),
-      id: String(row[26] || '')
-    }))
-    .filter(r => r.id);
+      itemsJson: items ? String(items[i][0] || '') : '',
+      extJson: String(t[0] || ''),
+      id: id
+    });
+  }
+  return out;
 }
 
 /**
@@ -1771,6 +1848,21 @@ function buildStudyTeachingHints_(records) {
 // ---------------------------------------------------------------------
 
 /** 集計期間の開始日時（week: 今週月曜 / month: 過去30日 / all: 全期間） */
+/**
+ * 「すべて」の期間でも、つまずきマップだけはこの日数にかぎります。
+ * 設問層（items）は1レコードで数万文字になりうるので、全期間ぶんを読むと
+ * このタブだけが極端に重くなります。指導の材料としても直近で十分です。
+ */
+const STUDY_STUMBLE_DAYS = 90;
+
+/** つまずきマップの対象期間のはじまり（直近 STUDY_STUMBLE_DAYS 日） */
+function studyStumbleStart_() {
+  const d = new Date();
+  d.setDate(d.getDate() - STUDY_STUMBLE_DAYS);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
 function studyPeriodStart_(period) {
   if (period === 'all') return null;
   if (period === 'month') {
@@ -1792,8 +1884,21 @@ function getStudyLogDashboard(period) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const config = getConfig_();
     const start = studyPeriodStart_(period);
-    const all = readStudyLog_(ss);
+    // start は読み込み範囲を狭めるためだけに渡します。期間の判定（学習日ベース）は
+    // これまでどおり下の filter が行うので、集計結果は変わりません。
+    // items を使うのはつまずきマップだけなので、期間が区切られているときだけ一緒に読み、
+    // 「すべて」のときは items 抜きで読んで、つまずきだけ別途 STUDY_STUMBLE_DAYS 日ぶん読み直します。
+    const all = readStudyLog_(ss, { since: start || undefined, withItems: !!start });
     const records = start ? all.filter(r => r.day && r.day >= start) : all;
+
+    // つまずきマップの対象。「すべて」は直近 STUDY_STUMBLE_DAYS 日にかぎります。
+    // 4月のつまずきは明日の授業の入り方を決める材料にはならないので、
+    // 全期間ぶんの items を読み込む価値がありません。
+    const stumbleStart = start || studyStumbleStart_();
+    const stumbleRecords = start
+      ? records
+      : readStudyLog_(ss, { since: stumbleStart, withItems: true })
+          .filter(r => r.day && r.day >= stumbleStart);
     const roster = getStudentRoster_(ss);
     const nameByEmail = {};
     roster.forEach(s => { nameByEmail[s.email] = s; });
@@ -1857,7 +1962,7 @@ function getStudyLogDashboard(period) {
     // まだ手が打てませんが、「そのうち14人が 5 と答えた」まで分かれば、
     // 何をどう取りちがえているのかが見えて、明日の授業の入り方が決まります（§2.10）。
     const stumbleMap = {};
-    records.forEach(r => {
+    stumbleRecords.forEach(r => {
       if (!(r.grading === 'objective' && !r.multiplayer && r.source === 'course')) return;
       // なぞり書きのように「まちがい」が正答率と同じ意味を持たない記録は、
       // つまずきの数え上げからも外します（§9.3.1 のテーブルで判定）
@@ -1922,7 +2027,9 @@ function getStudyLogDashboard(period) {
       // 「学習ログ送信キー」は匿名POSTの受け口だけを制御します。
       anonymousPost: !!String(config['学習ログ送信キー'] || '').trim(),
       portalUrl: String(config['学習ポータルURL'] || '').trim(),
-      everReceived: all.length > 0,   // 期間で0件でも、一度でも届いていれば設定案内は出しません
+      // 期間で0件でも、一度でも届いていれば設定案内は出しません。
+      // all は読み込み範囲を絞ったあとの配列なので、ここはシートの行数で判定します
+      everReceived: hasAnyStudyLog_(ss),
       timePrecision: String(config['学習ログ時刻精度'] || '時間帯'),
       // 先生も児童と同じ一覧からアプリを新しいタブでひらけます（中身の確認用）
       links: getStudyAppLinks_(config),
@@ -1986,7 +2093,9 @@ function getStudyLogDashboard(period) {
  */
 function getStudyLogForUser_(ss, email, recentLimit) {
   const target = String(email).toLowerCase().trim();
-  const rows = readStudyLog_(ss).filter(r => r.email === target);
+  // 通算のサマリなので期間は絞れませんが、児童で絞ることで
+  // 30人ぶんのオブジェクトを作って29人ぶん捨てるのをやめています
+  const rows = readStudyLog_(ss, { email: target });
   const { startOfWeek } = getWeekRange_();
 
   const sum = { records: rows.length, ms: 0, attempted: 0, firstTry: 0, aborted: 0, books: 0, pages: 0 };
@@ -2164,7 +2273,8 @@ function getStudyAppRanking_(ss, nicknameMap) {
 
 /** 週次サマリーメール用: 期間内の学習アプリログの件数・人数・分数 */
 function getStudyLogRangeStats_(ss, start, end) {
-  const rows = readStudyLog_(ss).filter(r => r.day && r.day >= start && r.day < end);
+  // start は読み込み範囲を狭めるだけ。期間の判定は今までどおり filter が行います
+  const rows = readStudyLog_(ss, { since: start }).filter(r => r.day && r.day >= start && r.day < end);
   const students = new Set();
   let ms = 0;
   rows.forEach(r => {

@@ -117,16 +117,40 @@ function getAssignments_(ss, includeDisabled) {
  * 学習アプリの課題が1件も無いときは**そもそも読みません**。
  * 「学習ログ」は28列 × 全期間ぶんあり、読むだけで重いためです。
  */
-let ASSIGNMENT_STUDY_CACHE_ = null;
+let ASSIGNMENT_STUDY_CACHE_ = null;   // { since: Date|null, rows: Array }
+
+/**
+ * キャッシュしてある範囲が、これから必要な範囲を含んでいるか。
+ * `since === null` は「全期間が必要」を表します。
+ */
+function assignmentStudyCacheCovers_(cached, since) {
+  if (!cached) return false;
+  if (cached.since === null) return true;    // 全期間を読んである
+  if (since === null) return false;          // 全期間が要るのに一部しか読んでいない
+  return cached.since.getTime() <= since.getTime();
+}
 
 /**
  * 課題の判定に使う「学習ログ」。
  * @param {Array} assignments - これから判定する課題（学習アプリの課題が無ければ読みません）
  */
 function assignmentStudyRows_(ss, assignments) {
-  if (!assignments.some(a => a.kind === 'app')) return [];
-  if (!ASSIGNMENT_STUDY_CACHE_) ASSIGNMENT_STUDY_CACHE_ = readStudyLog_(ss);
-  return ASSIGNMENT_STUDY_CACHE_;
+  const apps = assignments.filter(a => a.kind === 'app');
+  if (apps.length === 0) return [];
+
+  // いちばん古い出題日より前の記録は、どの課題の提出にもなりません
+  // （isWithinAssignmentPeriod_ が出題日より前を弾くため）。そこまでで読みを打ち切ります。
+  // 出題日が空の課題が1件でもあると下限が決まらないので、その場合だけ全期間を読みます。
+  const since = apps.some(a => !a.issued)
+    ? null
+    : new Date(Math.min.apply(null, apps.map(a => a.issued.getTime())));
+
+  if (assignmentStudyCacheCovers_(ASSIGNMENT_STUDY_CACHE_, since)) {
+    return ASSIGNMENT_STUDY_CACHE_.rows;
+  }
+  // 範囲外の古い行が混ざっていても、課題ごとの期間判定で落ちるので害はありません
+  ASSIGNMENT_STUDY_CACHE_ = { since, rows: readStudyLog_(ss, since ? { since } : {}) };
+  return ASSIGNMENT_STUDY_CACHE_.rows;
 }
 
 /** 学習ログを書きかえたあとに呼び、次の判定で最新の内容になるようにします */

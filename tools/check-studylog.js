@@ -32,7 +32,7 @@ const prelude = `
 const src = prelude + fs.readFileSync(path, 'utf8') + `
   module.exports = {
     STUDY_APPS, STUDY_APP_LINKS, STUDY_SPLIT_RATE_APPS, STUDY_ABORT_NORMAL_APPS, STUDY_NO_TIME_APPS,
-    STUDY_MAX_CELL_CHARS, STUDY_MAX_RECORDS_PER_POST,
+    STUDY_MAX_CELL_CHARS, STUDY_MAX_RECORDS_PER_POST, STUDY_STUMBLE_DAYS, studyLogStartRow_,
     validateStudyRecord_, isStudyRateEligible_, isStudyRateExcluded_, isStudyAbortNotable_,
     buildStudyKanaHints_, buildStudyTeachingHints_, kanaWeakEntry_, getStudyAppLinks_
   };
@@ -134,6 +134,39 @@ ok('最大件数でも設問が短ければ通る（上限が厳しすぎない�
 ok('201件は今までどおり items で拒否', S.validateStudyRecord_(rec({
   items: Array.from({ length: 201 }, (_, i) => ({ q: 'q' + i, ok: true, firstTry: true }))
 }), now).reason === 'items');
+
+console.log('■ 読み込み開始行の決定（studyLogStartRow_）');
+// 「学習ログ」は追記のみ・受信日時順で、学習日 ≤ 受信日時 が成り立ちます。
+// 開始行を1行でも後ろにしすぎると、その期間の記録が黙って数え落とされます。
+const sheetOf = (dates) => ({
+  getRange: (row, col, numRows) => ({
+    getValues: () => dates.slice(row - 2, row - 2 + numRows).map(v => [v])
+  })
+});
+const stamps = [
+  new Date('2026-06-01T09:00:00+09:00'),
+  new Date('2026-07-01T09:00:00+09:00'),
+  new Date('2026-08-01T09:00:00+09:00')
+];
+const sheet3 = sheetOf(stamps);   // シート行 2,3,4（lastRow = 4）
+
+ok('すべてが since より新しければ先頭から読む',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-01-01T00:00:00+09:00')) === 2);
+ok('すべてが since より古ければ1行も読まない',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-12-01T00:00:00+09:00')) === 5);
+// since=7/5 なら判定の境目は 7/4。7/1 に受信した記録の学習日は 7/1 以前なので
+// 対象になりえず、8/1 の行（シート行4）から読めば足ります
+ok('途中から読む（対象になりえない行は飛ばす）',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-05T00:00:00+09:00')) === 4,
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-05T00:00:00+09:00')));
+ok('1日のマージンがあるので、境目の日は取りこぼさない',
+  // 7/1 に受信した記録の学習日は 7/1 以前。since=7/1 なら 7/1 の行から読む必要がある
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-01T00:00:00+09:00')) === 3);
+ok('読めない日付は捨てずに含める',
+  S.studyLogStartRow_(sheetOf(['', stamps[1], stamps[2]]), 4,
+    new Date('2026-08-01T00:00:00+09:00')) === 2);
+ok('つまずきマップの既定日数は妥当な範囲', S.STUDY_STUMBLE_DAYS >= 30 && S.STUDY_STUMBLE_DAYS <= 180,
+  S.STUDY_STUMBLE_DAYS);
 
 console.log('■ 集計方針テーブル（§9.3.1）');
 const asRow = (r, over) => Object.assign({
