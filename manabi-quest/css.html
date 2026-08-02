@@ -854,6 +854,32 @@
     transform: rotate(45deg);
   }
 
+  /* ---- 先生からの課題 ----
+   * 見た目はミッションとそろえます（児童にとっては「やること」で同じものだからです）。
+   * ちがうのは、先生が出したことが分かる色みと、期限・やることへの入口だけです。 */
+  .assign-item { border-color: var(--mq-orange-s); }
+  .assign-item.complete { background: #fffaf2; border-color: #ffd7a3; }
+  .assign-item.overdue { border-color: #f3b7b7; background: #fff8f8; }
+  .assign-item .assign-note {
+    font-size: .82rem; color: var(--mq-muted); margin-top: .2rem;
+  }
+  .assign-item .assign-due {
+    display: inline-block; margin-left: .4rem; font-size: .78rem; font-weight: 700;
+    color: var(--mq-muted); white-space: nowrap;
+  }
+  /* 期限が近い・すぎたときだけ色をつけます（ふだんは静かに出します） */
+  .assign-item .assign-due.soon { color: var(--mq-orange-d); }
+  .assign-item .assign-due.over { color: var(--mq-pink-d); }
+  .assign-item .assign-cta {
+    display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem;
+  }
+  .assign-item .assign-cta .mq-btn {
+    flex: 1 1 auto; min-height: 2.6rem; padding: .45rem 1rem; font-size: .95rem;
+    text-decoration: none;
+  }
+  .assign-item .assign-action .mq-btn { min-height: 2.5rem; padding: .4rem 1rem; font-size: .95rem; }
+  .assign-item.claimed .mission-reward { color: var(--mq-muted); }
+
   /* ---- バッジ ---- */
   .badge-icon {
     width: 56px; height: 56px; border-radius: 50%;

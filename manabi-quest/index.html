@@ -62,6 +62,7 @@
     <div class="d-flex bg-white border-bottom shadow-sm overflow-auto">
       <button data-view="view-t-dashboard" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab active-tab"><i class="bi bi-clipboard-data"></i> ダッシュボード</button>
       <button data-view="view-t-student" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-search"></i> 児童の詳細</button>
+      <button data-view="view-t-assign" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-clipboard-check"></i> 課題・提出</button>
       <button data-view="view-t-shoken" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-lightbulb"></i> AI所見</button>
       <button data-view="view-t-grades" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-graph-up"></i> 成績・評価</button>
       <button data-view="view-t-studylog" class="flex-fill btn btn-link text-decoration-none rounded-0 py-3 fw-bold nav-tab text-secondary"><i class="bi bi-joystick"></i> 学習アプリ</button>
@@ -136,7 +137,18 @@
         <!-- ① いま一番やってほしいこと（1つだけ） -->
         <div id="home-today" class="mb-3"></div>
 
-        <!-- ② きろくをつけにいく -->
+        <!-- ② 先生からの課題（出ているときだけ ならびます） -->
+        <button type="button" class="mq-door door-orange d-none" id="home-assign-door" data-go-panel="p-assignments">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">先生からの かだい</span>
+            <span class="door-note">やることが とどいているよ</span>
+          </span>
+          <span class="door-count d-none" id="home-assign-count">0</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
+
+        <!-- ③ きろくをつけにいく -->
         <button type="button" class="mq-door door-green" id="home-record-cta">
           <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-pencil"></use></svg></span>
           <span class="door-body">
@@ -171,6 +183,15 @@
       <!-- ホームの「もっと見る」（3つ） -->
       <div class="mq-panel" id="p-more">
         <div id="p-more-head"></div>
+        <button type="button" class="mq-door door-orange" data-go-panel="p-assignments">
+          <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
+          <span class="door-body">
+            <span class="door-title">先生からの かだい</span>
+            <span class="door-note" id="more-assign-note">先生が出した やること</span>
+          </span>
+          <span class="door-count d-none" id="more-assign-count">0</span>
+          <span class="door-arrow"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-chevron-right"></use></svg></span>
+        </button>
         <button type="button" class="mq-door door-blue" data-go-panel="p-missions">
           <span class="door-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-target"></use></svg></span>
           <span class="door-body">
@@ -218,6 +239,18 @@
       </div>
 
       <!-- ミッション（「きょうのやること」から来ます） -->
+      <!-- 先生からの課題 -->
+      <div class="mq-panel" id="p-assignments">
+        <div id="p-assignments-head"></div>
+        <div class="mq-card accent-orange">
+          <div class="mq-card-head">
+            <span class="mq-card-icon"><svg class="mq-icon" aria-hidden="true" focusable="false"><use href="#i-clipboard"></use></svg></span>
+            <h2 class="mq-card-title">先生からの かだい</h2>
+          </div>
+          <div class="mq-card-body tight" id="home-assignments"></div>
+        </div>
+      </div>
+
       <div class="mq-panel" id="p-missions">
         <div id="p-missions-head"></div>
         <div class="mq-card accent-blue">
@@ -751,6 +784,87 @@
             <thead class="table-light sticky-top"><tr><th>学習日</th><th>時間帯</th><th>児童</th><th>アプリ</th><th>内容</th><th class="text-center">初回正答/解答</th><th>時間・ページ数</th><th></th></tr></thead>
             <tbody id="tl-recent-rows"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ 教員: 課題・提出 ============ -->
+    <div id="view-t-assign" class="spa-view d-none">
+      <div class="row g-4">
+        <!-- 課題を出す -->
+        <div class="col-lg-4">
+          <div class="card shadow-sm border-primary rounded-4">
+            <div class="card-header bg-primary text-white fw-bold"><i class="bi bi-send"></i> 課題を出す</div>
+            <div class="card-body">
+              <label class="form-label small fw-bold">何をする課題ですか</label>
+              <div class="d-flex gap-2 mb-2">
+                <input type="radio" class="btn-check" name="ta-kind" id="ta-kind-app" value="app" checked>
+                <label class="btn btn-outline-primary flex-fill" for="ta-kind-app"><i class="bi bi-joystick"></i> 学習アプリ</label>
+                <input type="radio" class="btn-check" name="ta-kind" id="ta-kind-record" value="record">
+                <label class="btn btn-outline-primary flex-fill" for="ta-kind-record"><i class="bi bi-pencil"></i> きろく</label>
+              </div>
+              <select id="ta-target" class="form-select mb-2"></select>
+
+              <label class="form-label small fw-bold">どれくらい</label>
+              <div class="input-group mb-2">
+                <input type="number" id="ta-amount" class="form-control" value="1" min="1">
+                <select id="ta-unit" class="form-select" style="max-width:6rem;">
+                  <option value="回">回</option>
+                  <option value="分">分</option>
+                </select>
+              </div>
+
+              <input type="text" id="ta-title" class="form-control mb-2" placeholder="タイトル（例: Qalcで計算れんしゅう）">
+              <textarea id="ta-description" class="form-control mb-2" rows="2" placeholder="児童へのひとこと（任意）"></textarea>
+
+              <label class="form-label small fw-bold mb-1">期限（任意・空なら期限なし）</label>
+              <input type="date" id="ta-due" class="form-control mb-2">
+
+              <label class="form-label small fw-bold mb-1">ごほうびの経験値</label>
+              <input type="number" id="ta-reward" class="form-control mb-3" value="100" min="0">
+
+              <label class="form-label small fw-bold">だれに出しますか</label>
+              <div class="d-flex gap-2 mb-2">
+                <input type="radio" class="btn-check" name="ta-to" id="ta-to-all" value="all" checked>
+                <label class="btn btn-outline-secondary flex-fill" for="ta-to-all">クラス全員</label>
+                <input type="radio" class="btn-check" name="ta-to" id="ta-to-some" value="some">
+                <label class="btn btn-outline-secondary flex-fill" for="ta-to-some">児童を選ぶ</label>
+              </div>
+              <div id="ta-student-picker" class="d-none">
+                <div class="d-flex gap-2 mb-2">
+                  <button class="btn btn-sm btn-outline-secondary" id="ta-select-all" type="button">全員</button>
+                  <button class="btn btn-sm btn-outline-secondary" id="ta-select-clear" type="button">解除</button>
+                </div>
+                <div id="ta-checkboxes" class="border rounded p-2 mb-2 bg-light custom-scrollbar" style="max-height:160px;overflow-y:auto;"></div>
+              </div>
+
+              <button id="ta-post-btn" class="btn btn-primary w-100 fw-bold">この課題を出す</button>
+              <p class="small text-muted mt-2 mb-0">
+                提出は<b>自動</b>で判定します。学習アプリの課題は「きろくを おくる」で学習ログが届いたとき、
+                きろくの課題はそのきろくが保存されたときに提出ずみになります。
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <!-- 提出状況 -->
+        <div class="col-lg-8">
+          <div class="card shadow-sm border-0 rounded-4 mb-4">
+            <div class="card-header bg-white fw-bold d-flex justify-content-between align-items-center">
+              <span><i class="bi bi-list-check text-primary"></i> 出している課題と提出率</span>
+              <button class="btn btn-sm btn-outline-secondary" id="ta-reload-btn"><i class="bi bi-arrow-clockwise"></i> 更新</button>
+            </div>
+            <div class="card-body p-2">
+              <div id="ta-list"></div>
+            </div>
+          </div>
+
+          <div class="card shadow-sm border-0 rounded-4">
+            <div class="card-header bg-white fw-bold"><i class="bi bi-grid-3x3 text-primary"></i> 児童 × 課題（提出状況の一覧）</div>
+            <div class="card-body p-2">
+              <div id="ta-matrix" class="table-responsive custom-scrollbar" style="max-height:460px;"></div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

@@ -49,6 +49,9 @@ const SHEETS = {
   ANNOUNCEMENTS: 'お知らせ',
   PROFILE: 'プロフィール',
 
+  // --- 先生が出す課題 ---
+  ASSIGNMENTS: '課題',                         // 先生が出した課題（提出は記録から自動判定）
+
   // --- 教員用（所見・評価） ---
   TEACHING_POINTS: '指導事項',   // 授業の単元・ねらい（AI所見材料抽出の照合に使用）
   SHOKEN_MATERIALS: '所見材料',
@@ -179,7 +182,10 @@ const LOG_ACTIONS = {
   WEEKLY_REFLECTION: 'WEEKLY_REFLECTION',     // 週次ふり返りを書いた
   SEND_CHEER: 'SEND_CHEER',                   // 友だちに応援スタンプを送った
   RECEIVE_CHEER: 'RECEIVE_CHEER',             // 応援スタンプをもらった
-  TEACHER_PRAISE: 'TEACHER_PRAISE'            // 先生からひとことをもらった
+  TEACHER_PRAISE: 'TEACHER_PRAISE',           // 先生からひとことをもらった
+  // --- 先生が出す課題 ---
+  POST_ASSIGNMENT: 'POST_ASSIGNMENT',         // 先生が課題を出した（誰に出したかの記録）
+  CLAIM_ASSIGNMENT: 'CLAIM_ASSIGNMENT'        // 課題のごほうびを受け取った（二重受け取りの防止にも使用）
 };
 
 /**
@@ -226,6 +232,43 @@ const RECORD_TYPES = {
   moral: { label: '道徳ノート', log: LOG_ACTIONS.RECORD_MORAL }
 };
 
+/**
+ * 「課題」シートの列番号（1始まり）。
+ * 列を追加・並び替えるときは 02_setup.gs のヘッダー定義とここを合わせます。
+ */
+const ASSIGNMENT_COLS = {
+  ID: 1,          // 課題ID
+  ISSUED: 2,      // 出題日（この日以降の記録を提出として数えます）
+  TITLE: 3,       // タイトル
+  DESCRIPTION: 4, // 説明（児童に見せるひとこと）
+  KIND: 5,        // 種類（学習アプリ / きろく）
+  TARGET: 6,      // 対象（appId または RECORD_TYPES のキー）
+  AMOUNT: 7,      // 目標値
+  UNIT: 8,        // 単位（回 / 分）
+  DUE: 9,         // 期限（空なら期限なし）
+  TO: 10,         // 宛先（空ならクラス全員／カンマ区切りのメールで個別）
+  REWARD: 11,     // 報酬経験値
+  ENABLED: 12,    // 有効（TRUE / FALSE）
+  AUTHOR: 13,     // 作成者
+  NUM: 13         // 読み出すときの列数
+};
+
+/**
+ * 課題の種類。
+ *
+ * app  … 学習アプリ（study.v1）の「学習ログ」から自動で提出を判定します。
+ *        対象には STUDY_APP_LINKS の appId を入れます。
+ * record … まなびクエストの中のきろく。「ログ」シートの記録ログで判定します。
+ *        対象には RECORD_TYPES のキー（study / lesson など）を入れます。
+ */
+const ASSIGNMENT_KINDS = {
+  app: { label: '学習アプリ', units: ['回', '分'] },
+  record: { label: 'きろく', units: ['回'] }
+};
+
+/** 課題の単位（学習アプリだけ「分」を選べます） */
+const ASSIGNMENT_UNITS = { COUNT: '回', MINUTE: '分' };
+
 /** 児童マスタで担任を表す出席番号の値 */
 const TEACHER_ROLE_ID = '担任';
 
@@ -250,7 +293,8 @@ const LIMITS = {
   CALENDAR_WEEKS: 12,             // がんばりカレンダーに表示する週数
   WORD_ALBUM: 60,                 // ことばアルバムに読み込むふり返りの件数
   BOOKSHELF: 40,                  // みんなの本棚に表示する冊数
-  CHEERS_PER_DAY: 5               // 1日に送れる応援スタンプの数
+  CHEERS_PER_DAY: 5,              // 1日に送れる応援スタンプの数
+  ASSIGNMENT_BOARD: 30            // 提出状況ボードに読み込む課題の数（新しい順）
 };
 
 /** キャッシュ有効期限（秒） */
