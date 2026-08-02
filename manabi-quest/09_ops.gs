@@ -196,17 +196,49 @@ function getArchivableSheets_() {
   ];
 }
 
+/** アーカイブのコピーを何行ずつ行うか（シート1枚を丸ごとメモリに載せないため） */
+const ARCHIVE_CHUNK_ROWS = 2000;
+
+/**
+ * シートの中身を、チャンクに分けてアーカイブ先へコピーします。
+ *
+ * 1回の getValues で丸ごと読むと、読み込んだ配列と書き込む配列が同時にメモリへ載ります。
+ * 「学習ログ」は28列 × 数万行になりうるので、**アーカイブが必要なほど溜まった時点で
+ * アーカイブ自体が実行時間・メモリの上限に触れる**という状態になっていました。
+ */
+function copySheetInChunks_(sheet, dest, lastRow, lastCol) {
+  // 送り先のグリッドは既定で 1000行 × 26列 なので、足りないぶんを先に広げます
+  if (dest.getMaxRows() < lastRow) {
+    dest.insertRowsAfter(dest.getMaxRows(), lastRow - dest.getMaxRows());
+  }
+  if (dest.getMaxColumns() < lastCol) {
+    dest.insertColumnsAfter(dest.getMaxColumns(), lastCol - dest.getMaxColumns());
+  }
+  for (let row = 1; row <= lastRow; row += ARCHIVE_CHUNK_ROWS) {
+    const numRows = Math.min(ARCHIVE_CHUNK_ROWS, lastRow - row + 1);
+    dest.getRange(row, 1, numRows, lastCol)
+      .setValues(sheet.getRange(row, 1, numRows, lastCol).getValues());
+  }
+}
+
 /**
  * 年度末アーカイブ（スプレッドシートメニューから実行）。
  * 記録・ログ・所見データを別スプレッドシートに丸ごと退避し、
- * 元シートのデータ行をクリアして新年度をまっさらな状態で始められます。
+ * 元シートのデータ行を削除して新年度をまっさらな状態で始められます。
  * 児童マスタ・各種マスタ・初期設定・ミッション/バッジ定義は保持します。
+ *
+ * データ行は `clearContent()` ではなく **`deleteRows()`** で消します。
+ * 中身を消すだけではグリッドが縮まず、スプレッドシートの上限（1ファイル1,000万セル。
+ * **空セルも数に入ります**）を占有したままになるためです。
  */
 function archiveYearEndData() {
   const ui = SpreadsheetApp.getUi();
   const confirm = ui.alert('年度末アーカイブ',
-    '記録・ログ・所見などのデータを新しいスプレッドシートに退避し、このシートのデータ行を空にします。\n' +
+    '記録・ログ・所見などのデータを新しいスプレッドシートに退避し、このシートのデータ行を削除します。\n' +
     '（児童マスタ・初期設定・各種マスタ・ミッション/バッジ定義は残ります）\n\n' +
+    'シートは1枚ずつ「コピー→削除」の順に処理します。' +
+    '途中で時間切れになっても、退避ずみのシートは新しいファイルに残っています。' +
+    'そのままもう一度実行してください（アーカイブファイルが2つに分かれるだけです）。\n\n' +
     '進級・年度更新の前に実行してください。よろしいですか？',
     ui.ButtonSet.YES_NO);
   if (confirm !== ui.Button.YES) return;
@@ -230,14 +262,19 @@ function archiveYearEndData() {
       if (!sheet || sheet.getLastRow() < 2) return;
       const lastRow = sheet.getLastRow();
       const lastCol = sheet.getLastColumn();
-      const values = sheet.getRange(1, 1, lastRow, lastCol).getValues();
+      ss.toast(`${name} を退避しています…`, '年度末アーカイブ', 5);
 
       const dest = archiveSs.insertSheet(name);
-      dest.getRange(1, 1, values.length, lastCol).setValues(values);
+      copySheetInChunks_(sheet, dest, lastRow, lastCol);
       dest.setFrozenRows(1);
 
-      // 元シートはヘッダーを残してデータ行を削除
-      sheet.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      // 消す前に、コピーが確実に書き込まれたことを確かめます
+      SpreadsheetApp.flush();
+
+      // 元シートはヘッダーだけ残してデータ行を「削除」します。
+      // clearContent だとグリッドが縮まず、セル数の上限を占有したままになります。
+      // 末尾の空行はそのまま残るので、次に書き込むぶんの余白は保たれます。
+      sheet.deleteRows(2, lastRow - 1);
       archivedSheets++;
       archivedRows += lastRow - 1;
     });

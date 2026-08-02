@@ -637,7 +637,11 @@ function deleteAssignment(assignmentId) {
       const found = findAssignmentRow_(ss, assignmentId);
       if (!found) return { success: false, message: '課題が見つかりません。' };
       const sheet = ss.getSheetByName(SHEETS.ASSIGNMENTS);
-      sheet.getRange(found.rowNum, 1, 1, sheet.getLastColumn()).clearContent();
+      // 行そのものを消します（中身を空にするだけだと、途中に空行が残って
+      // getLastRow() が下がらず、以後の読み込みが不要な行まで走り続けます）。
+      // 行番号は findAssignmentRow_ が課題IDから引き直したもので、
+      // しかも withLock_ の中なので、別の課題を消してしまう心配はありません。
+      sheet.deleteRow(found.rowNum);
       return { success: true, message: '課題を削除しました。', board: getAssignmentBoard(true) };
     } catch (e) {
       return { success: false, message: e.message };

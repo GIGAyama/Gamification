@@ -319,6 +319,15 @@ function postAnnouncement(data) {
 
 /**
  * お知らせを削除します（行の内容をクリア）。
+ *
+ * ここは意図的に `deleteRow()` ではなく `clearContent()` のままにしています。
+ * 行番号を**画面から受け取っている**ので、一覧を開いたまま別のお知らせが消えるなど
+ * 行番号がずれた状態で送られてくることがあります。
+ * clearContent なら「すでに空の行をもう一度空にする」だけで済みますが、
+ * deleteRow だと**別のお知らせを消して**しまいます。
+ * 行そのものを消すようにするなら、お知らせにIDを持たせて引き直すか、
+ * 消す前に画面が表示していた日時・内容と一致するか確かめる仕組みとセットにしてください。
+ * （課題の削除 `deleteAssignment` は課題IDから行を引き直しているので deleteRow を使っています）
  */
 function deleteAnnouncement(rowNum) {
   return withLock_(() => {
