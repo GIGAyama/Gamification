@@ -131,6 +131,19 @@ function assignmentStudyCacheCovers_(cached, since) {
 }
 
 /**
+ * 課題の判定でさかのぼる必要のある日付。
+ *
+ * いちばん古い出題日より前の記録は、どの課題の提出にもなりません
+ * （`isWithinAssignmentPeriod_` が出題日より前を弾くため）。そこまでで読みを打ち切れます。
+ * 出題日が空の課題が1件でもあると下限が決まらないので、その場合だけ全期間（null）を返します。
+ */
+function assignmentScanSince_(assignments) {
+  if (assignments.length === 0) return null;
+  if (assignments.some(a => !a.issued)) return null;
+  return new Date(Math.min.apply(null, assignments.map(a => a.issued.getTime())));
+}
+
+/**
  * 課題の判定に使う「学習ログ」。
  * @param {Array} assignments - これから判定する課題（学習アプリの課題が無ければ読みません）
  */
@@ -138,19 +151,21 @@ function assignmentStudyRows_(ss, assignments) {
   const apps = assignments.filter(a => a.kind === 'app');
   if (apps.length === 0) return [];
 
-  // いちばん古い出題日より前の記録は、どの課題の提出にもなりません
-  // （isWithinAssignmentPeriod_ が出題日より前を弾くため）。そこまでで読みを打ち切ります。
-  // 出題日が空の課題が1件でもあると下限が決まらないので、その場合だけ全期間を読みます。
-  const since = apps.some(a => !a.issued)
-    ? null
-    : new Date(Math.min.apply(null, apps.map(a => a.issued.getTime())));
-
+  const since = assignmentScanSince_(apps);
   if (assignmentStudyCacheCovers_(ASSIGNMENT_STUDY_CACHE_, since)) {
     return ASSIGNMENT_STUDY_CACHE_.rows;
   }
   // 範囲外の古い行が混ざっていても、課題ごとの期間判定で落ちるので害はありません
   ASSIGNMENT_STUDY_CACHE_ = { since, rows: readStudyLog_(ss, since ? { since } : {}) };
   return ASSIGNMENT_STUDY_CACHE_.rows;
+}
+
+/**
+ * 課題の判定に使う「ログ」。
+ * 学習ログと同じ考え方で、いちばん古い出題日より前は読みません。
+ */
+function assignmentLogRows_(ss, assignments) {
+  return readLogRowsSince_(ss, assignmentScanSince_(assignments));
 }
 
 /** 学習ログを書きかえたあとに呼び、次の判定で最新の内容になるようにします */
@@ -298,7 +313,7 @@ function getAssignmentStatus_(ss, email, logRows, studyRows) {
   const assignments = getAssignments_(ss).filter(a => isAssignmentFor_(a, email));
   if (assignments.length === 0) return [];
 
-  const logs = logRows || getAllLogRows_(ss);
+  const logs = logRows || assignmentLogRows_(ss, assignments);
   const studies = studyRows || assignmentStudyRows_(ss, assignments);
   const claimed = collectClaimedAssignmentIds_(logs, email);
   const now = new Date();
@@ -442,7 +457,7 @@ function getAssignmentBoard(includeDisabled) {
       };
     }
 
-    const logs = getAllLogRows_(ss);
+    const logs = assignmentLogRows_(ss, assignments);
     const studies = assignmentStudyRows_(ss, assignments);
     const now = new Date();
 
@@ -670,7 +685,7 @@ function countOverdueAssignments_(ss, students) {
   const counts = {};
   if (assignments.length === 0) return counts;
 
-  const logs = getAllLogRows_(ss);
+  const logs = assignmentLogRows_(ss, assignments);
   const studies = assignmentStudyRows_(ss, assignments);
   students.forEach(s => {
     let n = 0;

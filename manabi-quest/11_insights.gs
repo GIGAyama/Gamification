@@ -31,16 +31,83 @@
  * 1回の実行では中身が変わらない（変わるときは writeLog_ が捨てる）ので、
  * ここで1回だけ読んで全員で使い回します。
  */
-let LOG_ROWS_CACHE_ = null;
+let LOG_ROWS_CACHE_ = null;   // { since: Date|null, rows: Array }
 
-/** 「ログ」シートの全行（日時 / メールアドレス / 種別 / 詳細） */
+/** 集計でさかのぼる期間のはじまり（LIMITS.LOG_SCAN_DAYS 日前の0時） */
+function logScanStart_() {
+  const d = new Date();
+  d.setDate(d.getDate() - LIMITS.LOG_SCAN_DAYS);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/**
+ * キャッシュしてある範囲が、これから必要な範囲を含んでいるか。
+ * `since === null` は「全期間が必要」を表します。
+ */
+function logRowsCacheCovers_(cached, since) {
+  if (!cached) return false;
+  if (cached.since === null) return true;    // 全期間を読んである
+  if (since === null) return false;          // 全期間が要るのに一部しか読んでいない
+  return cached.since.getTime() <= since.getTime();
+}
+
+/**
+ * 「ログ」で `since` 以降の行がはじまる行番号を二分探索で求めます。
+ *
+ * 「ログ」は追記のみで日時の順に並ぶので、二分探索が使えます。
+ * 開始行を決めるためだけにA列を全部読むと、それ自体が重くなるためです
+ * （15万行でも20回ほどのセル読みで済みます）。
+ * 日時が読めない行は「範囲内」とみなして左へ寄せます。読みすぎる側に倒れるので、
+ * 取りこぼしは起きません。
+ */
+function logStartRow_(sheet, lastRow, since) {
+  const t = since.getTime();
+  let lo = 2, hi = lastRow + 1;   // 答えは「since 以降になる最初の行」
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const d = parseTimestamp_(sheet.getRange(mid, 1).getValue());
+    if (!d || d.getTime() >= t) hi = mid;
+    else lo = mid + 1;
+  }
+  return lo;
+}
+
+/**
+ * 「ログ」シートの行（日時 / メールアドレス / 種別 / 詳細）を読みます。
+ * @param {Date|null} since - この日時以降だけを読みます。null なら全期間
+ */
+function readLogRowsSince_(ss, since) {
+  if (!logRowsCacheCovers_(LOG_ROWS_CACHE_, since)) {
+    const sheet = ss.getSheetByName(SHEETS.LOG);
+    const lastRow = sheet ? sheet.getLastRow() : 0;
+    if (!sheet || lastRow < 2) {
+      LOG_ROWS_CACHE_ = { since: null, rows: [] };
+    } else {
+      const startRow = since ? logStartRow_(sheet, lastRow, since) : 2;
+      LOG_ROWS_CACHE_ = {
+        since: since || null,
+        rows: startRow > lastRow ? [] : sheet.getRange(startRow, 1, lastRow - startRow + 1, 4).getValues()
+      };
+    }
+  }
+  const cached = LOG_ROWS_CACHE_;
+  if (!since || (cached.since && cached.since.getTime() === since.getTime())) return cached.rows;
+  // キャッシュのほうが広い範囲を持っていることがあるので、そろえてから返します
+  return cached.rows.filter(row => {
+    const d = parseTimestamp_(row[0]);
+    return d && d.getTime() >= since.getTime();
+  });
+}
+
+/**
+ * 「ログ」シートの全行（日時 / メールアドレス / 種別 / 詳細）。
+ *
+ * バッジの「通算◯回」の判定だけがこれを必要とします。
+ * 期間で足りる集計は `readLogRowsSince_(ss, logScanStart_())` を使ってください。
+ */
 function getAllLogRows_(ss) {
-  if (LOG_ROWS_CACHE_) return LOG_ROWS_CACHE_;
-  const sheet = ss.getSheetByName(SHEETS.LOG);
-  LOG_ROWS_CACHE_ = (!sheet || sheet.getLastRow() < 2)
-    ? []
-    : sheet.getRange(2, 1, sheet.getLastRow() - 1, 4).getValues();
-  return LOG_ROWS_CACHE_;
+  return readLogRowsSince_(ss, null);
 }
 
 /** ログを書いたあとに呼び、次の読み込みで最新の内容になるようにします */
@@ -60,14 +127,13 @@ function clearLogRowsCache_() {
  */
 function appendLogRowsToCache_(rows) {
   if (!LOG_ROWS_CACHE_ || !rows || rows.length === 0) return;
-  rows.forEach(row => LOG_ROWS_CACHE_.push(row));
+  // いま書いた行なので、キャッシュがどの期間を持っていても必ずその範囲に入ります
+  rows.forEach(row => LOG_ROWS_CACHE_.rows.push(row));
 }
 
-/** 「ログ」シートの末尾から最大 maxRows 行を読みます */
-function readRecentLogRows_(ss, maxRows) {
-  const rows = getAllLogRows_(ss);
-  const limit = maxRows || LIMITS.INSIGHT_SCAN_ROWS;
-  return rows.length > limit ? rows.slice(rows.length - limit) : rows;
+/** 集計でよく使う「直近 LIMITS.LOG_SCAN_DAYS 日ぶんのログ」 */
+function readRecentLogRows_(ss) {
+  return readLogRowsSince_(ss, logScanStart_());
 }
 
 /** Date/文字列 → 'yyyy-MM-dd'（JST）。変換できなければ null */
@@ -127,7 +193,7 @@ function getInsights_(ss, email) {
   if (cached) {
     try { return JSON.parse(cached); } catch (e) { /* 壊れていたら作り直す */ }
   }
-  const insights = buildInsights_(readRecentLogRows_(ss, LIMITS.INSIGHT_SCAN_ROWS), email);
+  const insights = buildInsights_(readRecentLogRows_(ss), email);
   try {
     cache.put(key, JSON.stringify(insights), CACHE_EXPIRATION);
   } catch (e) {
@@ -303,7 +369,7 @@ function applyRecordStreakBonus_(ss, email, config) {
   const cap = getConfigNumber_(config, '連続きろくボーナス上限日数', 10);
   if (coefficient <= 0) return { exp: 0, streak: 0 };
 
-  const rows = readRecentLogRows_(ss, LIMITS.SEND_LOG_SCAN_ROWS);
+  const rows = readRecentLogRows_(ss);
   const target = String(email).toLowerCase().trim();
   const today = todayKey_();
   const days = new Set();

@@ -70,7 +70,7 @@ const src = prelude + fs.readFileSync(path, 'utf8') + `
     assignmentTargetValue_, assignmentDisplayValue_, isWithinAssignmentPeriod_,
     assignmentEntriesFromStudy_, assignmentEntriesFromLogs_,
     countAssignmentProgress_, assignmentProgressFor_, isAssignmentOverdue_,
-    collectClaimedAssignmentIds_, assignmentStudyCacheCovers_
+    collectClaimedAssignmentIds_, assignmentStudyCacheCovers_, assignmentScanSince_
   };
 `;
 const Module = require('module');
@@ -240,6 +240,18 @@ ok('同じ日から読んであれば使える',
   A.assignmentStudyCacheCovers_({ since: day_('2026-05-01') }, day_('2026-05-01')) === true);
 ok('求める範囲のほうが古ければ読み直す（取りこぼし防止）',
   A.assignmentStudyCacheCovers_({ since: day_('2026-05-01') }, day_('2026-04-01')) === false);
+
+console.log('■ 課題の判定でさかのぼる日付（assignmentScanSince_）');
+// いちばん古い出題日より前の記録は、どの課題の提出にもなりません。
+// ここを新しくしすぎると提出が数え落とされ、クラス全員の提出率がずれます。
+const withIssued = (s) => ({ issued: day_(s) });
+ok('出題日がいちばん古いものにそろえる',
+  A.assignmentScanSince_([withIssued('2026-05-10'), withIssued('2026-04-02'), withIssued('2026-06-01')])
+    .getTime() === day_('2026-04-02').getTime());
+ok('出題日が空の課題が1件でもあれば全期間（下限を決められない）',
+  A.assignmentScanSince_([withIssued('2026-05-10'), { issued: null }]) === null);
+ok('課題が無ければ全期間', A.assignmentScanSince_([]) === null);
+ok('1件だけならその日', A.assignmentScanSince_([withIssued('2026-05-10')]).getTime() === day_('2026-05-10').getTime());
 
 console.log(failed === 0 ? '\n✅ すべて通りました' : `\n❌ ${failed} 件 失敗`);
 process.exit(failed === 0 ? 0 : 1);

@@ -658,7 +658,7 @@ function grantStudySendReward_(ss, student, config, now, recordCount, calcCount,
 /** 「ログ」シートから、その児童が学習ログを送信した日（yyyy-MM-dd）の集合を返します */
 function getStudySendDays_(ss, email) {
   const days = new Set();
-  readRecentLogRows_(ss, LIMITS.SEND_LOG_SCAN_ROWS).forEach(row => {
+  readRecentLogRows_(ss).forEach(row => {
     if (row[2] !== LOG_ACTIONS.SEND_STUDY_LOG) return;
     if (String(row[1]).toLowerCase().trim() !== email) return;
     const d = parseTimestamp_(row[0]);

@@ -90,7 +90,7 @@ function getAssignmentSummary_(ss, students) {
   if (assignments.length === 0) return { count: 0, openCount: 0, lowest: null };
 
   const now = new Date();
-  const logs = getAllLogRows_(ss);
+  const logs = assignmentLogRows_(ss, assignments);
   const studies = assignmentStudyRows_(ss, assignments);
   let openCount = 0;
   let lowest = null;
@@ -126,8 +126,9 @@ function getStudentAlerts_(ss, students, config) {
   recordActions.add(LOG_ACTIONS.RECORD_STUDY_APP);   // 学習アプリでの学習も「記録あり」とみなす
 
   // 各児童の最終記録日
+  // アラートのしきい値（既定7日）より十分に長い期間を見れば足ります
   const lastRecord = {};
-  getAllLogRows_(ss).forEach(row => {
+  readRecentLogRows_(ss).forEach(row => {
     if (!recordActions.has(row[2])) return;
     const email = String(row[1]).toLowerCase().trim();
     const d = parseTimestamp_(row[0]);
@@ -165,7 +166,8 @@ function getStudentAlerts_(ss, students, config) {
     const reasons = [];
     const last = lastRecord[s.email];
     if (!last) {
-      reasons.push({ icon: '📭', text: 'まだ記録がありません' });
+      // 一度も記録が無い場合と、さかのぼった期間より前に途切れた場合の両方に当てはまる言い方にします
+      reasons.push({ icon: '📭', text: `${LIMITS.LOG_SCAN_DAYS}日以上 記録がありません` });
     } else {
       const daysSince = Math.floor((now - last) / 86400000);
       if (daysSince >= noRecordDays) reasons.push({ icon: '📭', text: `${daysSince}日間 記録がありません` });
