@@ -517,13 +517,15 @@ function receiveStudyRecords_(payload, options) {
     // レベルアップの判定は、この受信でEXPを足しはじめる前のレベルと最後に比べます
     // （じこベスト・めあて達成のぶんも addExp_ を通るため、最後にまとめて見ます）
     const levelBefore = calculateLevel(getUserTotalExp_(ss, student.email), config).level;
-    const applyExp = (amount, label) => addExp_(ss, student.email, amount, label);
-    applyExp(appExp, '学習アプリ');
-    applyExp(calcExp, '100マス計算');
-    applyExp(readingExp, RECORD_TYPES.reading.label);
-    applyExp(typingExp, RECORD_TYPES.typing.label);
-    applyExp(reward.sendExp, '学習きろくのそうしんボーナス');
-    applyExp(reward.streakExp, `れんぞくそうしん${reward.streak}日目ボーナス`);
+    // 6つの獲得元をまとめて1回で足します（児童マスタの読み書きも「ログ」も1回ずつ）
+    addExpBatch_(ss, student.email, [
+      { amount: appExp, label: '学習アプリ' },
+      { amount: calcExp, label: '100マス計算' },
+      { amount: readingExp, label: RECORD_TYPES.reading.label },
+      { amount: typingExp, label: RECORD_TYPES.typing.label },
+      { amount: reward.sendExp, label: '学習きろくのそうしんボーナス' },
+      { amount: reward.streakExp, label: `れんぞくそうしん${reward.streak}日目ボーナス` }
+    ]);
 
     // 記録シートが変わったので、自己ベストとめあての判定を回す前にキャッシュを捨てます
     // （順番は saveRecord と同じです。古い集計のままだと、いま追記した記録が

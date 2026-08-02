@@ -59,8 +59,10 @@ function saveRecord(payload) {
       }
 
       writeLog_(ss, email, typeDef.log, `${typeDef.label}を記録`);
-      addExp_(ss, email, gainedExp, typeDef.label);
-      addExp_(ss, email, reflectionBonus, 'ふり返り質ボーナス');
+      addExpBatch_(ss, email, [
+        { amount: gainedExp, label: typeDef.label },
+        { amount: reflectionBonus, label: 'ふり返り質ボーナス' }
+      ]);
 
       // 記録シートが変わったので、集計のキャッシュを捨ててから判定を回します
       clearRecordStoreCache_();

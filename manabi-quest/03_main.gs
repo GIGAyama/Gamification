@@ -242,17 +242,57 @@ function calculateLevel(totalExp, config) {
  * @returns {{totalExp:number, exp:number, level:number, levelInfo:Object, leveledUp:boolean}}
  */
 function addExp_(ss, email, amount, sourceLabel) {
-  if (!amount || amount <= 0) return null;
+  return addExpBatch_(ss, email, [{ amount, label: sourceLabel }]);
+}
+
+/**
+ * EXP_GAIN ログの「詳細」欄の文字列をつくります。
+ *
+ * **集計側との約束**: この文字列は `/\+\s*(\d+)\s*EXP/` に合致し、
+ * そこで取れる数が**この操作で足した合計**でなければなりません。
+ * ミッションの週間EXP・今日のMVP・がんばりカレンダーのEXPは、いずれも
+ * EXP_GAIN の**行数ではなくこの数を合計**して出しているためです
+ * （`countMissionProgress_` / `getRankings_` / `buildInsights_`）。
+ *
+ * @param {Array<{amount:number, label:string}>} entries - 0 より大きいものだけ
+ * @param {number} total - entries の合計
+ */
+function expGainDetail_(entries, total) {
+  return `${entries.map(e => e.label).join('・')}: +${total}EXP`;
+}
+
+/**
+ * 複数の獲得元の経験値を、**まとめて1回で**加算します。
+ *
+ * 1回の操作で経験値が何度も付くことがあります。学習アプリの受信では
+ * 「学習アプリ」「100マス計算」「読書」「タイピング」「そうしんボーナス」
+ * 「れんぞくボーナス」で最大6回です。これを1回ずつ足していたため、
+ * 児童マスタの読み書きが6往復、「ログ」の行も6行できていました。
+ *
+ * 「ログ」は EXP_GAIN の**行数ではなく、詳細に書かれた EXP の値を合計**して
+ * 使われます（ミッションの週間EXP・MVP判定・がんばりカレンダーのいずれも）。
+ * そのため合計値の1行にまとめても、画面に出る数字は変わりません。
+ *
+ * @param {Array<{amount:number, label:string}>} entries
+ * @returns {{totalExp:number, exp:number, level:number, levelInfo:Object, leveledUp:boolean}|null}
+ */
+function addExpBatch_(ss, email, entries) {
+  const valid = (entries || []).filter(e => e && e.amount > 0);
+  if (valid.length === 0) return null;
+
   const config = getConfig_();
   const userSheet = ss.getSheetByName(SHEETS.USERS);
   const found = findUserRow_(ss, email);
   if (!found.data) return null;
 
+  const amount = valid.reduce((sum, e) => sum + e.amount, 0);
   const oldTotal = Number(found.data['累計経験値'] || 0);
   const newTotal = oldTotal + amount;
   const newExp = Number(found.data['経験値'] || 0) + amount;
   userSheet.getRange(found.row, USER_COLS.TOTAL_EXP, 1, 2).setValues([[newTotal, newExp]]);
-  writeLog_(ss, email, LOG_ACTIONS.EXP_GAIN, `${sourceLabel}: +${amount}EXP`);
+
+  writeLog_(ss, email, LOG_ACTIONS.EXP_GAIN, expGainDetail_(valid, amount));
+
   const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
   // つぎのレベルまでのバーも、この結果だけで引き直せるように levelInfo ごと返します
   const levelInfo = calculateLevel(newTotal, config);
