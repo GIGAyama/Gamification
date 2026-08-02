@@ -99,7 +99,9 @@ function saveRecord(payload) {
         newExp: expResult ? expResult.exp : null,
         newTotalExp: expResult ? expResult.totalExp : null,
         records: getMyRecords(email),
-        missions: getMissionStatus_(ss, email)
+        missions: getMissionStatus_(ss, email),
+        // 先生からの課題も、書いたその場で進みぐあいが変わります
+        assignments: getAssignmentStatus_(ss, email)
       };
     } catch (e) {
       console.error(`saveRecord Error: ${e.message}, Stack: ${e.stack}`);

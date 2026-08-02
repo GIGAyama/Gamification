@@ -38,6 +38,8 @@ function getTeacherData() {
       rankings: getRankings_(ss, config),
       classStats: getClassStats_(ss, students),
       alerts: getStudentAlerts_(ss, students, config),
+      // 出している課題の提出率サマリ（ダッシュボードのカードに出します）
+      assignmentSummary: getAssignmentSummary_(ss, students),
       // 「先生からのひとこと」で使う定型スタンプ
       praiseStamps: getPraiseStamps_(),
       aiEnabled: !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')
@@ -79,13 +81,46 @@ function getClassStats_(ss, students) {
 }
 
 /**
+ * 出している課題の提出状況を、ダッシュボード用に短くまとめます。
+ * 「いま受付中の課題が何件あって、いちばん提出が遅れているのはどれか」が分かれば
+ * 十分なので、詳しい内訳は「課題」タブ（getAssignmentBoard）にまかせます。
+ */
+function getAssignmentSummary_(ss, students) {
+  const assignments = getAssignments_(ss);
+  if (assignments.length === 0) return { count: 0, openCount: 0, lowest: null };
+
+  const now = new Date();
+  const logs = getAllLogRows_(ss);
+  const studies = assignmentStudyRows_(ss, assignments);
+  let openCount = 0;
+  let lowest = null;
+
+  assignments.forEach(a => {
+    const targets = students.filter(s => isAssignmentFor_(a, s.email));
+    if (targets.length === 0) return;
+    const submitted = targets.filter(s => assignmentProgressFor_(a, s.email, logs, studies).submitted).length;
+    const rate = Math.round(100 * submitted / targets.length);
+    if (!isAssignmentOverdue_(a, now)) openCount++;
+    if (!lowest || rate < lowest.rate) {
+      lowest = { id: a.id, title: a.title, rate, submitted, total: targets.length };
+    }
+  });
+
+  return { count: assignments.length, openCount, lowest };
+}
+
+/**
  * ルールベースで「気になる児童（声かけリスト）」を検出します（AI不要）。
  * ①一定日数どの記録もない ②授業のめあて達成「△」が連続 ③テストが目標点に連続未達
+ * ④期限をすぎた課題が未提出のままたまっている
  * @returns {Array<{number, name, email, reasons: Array<{icon, text}>}>}
  */
 function getStudentAlerts_(ss, students, config) {
   const noRecordDays = getConfigNumber_(config, '声かけアラート_無記録日数', 7);
   const streakThreshold = getConfigNumber_(config, '声かけアラート_連続未達回数', 3);
+  const overdueThreshold = getConfigNumber_(config, '声かけアラート_未提出課題数', 2);
+  // 0 を入れると課題の理由は出しません（課題を使っていないクラスのため）
+  const overdueCounts = overdueThreshold > 0 ? countOverdueAssignments_(ss, students) : {};
   const now = new Date();
   const recordActions = new Set(Object.values(RECORD_TYPES).map(t => t.log));
   recordActions.add(LOG_ACTIONS.RECORD_STUDY_APP);   // 学習アプリでの学習も「記録あり」とみなす
@@ -139,6 +174,8 @@ function getStudentAlerts_(ss, students, config) {
     if (lessonStreak >= streakThreshold) reasons.push({ icon: '😥', text: `授業で「むずかしかった」が${lessonStreak}回つづいています` });
     const testStreak = trailingStreak_(testRows[s.email]);
     if (testStreak >= streakThreshold) reasons.push({ icon: '📉', text: `テストが目標点に${testStreak}回とどいていません` });
+    const overdue = overdueCounts[s.email] || 0;
+    if (overdue >= overdueThreshold) reasons.push({ icon: '📋', text: `期限のすぎた課題が${overdue}件 未提出です` });
     if (reasons.length > 0) alerts.push({ number: s.number, name: s.name, email: s.email, reasons });
   });
   return alerts;

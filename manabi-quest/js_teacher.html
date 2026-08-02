@@ -13,6 +13,7 @@ function initTeacherApp(data) {
   bindShokenStudioEvents();
   bindGradesEvents();
   bindStudyLogEvents();
+  bindAssignmentEvents(data.students);
 }
 
 /* ---------------- ダッシュボード ---------------- */
@@ -43,7 +44,8 @@ function renderTeacherDashboard(data) {
         <div class="text-muted small fw-bold">AI所見機能</div>
         <div class="fs-5 fw-bold ${data.aiEnabled ? 'text-success' : 'text-secondary'}">${data.aiEnabled ? '利用可能' : '未設定'}</div>
       </div></div>
-    </div>`;
+    </div>
+    ${assignmentSummaryCardHtml_(data.assignmentSummary)}`;
 
   renderStudentAlerts(data.alerts || []);
 
@@ -1331,5 +1333,258 @@ function bindGradesEvents() {
     if (result.success) Swal.fire('出力完了', esc(result.message), 'success');
     else Swal.fire('エラー', esc(result.message), 'error');
   });
+}
+
+/* ---------------- 課題・提出 ---------------- */
+
+let taLoaded = false;
+let taStudents = [];
+let taOptions = { app: [], record: [] };
+let tkHiddenCount = 0;
+
+/** ダッシュボードに出す、提出率のサマリカード（課題を1つも出していなければ何も出しません） */
+function assignmentSummaryCardHtml_(summary) {
+  if (!summary || !summary.count) return '';
+  const low = summary.lowest;
+  // いちばん提出率が低い課題を出します。まずそこに声をかければよい、が分かるためです
+  const body = low
+    ? `<div class="fs-3 fw-bold ${low.rate < 50 ? 'text-danger' : 'text-primary'}">${low.rate}<span class="fs-6 text-muted">%</span></div>
+       <div class="small text-muted text-truncate" title="${esc(low.title)}">${esc(low.title)}（${low.submitted}/${low.total}人）</div>`
+    : `<div class="fs-3 fw-bold text-primary">-</div>`;
+  return `
+    <div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center t-assign-card" role="button"><div class="card-body">
+        <div class="text-muted small fw-bold">課題の提出率（最低）</div>
+        ${body}
+        <div class="small text-muted">受付中 ${summary.openCount}件</div>
+      </div></div>
+    </div>`;
+}
+
+async function loadAssignmentBoard(force) {
+  if (taLoaded && !force) return;
+  const list = document.getElementById('ta-list');
+  list.innerHTML = `<div class="text-center py-4"><div class="spinner-border text-primary"></div></div>`;
+  try {
+    const result = await api('getAssignmentBoard', true);
+    if (!result.success) { list.innerHTML = `<div class="alert alert-warning">${esc(result.message)}</div>`; return; }
+    taLoaded = true;
+    renderAssignmentBoard(result);
+  } catch (e) {
+    list.innerHTML = `<div class="alert alert-danger">${esc(e.message)}</div>`;
+  }
+}
+
+function renderAssignmentBoard(d) {
+  taOptions = { app: d.appOptions || [], record: d.recordOptions || [] };
+  tkHiddenCount = d.hiddenCount || 0;
+  renderAssignmentTargetOptions();
+  renderAssignmentList(d.assignments || []);
+  renderAssignmentMatrix(d);
+}
+
+/** 課題ごとの提出率と、未提出の児童 */
+function renderAssignmentList(assignments) {
+  const list = document.getElementById('ta-list');
+  if (assignments.length === 0) {
+    list.innerHTML = emptyMessage('まだ課題を出していません。左のフォームから出してみましょう');
+    return;
+  }
+  // 表示を新しい順に切ったときは、そのことを必ず出します
+  const note = tkHiddenCount > 0
+    ? `<div class="alert alert-light border small py-2 mb-2"><i class="bi bi-info-circle"></i> 新しい${assignments.length}件を出しています（古い${tkHiddenCount}件は「課題」シートで見られます）。</div>`
+    : '';
+  list.innerHTML = note + assignments.map(a => {
+    // 提出率が低いほど目立つ色にして、どこから声をかければよいか分かるようにします
+    const barColor = a.rate >= 80 ? 'bg-success' : (a.rate >= 50 ? 'bg-warning' : 'bg-danger');
+    const status = !a.enabled
+      ? '<span class="badge bg-secondary">停止中</span>'
+      : (a.overdue ? '<span class="badge bg-dark">期限ずみ</span>' : '<span class="badge bg-primary">受付中</span>');
+    const pending = a.pending.length === 0
+      ? '<span class="text-success small"><i class="bi bi-check-circle-fill"></i> 全員が提出しました</span>'
+      : `<div class="small text-muted mb-1">未提出（${a.pending.length}人）</div>
+         <div class="d-flex flex-wrap gap-1">${a.pending.map(p => `
+           <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2 ta-pending" data-email="${esc(p.email)}">
+             ${esc(String(p.number))} ${esc(p.name)}<span class="text-muted"> ${p.progress}/${a.target || a.amount}</span>
+           </button>`).join('')}</div>`;
+
+    return `
+      <div class="border rounded-3 p-3 mb-2 ${a.enabled ? '' : 'bg-light'}">
+        <div class="d-flex justify-content-between align-items-start gap-2 flex-wrap">
+          <div class="flex-grow-1">
+            <div class="fw-bold">${esc(a.title)} ${status}</div>
+            <div class="small text-muted">
+              ${esc(a.kindLabel)}・${esc(a.targetLabel)} を ${a.amount}${esc(a.unit)}
+              ／ ${a.toAll ? 'クラス全員' : `${a.total}人`}
+              ${a.due ? ` ／ 期限 ${esc(a.due)}` : ' ／ 期限なし'}
+              ${a.reward > 0 ? ` ／ ごほうび ${a.reward}EXP` : ''}
+            </div>
+          </div>
+          <div class="text-end">
+            <div class="fs-5 fw-bold">${a.submittedCount}<span class="text-muted fs-6">/${a.total}人</span></div>
+            <div class="small text-muted">${a.rate}% 提出</div>
+          </div>
+        </div>
+        <div class="progress my-2" style="height:8px;border-radius:999px;">
+          <div class="progress-bar ${barColor}" style="width:${a.rate}%;border-radius:999px;"></div>
+        </div>
+        ${pending}
+        <div class="d-flex gap-2 mt-2">
+          <button class="btn btn-sm btn-outline-secondary ta-toggle" data-id="${esc(a.id)}" data-enabled="${a.enabled ? '1' : '0'}">
+            <i class="bi bi-${a.enabled ? 'pause' : 'play'}"></i> ${a.enabled ? '止める' : 'もう一度出す'}
+          </button>
+          <button class="btn btn-sm btn-outline-danger ta-delete" data-id="${esc(a.id)}" data-title="${esc(a.title)}"><i class="bi bi-trash"></i> 削除</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/** 児童×課題のマトリクス（成績一覧と同じ形で、クラス全体をひと目で見ます） */
+function renderAssignmentMatrix(d) {
+  const container = document.getElementById('ta-matrix');
+  const assignments = d.assignments || [];
+  if (assignments.length === 0 || (d.matrix || []).length === 0) {
+    container.innerHTML = emptyMessage('課題を出すと、ここに提出状況の一覧が出ます');
+    return;
+  }
+  const cellHtml = c => {
+    if (!c) return '<td class="text-center text-muted" title="この課題の対象ではありません">-</td>';
+    if (c.submitted) return `<td class="text-center table-success"><span class="fw-bold text-success">◯</span><div class="text-muted" style="font-size:.7rem;">${esc(c.submittedAt)}</div></td>`;
+    return `<td class="text-center ${c.progress > 0 ? 'table-warning' : ''}">
+      <span class="text-muted">${c.progress > 0 ? '△' : '×'}</span>
+      <div class="text-muted" style="font-size:.7rem;">${c.progress}/${c.target}</div></td>`;
+  };
+  container.innerHTML = `
+    <table class="table table-bordered table-sm align-middle mb-0" style="min-width:${200 + assignments.length * 100}px;">
+      <thead class="table-light sticky-top"><tr>
+        <th style="min-width:110px;">児童</th>
+        ${assignments.map(a => `<th class="text-center small">${esc(a.title)}<div class="text-muted fw-normal" style="font-size:.7rem;">${a.amount}${esc(a.unit)}</div></th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${d.matrix.map(r => `<tr>
+          <td class="small fw-bold">${esc(String(r.number))} ${esc(r.name)}</td>
+          ${r.cells.map(cellHtml).join('')}
+        </tr>`).join('')}
+      </tbody>
+      <tfoot class="table-light">
+        <tr><td class="small fw-bold">提出率</td>
+        ${assignments.map(a => `<td class="text-center small fw-bold">${a.rate}%</td>`).join('')}</tr>
+      </tfoot>
+    </table>
+    <div class="small text-muted mt-1">◯ 提出ずみ（日付は目標にとどいた日）／ △ とちゅう ／ × まだ ／ - 対象外</div>`;
+}
+
+/** 「学習アプリ／きろく」の切りかえに合わせて、対象の選択肢と単位を入れかえます */
+function renderAssignmentTargetOptions() {
+  const kind = document.querySelector('input[name="ta-kind"]:checked').value;
+  const options = taOptions[kind] || [];
+  document.getElementById('ta-target').innerHTML =
+    `<option value="">選んでください</option>` + options.map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+
+  // 「分」で数えられるのは学習アプリだけです（きろくには時間が残らないため）
+  const unit = document.getElementById('ta-unit');
+  const minuteOption = unit.querySelector('option[value="分"]');
+  minuteOption.disabled = (kind === 'record');
+  if (kind === 'record') unit.value = '回';
+}
+
+function bindAssignmentEvents(students) {
+  taStudents = students || [];
+  document.getElementById('ta-checkboxes').innerHTML = taStudents.map(s => `
+    <div class="form-check">
+      <input class="form-check-input ta-check" type="checkbox" value="${esc(s.email)}" id="ta-s-${esc(String(s.number))}">
+      <label class="form-check-label small" for="ta-s-${esc(String(s.number))}">${esc(String(s.number))} ${esc(s.name)}</label>
+    </div>`).join('');
+
+  document.querySelectorAll('[data-view="view-t-assign"]').forEach(tab => {
+    tab.addEventListener('click', () => loadAssignmentBoard(false));
+  });
+  document.getElementById('ta-reload-btn').addEventListener('click', () => loadAssignmentBoard(true));
+
+  document.querySelectorAll('input[name="ta-kind"]').forEach(radio => {
+    radio.addEventListener('change', renderAssignmentTargetOptions);
+  });
+  document.querySelectorAll('input[name="ta-to"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      document.getElementById('ta-student-picker').classList.toggle('d-none', radio.value !== 'some' || !radio.checked);
+    });
+  });
+  document.getElementById('ta-select-all').addEventListener('click', () => {
+    document.querySelectorAll('.ta-check').forEach(c => c.checked = true);
+  });
+  document.getElementById('ta-select-clear').addEventListener('click', () => {
+    document.querySelectorAll('.ta-check').forEach(c => c.checked = false);
+  });
+
+  document.getElementById('ta-post-btn').addEventListener('click', postAssignmentFromForm_);
+
+  // 一覧の中のボタンは、行を描きかえても押せなくならないよう親で1回だけ受けます
+  document.getElementById('ta-list').addEventListener('click', async ev => {
+    const pending = ev.target.closest('.ta-pending');
+    if (pending) {
+      document.getElementById('t-student-select').value = pending.dataset.email;
+      showView('view-t-student', { push: true });
+      loadStudentDetail(pending.dataset.email);
+      return;
+    }
+    const toggle = ev.target.closest('.ta-toggle');
+    if (toggle) {
+      const enable = toggle.dataset.enabled !== '1';
+      const result = await apiWithLoading('変更中...', 'setAssignmentEnabled', toggle.dataset.id, enable);
+      if (result.success) { toast(result.message); renderAssignmentBoard(result.board); }
+      else Swal.fire('エラー', esc(result.message), 'error');
+      return;
+    }
+    const del = ev.target.closest('.ta-delete');
+    if (del) {
+      const confirm = await Swal.fire({
+        title: '課題を削除しますか？',
+        html: `${esc(del.dataset.title)}<br><span class="small text-muted">提出のきろく（学習ログ・きろく）は消えません。</span>`,
+        icon: 'warning', showCancelButton: true, confirmButtonText: '削除', cancelButtonText: 'やめる'
+      });
+      if (!confirm.isConfirmed) return;
+      const result = await apiWithLoading('削除中...', 'deleteAssignment', del.dataset.id);
+      if (result.success) { toast(result.message); renderAssignmentBoard(result.board); }
+      else Swal.fire('エラー', esc(result.message), 'error');
+    }
+  });
+
+  // ダッシュボードの提出率カードから、そのまま課題タブへ移れます
+  document.getElementById('t-stats-cards').addEventListener('click', ev => {
+    if (!ev.target.closest('.t-assign-card')) return;
+    showView('view-t-assign', { push: true });
+    loadAssignmentBoard(false);
+  });
+}
+
+async function postAssignmentFromForm_() {
+  const kind = document.querySelector('input[name="ta-kind"]:checked').value;
+  const target = document.getElementById('ta-target').value;
+  const title = document.getElementById('ta-title').value.trim();
+  const amount = Number(document.getElementById('ta-amount').value);
+  const unit = document.getElementById('ta-unit').value;
+  const toAll = document.querySelector('input[name="ta-to"]:checked').value === 'all';
+  const emails = toAll ? [] : [...document.querySelectorAll('.ta-check:checked')].map(c => c.value);
+
+  if (!target) { Swal.fire('確認', '対象の学習アプリ・きろくを選んでください。', 'info'); return; }
+  if (!title) { Swal.fire('確認', '課題のタイトルを入力してください。', 'info'); return; }
+  if (!amount || amount <= 0) { Swal.fire('確認', '目標の数を入力してください。', 'info'); return; }
+  if (!toAll && emails.length === 0) { Swal.fire('確認', '出す児童を選んでください。', 'info'); return; }
+
+  const result = await apiWithLoading('課題を出しています...', 'postAssignment', {
+    title, kind, target, amount, unit, emails,
+    description: document.getElementById('ta-description').value.trim(),
+    due: document.getElementById('ta-due').value || null,
+    reward: document.getElementById('ta-reward').value
+  });
+
+  if (!result.success) { Swal.fire('エラー', esc(result.message), 'error'); return; }
+  toast(result.message);
+  document.getElementById('ta-title').value = '';
+  document.getElementById('ta-description').value = '';
+  document.getElementById('ta-due').value = '';
+  document.querySelectorAll('.ta-check').forEach(c => c.checked = false);
+  taLoaded = true;
+  renderAssignmentBoard(result.board);
 }
 </script>

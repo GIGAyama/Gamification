@@ -94,6 +94,8 @@ function getStudentAppData() {
     announcements: getAnnouncements_(false, email),
     rankings: getRankings_(ss, config),
     missions: getMissionStatus_(ss, email),
+    // 先生から出ている課題（提出は「ログ」「学習ログ」から自動で判定します）
+    assignments: getAssignmentStatus_(ss, email),
     badges: updatedEarnedBadges,
     allBadges: badgesMaster,
     newlyAwardedBadges: newlyAwarded,

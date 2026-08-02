@@ -15,6 +15,7 @@ google.charts.setOnLoadCallback(() => { chartsReady = true; });
 const PANEL_HEADS = [
   ['p-more-head', 'clipboard', 'ミッション・めあて', 'p-home'],
   ['p-news-head', 'megaphone', 'おしらせ', 'p-more'],
+  ['p-assignments-head', 'clipboard', '先生からの かだい', 'p-more'],
   ['p-missions-head', 'target', 'ミッション', 'p-more'],
   ['p-goals-head', 'flag', 'わたしのめあて', 'p-more'],
   ['p-apps-head', 'gamepad', 'がくしゅうアプリ', 'p-home'],
@@ -158,6 +159,7 @@ function renderHome(data) {
 
   renderAvatar(document.getElementById('home-avatar'), data.avatar, data.allItems);
   renderStudySendPanels();
+  renderAssignments(data.assignments);
   renderMissions(data.missions);
   renderAnnouncements('home-announcements', data.announcements, false);
   renderActivity(data.recentActivity);
@@ -200,7 +202,35 @@ function pickTodayTask() {
       go: () => goPanel('p-send')
     };
   }
-  // ② 受けとっていないミッションのごほうび
+  // ② 先生からの課題。アプリが用意したミッションより先に出します
+  //    （先生が「これをやってね」と出したものが、いちばん優先だからです）
+  const assignClaimable = claimableAssignments_().length;
+  if (assignClaimable > 0) {
+    return {
+      icon: 'gift', label: 'ごほうびが あるよ',
+      title: `かだいの ごほうびを ${assignClaimable}こ うけとろう`,
+      note: 'タップして うけとる',
+      go: () => goPanel('p-assignments')
+    };
+  }
+  const pendingAssigns = pendingAssignments_();
+  if (pendingAssigns.length > 0) {
+    // 期限が近いものから出します（期限なしの課題はいちばん後ろ）。
+    // 並べかえには dueSort（yyyy-MM-dd）を使います。画面に出す due は「8/5」の形なので、
+    // そのまま文字で比べると 12/1 が 8/5 より前になってしまいます
+    const next = pendingAssigns.slice().sort((x, y) => {
+      if (!x.dueSort) return 1;
+      if (!y.dueSort) return -1;
+      return x.dueSort.localeCompare(y.dueSort);
+    })[0];
+    return {
+      icon: 'clipboard', label: '先生から',
+      title: next.title,
+      note: next.due ? `${next.due}まで・${next.progress}/${next.target}${next.unit}` : `${next.progress}/${next.target}${next.unit}`,
+      go: () => goPanel('p-assignments')
+    };
+  }
+  // ③ 受けとっていないミッションのごほうび
   const claimable = (App.data.missions || []).filter(m => m.isComplete && !m.isClaimed).length;
   if (claimable > 0) {
     return {
@@ -210,7 +240,7 @@ function pickTodayTask() {
       go: () => goPanel('p-missions')
     };
   }
-  // ③ 今週のふり返り（週の後半で、まだ書いていないとき）
+  // ④ 今週のふり返り（週の後半で、まだ書いていないとき）
   const weekly = insights().weekly;
   if (weekly && !weekly.done && weekly.due) {
     return {
@@ -220,7 +250,7 @@ function pickTodayTask() {
       go: () => goPanel('p-weekly')
     };
   }
-  // ④ 今日まだきろくを書いていないとき
+  // ⑤ 今日まだきろくを書いていないとき
   if (!recordedToday_()) {
     return {
       icon: 'pencil', label: 'きょうの やること',
@@ -229,7 +259,7 @@ function pickTodayTask() {
       go: () => showView('view-records', { push: true })
     };
   }
-  // ⑤ めあてがないとき
+  // ⑥ めあてがないとき
   if ((goalData().activeGoals || []).length === 0) {
     return {
       icon: 'flag', label: 'つぎは これ',
@@ -238,7 +268,7 @@ function pickTodayTask() {
       go: () => goPanel('p-goals')
     };
   }
-  // ⑥ ぜんぶ できている
+  // ⑦ ぜんぶ できている
   const streak = (insights().calendar || {}).streak || 0;
   return {
     done: true, icon: 'party', label: 'きょうは かんぺき！',
@@ -293,9 +323,22 @@ function renderMoreCounts() {
     el.textContent = n;
     el.classList.toggle('d-none', n <= 0);
   };
-  setCount('home-more-count', claimable + news);
+  // 先生からの課題は「まだ出していない」も「ごほうびが待っている」も気づいてほしい件数です
+  const assignPending = pendingAssignments_().length;
+  const assignClaimable = claimableAssignments_().length;
+  setCount('home-more-count', claimable + news + assignPending + assignClaimable);
+  setCount('home-assign-count', assignPending + assignClaimable);
+  setCount('more-assign-count', assignPending + assignClaimable);
   setCount('more-missions-count', claimable);
   setCount('more-news-count', news);
+
+  const assignNote = document.getElementById('more-assign-note');
+  if (assignNote) {
+    const total = assignmentList_().length;
+    assignNote.textContent = total === 0
+      ? 'いまは かだいが ありません'
+      : (assignPending > 0 ? `やることが ${assignPending}こ あるよ` : 'ぜんぶ 出したよ！');
+  }
 
   const missionsNote = document.getElementById('more-missions-note');
   if (missionsNote) {
@@ -1032,6 +1075,164 @@ function missionSignature_(missions) {
 }
 
 /** ミッションの右はしに出すもの（すすみ具合／うけとるボタン／うけとりずみ） */
+/* ---------------- 先生からの課題 ---------------- */
+
+/** いまの課題データ（ホームの初期データ、または うけとったあとの返事） */
+function assignmentList_() {
+  return (App.data && App.data.assignments) || [];
+}
+
+/** まだ出していない課題（＝やることが のこっている課題） */
+function pendingAssignments_() {
+  return assignmentList_().filter(a => !a.submitted);
+}
+
+/** ごほうびを うけとれる課題 */
+function claimableAssignments_() {
+  return assignmentList_().filter(a => a.canClaim);
+}
+
+/**
+ * 課題1件のカードをつくります。
+ *
+ * 「何をすればいいか」で終わらせず、**そこから すぐ動ける入口**（アプリをひらく／
+ * きろくを書きに行く）を同じカードの中に置きます。児童が課題を見たあとで
+ * 自分でアプリをさがす必要がないようにするためです。
+ */
+function assignmentCardHtml_(a) {
+  const pct = a.target > 0 ? Math.min(100, Math.floor((a.progress / a.target) * 100)) : 0;
+  const action = a.isClaimed
+    ? '<span class="mission-claimed">うけとりずみ</span>'
+    : (a.canClaim
+      ? `<button type="button" class="mq-btn mq-btn-gold assign-claim-btn" data-assignment="${esc(a.id)}">うけとる！</button>`
+      : `<span class="mission-progress-text">${a.progress} / ${a.target}${esc(a.unit)}</span>`);
+
+  // 期限が近い・すぎたときだけ色をつけます（ふだんは静かに出します）
+  let dueHtml = '';
+  if (a.overdue) dueHtml = '<span class="assign-due over">きげんが すぎています</span>';
+  else if (a.due) dueHtml = `<span class="assign-due${a.dueSoon ? ' soon' : ''}">${esc(a.due)}まで</span>`;
+
+  let cta = '';
+  if (!a.submitted) {
+    if (a.kind === 'app' && a.appUrl) {
+      cta = `<a class="mq-btn mq-btn-purple" href="${esc(a.appUrl)}" target="_blank" rel="noopener">アプリを ひらく</a>
+             <button type="button" class="mq-btn mq-btn-ghost" data-go-panel="p-send">きろくを おくる</button>`;
+    } else if (a.kind === 'record' && a.recordType) {
+      cta = `<button type="button" class="mq-btn mq-btn-green assign-record-btn" data-record="${esc(a.recordType)}">かきに いく</button>`;
+    }
+  }
+
+  return `<div class="mission-item assign-item ${a.submitted ? 'complete' : ''} ${a.isClaimed ? 'claimed' : ''} ${a.overdue ? 'overdue' : ''}" data-assignment-id="${esc(a.id)}">
+    <div class="d-flex justify-content-between align-items-center gap-2">
+      <div class="flex-grow-1">
+        <span class="badge bg-warning text-dark mission-type-badge">先生から</span>
+        <span class="mission-text ms-1">${esc(a.title)}</span>
+        ${dueHtml}
+        ${a.description ? `<div class="assign-note">${esc(a.description)}</div>` : ''}
+        <div class="progress mt-2" style="height:10px;border-radius:999px;">
+          <div class="progress-bar" style="width:${pct}%;border-radius:999px;background:linear-gradient(90deg,#f9a03f,#ffcf8a);"></div>
+        </div>
+      </div>
+      <div class="text-end mission-side">
+        <div class="assign-action">${action}</div>
+        ${a.reward > 0 ? `<div class="mission-reward">経験値 +${a.reward}</div>` : ''}
+      </div>
+    </div>
+    ${cta ? `<div class="assign-cta">${cta}</div>` : ''}
+  </div>`;
+}
+
+function renderAssignments(assignments) {
+  if (assignments && App.data) App.data.assignments = assignments;
+  const container = document.getElementById('home-assignments');
+  if (!container) return;
+  const list = assignmentList_();
+  container.innerHTML = list.length === 0
+    ? emptyMessage('いまは 先生からの かだいは ありません')
+    : list.map(assignmentCardHtml_).join('');
+  // カードの中の「きろくを おくる」は描きなおすたびに新しくなるので、そのつどつなぎます
+  bindPanelLinks(container);
+  bindAssignmentEvents_(container);
+  renderAssignmentDoor();
+}
+
+/** ホームの「先生からの かだい」のとびらは、課題が出ているときだけ ならびます */
+function renderAssignmentDoor() {
+  const door = document.getElementById('home-assign-door');
+  if (!door) return;
+  const pending = pendingAssignments_().length;
+  const claimable = claimableAssignments_().length;
+  door.classList.toggle('d-none', pending + claimable === 0);
+  const note = door.querySelector('.door-note');
+  if (note) {
+    note.textContent = claimable > 0
+      ? `ごほうびが ${claimable}こ まっているよ`
+      : (pending > 0 ? `やることが ${pending}こ あるよ` : 'ぜんぶ おわったよ');
+  }
+}
+
+/**
+ * カードの中のボタンは、親で1回だけ受けます。
+ * （中身を書きかえても押せなくならないようにするためです）
+ */
+function bindAssignmentEvents_(container) {
+  if (container.dataset.assignBound === '1') return;
+  container.dataset.assignBound = '1';
+  container.addEventListener('click', ev => {
+    const claim = ev.target.closest('.assign-claim-btn');
+    if (claim) { claimAssignmentFrom_(claim); return; }
+    const record = ev.target.closest('.assign-record-btn');
+    if (record) openRecordFormForAssignment_(record.dataset.record);
+  });
+}
+
+/**
+ * 課題の「かきに いく」から、そのきろくの入力フォームまで一気に連れていきます。
+ * とちゅうの「なにを書く？」の画面をとばせるので、課題→行動が1タップでつながります。
+ */
+function openRecordFormForAssignment_(recordType) {
+  showView('view-records', { push: true });
+  // ビューの切りかえアニメーションが終わってからフォームをひらきます
+  setTimeout(() => openRecordForm(recordType), 120);
+}
+
+/**
+ * 課題のごほうびを受け取ります（ミッションのうけとりと同じ流れです）。
+ * 待つのは押したボタンの中だけで、画面はふさぎません。
+ */
+async function claimAssignmentFrom_(btn) {
+  const assignmentId = btn.dataset.assignment;
+  const result = await busyApi(btn, '', 'claimAssignmentReward', assignmentId);
+  if (!result) return;   // 処理中の二重タップ
+  if (!result.success) {
+    // すでに受け取りずみのときは、画面のほうが古いだけなので そっと追いつかせます
+    if (result.alreadyClaimed) {
+      markAssignmentClaimed_(assignmentId);
+      toast(result.message, 'info');
+      return;
+    }
+    Swal.fire('うけとれません', esc(result.message), 'warning');
+    return;
+  }
+
+  const row = markAssignmentClaimed_(assignmentId);
+  applyProfileGains_(result);
+  starBurst((row && row.querySelector('.assign-action')) || btn, 14);
+  celebrate(45);
+  if (result.leveledUp) showLevelUp(result.newLevel);
+  else toast(`ごほうびゲット！ +${result.rewardAmount} EXP`);
+}
+
+/** うけとったことを、手もとのデータと画面に反映します */
+function markAssignmentClaimed_(assignmentId) {
+  const target = assignmentList_().filter(a => String(a.id) === String(assignmentId))[0];
+  if (target) { target.submitted = true; target.isClaimed = true; target.canClaim = false; }
+  renderAssignments();
+  renderMoreCounts();
+  renderTodayCard();
+  return document.querySelector(`#home-assignments .assign-item[data-assignment-id="${assignmentId}"]`);
+}
+
 function missionActionHtml_(m) {
   if (m.isClaimed) return '<span class="mission-claimed">うけとりずみ</span>';
   if (m.isComplete) return `<button type="button" class="mq-btn mq-btn-gold claim-btn" data-mission="${esc(m.id)}">うけとる！</button>`;
@@ -1926,6 +2127,9 @@ async function submitRecordForm(type, btn) {
   renderNotesTab(result.records);
   renderLessonTab(result.records);
   renderMissions(result.missions);
+  // 書いたきろくが課題だったときは、その場で「うけとる！」に変わります
+  renderAssignments(result.assignments);
+  renderMoreCounts();
   renderGoals();
   applyProfileGains_(result);
 

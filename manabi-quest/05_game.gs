@@ -894,6 +894,11 @@ function getRecentLogs_(ss, email) {
         message = `ミッション「${content}」のほうしゅうを受け取りました！`;
         break;
       }
+      case LOG_ACTIONS.CLAIM_ASSIGNMENT: {
+        const content = (detailStr.match(/\((.*)\)$/) || [])[1] || '先生からの課題';
+        message = `課題「${content}」のごほうびを受け取りました！`;
+        break;
+      }
       case LOG_ACTIONS.AWARD_BADGE: {
         const badgeName = (detailStr.match(/バッジ獲得: (.*?)\s\(/) || ['', '?'])[1];
         message = `あたらしいバッジ「${badgeName}」を手に入れました！`;
