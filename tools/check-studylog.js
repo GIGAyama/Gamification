@@ -32,6 +32,7 @@ const prelude = `
 const src = prelude + fs.readFileSync(path, 'utf8') + `
   module.exports = {
     STUDY_APPS, STUDY_APP_LINKS, STUDY_SPLIT_RATE_APPS, STUDY_ABORT_NORMAL_APPS, STUDY_NO_TIME_APPS,
+    STUDY_MAX_CELL_CHARS, STUDY_MAX_RECORDS_PER_POST, STUDY_STUMBLE_DAYS, studyLogStartRow_,
     validateStudyRecord_, isStudyRateEligible_, isStudyRateExcluded_, isStudyAbortNotable_,
     buildStudyKanaHints_, buildStudyTeachingHints_, kanaWeakEntry_, getStudyAppLinks_
   };
@@ -95,6 +96,77 @@ const vMim = S.validateStudyRecord_(rec({
 ok('ちからだめしのレコードを受理する', vMim.ok === true, vMim);
 const vAbort = S.validateStudyRecord_(rec({ status: 'aborted', summary: { count: 6, attempted: 2, firstTryCorrect: 1 } }), now);
 ok('中断レコードを受理する', vAbort.ok === true, vAbort);
+
+console.log('■ 1セルの文字数上限（items-size）');
+// スプレッドシートは1セル50,000文字まで。200件の一括書き込みなので、
+// 1件でも超えると同じPOSTの他レコードまで巻き添えで失われます。
+ok('上限はスプレッドシートの50,000文字より小さい', S.STUDY_MAX_CELL_CHARS < 50000, S.STUDY_MAX_CELL_CHARS);
+
+/** 1問あたりの文字数を最大近くまで使った設問層をつくります */
+const fatItems = (n) => Array.from({ length: n }, (_, i) => ({
+  q: ('q' + i).padEnd(64, 'x'), ok: false, firstTry: false,
+  tries: 9, ms: 99999, hint: true, skill: ('s' + i).padEnd(20, 'y'),
+  wrong: Array.from({ length: 8 }, (_, j) => ('w' + j).padEnd(12, 'z'))
+}));
+
+const vFat = S.validateStudyRecord_(rec({
+  summary: { count: 200, attempted: 200, firstTryCorrect: 0, correct: 0 },
+  items: fatItems(200)
+}), now);
+ok('1セルに入らない設問層は items-size で拒否する',
+  vFat.ok === false && vFat.reason === 'items-size', vFat);
+ok('上限を超える設問層は実際に45,000文字を超えている',
+  JSON.stringify(fatItems(200)).length > S.STUDY_MAX_CELL_CHARS,
+  JSON.stringify(fatItems(200)).length);
+
+const vSlim = S.validateStudyRecord_(rec({
+  summary: { count: 100, attempted: 100, firstTryCorrect: 0, correct: 0 },
+  items: fatItems(100)
+}), now);
+ok('上限内の設問層はそのまま受理する', vSlim.ok === true, vSlim);
+
+// 200件は仕様上の最大なので、「最大件数 × 最小の設問」は必ず通る必要があります
+const vMany = S.validateStudyRecord_(rec({
+  summary: { count: 200, attempted: 200, firstTryCorrect: 0, correct: 0 },
+  items: Array.from({ length: 200 }, (_, i) => ({ q: 'q' + i, ok: true, firstTry: true }))
+}), now);
+ok('最大件数でも設問が短ければ通る（上限が厳しすぎない）', vMany.ok === true, vMany);
+ok('201件は今までどおり items で拒否', S.validateStudyRecord_(rec({
+  items: Array.from({ length: 201 }, (_, i) => ({ q: 'q' + i, ok: true, firstTry: true }))
+}), now).reason === 'items');
+
+console.log('■ 読み込み開始行の決定（studyLogStartRow_）');
+// 「学習ログ」は追記のみ・受信日時順で、学習日 ≤ 受信日時 が成り立ちます。
+// 開始行を1行でも後ろにしすぎると、その期間の記録が黙って数え落とされます。
+const sheetOf = (dates) => ({
+  getRange: (row, col, numRows) => ({
+    getValues: () => dates.slice(row - 2, row - 2 + numRows).map(v => [v])
+  })
+});
+const stamps = [
+  new Date('2026-06-01T09:00:00+09:00'),
+  new Date('2026-07-01T09:00:00+09:00'),
+  new Date('2026-08-01T09:00:00+09:00')
+];
+const sheet3 = sheetOf(stamps);   // シート行 2,3,4（lastRow = 4）
+
+ok('すべてが since より新しければ先頭から読む',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-01-01T00:00:00+09:00')) === 2);
+ok('すべてが since より古ければ1行も読まない',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-12-01T00:00:00+09:00')) === 5);
+// since=7/5 なら判定の境目は 7/4。7/1 に受信した記録の学習日は 7/1 以前なので
+// 対象になりえず、8/1 の行（シート行4）から読めば足ります
+ok('途中から読む（対象になりえない行は飛ばす）',
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-05T00:00:00+09:00')) === 4,
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-05T00:00:00+09:00')));
+ok('1日のマージンがあるので、境目の日は取りこぼさない',
+  // 7/1 に受信した記録の学習日は 7/1 以前。since=7/1 なら 7/1 の行から読む必要がある
+  S.studyLogStartRow_(sheet3, 4, new Date('2026-07-01T00:00:00+09:00')) === 3);
+ok('読めない日付は捨てずに含める',
+  S.studyLogStartRow_(sheetOf(['', stamps[1], stamps[2]]), 4,
+    new Date('2026-08-01T00:00:00+09:00')) === 2);
+ok('つまずきマップの既定日数は妥当な範囲', S.STUDY_STUMBLE_DAYS >= 30 && S.STUDY_STUMBLE_DAYS <= 180,
+  S.STUDY_STUMBLE_DAYS);
 
 console.log('■ 集計方針テーブル（§9.3.1）');
 const asRow = (r, over) => Object.assign({

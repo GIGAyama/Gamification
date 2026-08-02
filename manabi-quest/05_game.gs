@@ -199,7 +199,7 @@ function playGacha(count) {
       if (newItems.length > 0) {
         const rows = newItems.map(item => [new Date(), email, item['アイテムID'], `${email}-${item['アイテムID']}`]);
         const invSheet = ss.getSheetByName(SHEETS.INVENTORY);
-        invSheet.getRange(invSheet.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
+        appendRows_(invSheet, rows, 4);
       }
 
       if (times === 10) {
@@ -438,15 +438,47 @@ function getEarnedBadges_(ss, email) {
     .map(row => ({ id: row[2], timestamp: row[0] }));
 }
 
-/** ユーザーの記録件数を数えます（バッジ判定用） */
-function countUserRecords_(ss, sheetName, email, filterFunc) {
+/**
+ * ユーザーの記録件数を数えます（バッジ判定用）。
+ *
+ * 読む列数は必要なぶんだけにします。以前は `getLastColumn()` で全列を読んでいましたが、
+ * 記録シートには「感想」「ふり返り」のような長い文章の列があり、
+ * **件数を数えるだけなのに本文をすべて読み込んでいました**。
+ * 数えるだけならメールアドレス（B列）まで、条件つきでもその列までで足ります。
+ *
+ * @param {number} [numCols] - 読む列数（既定2＝日時・メールアドレス）
+ * @param {Function} [filterFunc] - 追加の絞り込み（numCols の範囲内の列だけ見られます）
+ */
+function countUserRecords_(ss, sheetName, email, numCols, filterFunc) {
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return 0;
-  let rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+  const cols = Math.min(numCols || 2, sheet.getMaxColumns());
+  let rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues()
     .filter(row => String(row[1]).toLowerCase().trim() === email);
   if (filterFunc) rows = rows.filter(filterFunc);
   return rows.length;
 }
+
+/**
+ * 判定に「ログ」シートを必要とするバッジの条件キー。
+ *
+ * どれも**通算**の回数・連続日数なので期間で絞れず、シート全体を読むことになります。
+ * 未獲得のバッジにこれが1つも無ければ読み込みごと飛ばせるので、一覧にしてあります。
+ * バッジの条件を足すときは、`userLogs` を見るならここにも足してください。
+ */
+const BADGE_LOG_CONDITIONS = {
+  LOGIN_STREAK_DAYS: true,
+  GACHA_COUNT: true,
+  MISSION_REWARD_COUNT: true,
+  RECORD_STREAK_DAYS: true,
+  NEW_RECORD_COUNT: true,
+  WEEKLY_REFLECTION_COUNT: true,
+  GOAL_ACHIEVED_COUNT: true,
+  CHEER_SENT_COUNT: true,
+  CHEER_RECEIVED_COUNT: true,
+  // 学習アプリ系は getStudyAppBadgeStats_ に userLogs（送信ログ）を渡します
+  APP_SEND_STREAK_DAYS: true
+};
 
 /**
  * バッジの獲得条件をチェックし、新たに条件を満たしたバッジを付与します。
@@ -457,7 +489,14 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
   const newlyAwarded = [];
   if (badgesMaster.length === 0) return { updatedEarnedBadges: [], newlyAwarded };
 
-  const userLogs = getAllLogRows_(ss).filter(log => String(log[1]).toLowerCase().trim() === email);
+  // 「ログ」シートを必要とするバッジが1つも残っていなければ、そもそも読みません。
+  // これらは**通算**の回数・連続日数なので期間で絞れず、シート全体の読み込みになります。
+  // 獲得ずみのバッジは判定を飛ばすので、ひととおり取り終えた児童では読み込みが丸ごと消えます。
+  const needsLogs = badgesMaster.some(b =>
+    !earnedIds.has(b.id) && BADGE_LOG_CONDITIONS[b.conditionKey] === true);
+  const userLogs = needsLogs
+    ? getAllLogRows_(ss).filter(log => String(log[1]).toLowerCase().trim() === email)
+    : [];
   const profileData = findRowData_(ss, SHEETS.PROFILE, 1, email).data;
 
   // 学習アプリ系（APP_*）のバッジがある場合だけ、学習ログの集計を1回だけ行う
@@ -482,7 +521,8 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
         break;
       }
       case 'CALC_PERFECT_COUNT':
-        achieved = countUserRecords_(ss, SHEETS.CALC, email, row => Number(row[4]) === 100) >= v;
+        // 点数はE列なので、そこまでの5列を読みます
+        achieved = countUserRecords_(ss, SHEETS.CALC, email, 5, row => Number(row[4]) === 100) >= v;
         break;
       case 'TYPING_COUNT': achieved = countUserRecords_(ss, SHEETS.TYPING, email) >= v; break;
       case 'CALC_COUNT': achieved = countUserRecords_(ss, SHEETS.CALC, email) >= v; break;
@@ -571,9 +611,9 @@ function calculateLoginStreak_(email, userLogs) {
 // ランキング・広場・お知らせ・ログ
 // ---------------------------------------------------------------------
 
-/** 期間内のログを取得します（シートの読み込みは getAllLogRows_ に集約） */
+/** 期間内のログを取得します（開始日より前の行はそもそも読みません） */
 function getLogsInRange_(ss, startDate, endDate) {
-  return getAllLogRows_(ss).filter(row => {
+  return readLogRowsSince_(ss, startDate).filter(row => {
     const d = new Date(row[0]);
     return d >= startDate && d <= endDate;
   });
@@ -661,7 +701,7 @@ let CLASS_LOG_STATS_CACHE_ = null;
  */
 function getClassLogStats_(ss, nicknameMap) {
   if (CLASS_LOG_STATS_CACHE_) return CLASS_LOG_STATS_CACHE_;
-  const rows = readRecentLogRows_(ss, LIMITS.INSIGHT_SCAN_ROWS);
+  const rows = readRecentLogRows_(ss);
   const { startOfWeek } = getWeekRange_();
   const lastWeekStart = new Date(startOfWeek);
   lastWeekStart.setDate(startOfWeek.getDate() - 7);
@@ -869,7 +909,8 @@ function getAnnouncements_(forTeacher, email) {
 
 /** 最近の活動ログを子ども向けメッセージに整形して返します */
 function getRecentLogs_(ss, email) {
-  const userLogs = getAllLogRows_(ss).filter(row => String(row[1]).toLowerCase().trim() === email);
+  // 直近 LIMITS.RECENT_LOGS 件しか出さないので、期間をさかのぼる必要はありません
+  const userLogs = readRecentLogRows_(ss).filter(row => String(row[1]).toLowerCase().trim() === email);
   if (userLogs.length === 0) return [];
 
   return userLogs.slice(-LIMITS.RECENT_LOGS).reverse().map(row => {

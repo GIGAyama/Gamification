@@ -117,16 +117,55 @@ function getAssignments_(ss, includeDisabled) {
  * 学習アプリの課題が1件も無いときは**そもそも読みません**。
  * 「学習ログ」は28列 × 全期間ぶんあり、読むだけで重いためです。
  */
-let ASSIGNMENT_STUDY_CACHE_ = null;
+let ASSIGNMENT_STUDY_CACHE_ = null;   // { since: Date|null, rows: Array }
+
+/**
+ * キャッシュしてある範囲が、これから必要な範囲を含んでいるか。
+ * `since === null` は「全期間が必要」を表します。
+ */
+function assignmentStudyCacheCovers_(cached, since) {
+  if (!cached) return false;
+  if (cached.since === null) return true;    // 全期間を読んである
+  if (since === null) return false;          // 全期間が要るのに一部しか読んでいない
+  return cached.since.getTime() <= since.getTime();
+}
+
+/**
+ * 課題の判定でさかのぼる必要のある日付。
+ *
+ * いちばん古い出題日より前の記録は、どの課題の提出にもなりません
+ * （`isWithinAssignmentPeriod_` が出題日より前を弾くため）。そこまでで読みを打ち切れます。
+ * 出題日が空の課題が1件でもあると下限が決まらないので、その場合だけ全期間（null）を返します。
+ */
+function assignmentScanSince_(assignments) {
+  if (assignments.length === 0) return null;
+  if (assignments.some(a => !a.issued)) return null;
+  return new Date(Math.min.apply(null, assignments.map(a => a.issued.getTime())));
+}
 
 /**
  * 課題の判定に使う「学習ログ」。
  * @param {Array} assignments - これから判定する課題（学習アプリの課題が無ければ読みません）
  */
 function assignmentStudyRows_(ss, assignments) {
-  if (!assignments.some(a => a.kind === 'app')) return [];
-  if (!ASSIGNMENT_STUDY_CACHE_) ASSIGNMENT_STUDY_CACHE_ = readStudyLog_(ss);
-  return ASSIGNMENT_STUDY_CACHE_;
+  const apps = assignments.filter(a => a.kind === 'app');
+  if (apps.length === 0) return [];
+
+  const since = assignmentScanSince_(apps);
+  if (assignmentStudyCacheCovers_(ASSIGNMENT_STUDY_CACHE_, since)) {
+    return ASSIGNMENT_STUDY_CACHE_.rows;
+  }
+  // 範囲外の古い行が混ざっていても、課題ごとの期間判定で落ちるので害はありません
+  ASSIGNMENT_STUDY_CACHE_ = { since, rows: readStudyLog_(ss, since ? { since } : {}) };
+  return ASSIGNMENT_STUDY_CACHE_.rows;
+}
+
+/**
+ * 課題の判定に使う「ログ」。
+ * 学習ログと同じ考え方で、いちばん古い出題日より前は読みません。
+ */
+function assignmentLogRows_(ss, assignments) {
+  return readLogRowsSince_(ss, assignmentScanSince_(assignments));
 }
 
 /** 学習ログを書きかえたあとに呼び、次の判定で最新の内容になるようにします */
@@ -274,7 +313,7 @@ function getAssignmentStatus_(ss, email, logRows, studyRows) {
   const assignments = getAssignments_(ss).filter(a => isAssignmentFor_(a, email));
   if (assignments.length === 0) return [];
 
-  const logs = logRows || getAllLogRows_(ss);
+  const logs = logRows || assignmentLogRows_(ss, assignments);
   const studies = studyRows || assignmentStudyRows_(ss, assignments);
   const claimed = collectClaimedAssignmentIds_(logs, email);
   const now = new Date();
@@ -418,7 +457,7 @@ function getAssignmentBoard(includeDisabled) {
       };
     }
 
-    const logs = getAllLogRows_(ss);
+    const logs = assignmentLogRows_(ss, assignments);
     const studies = assignmentStudyRows_(ss, assignments);
     const now = new Date();
 
@@ -613,7 +652,11 @@ function deleteAssignment(assignmentId) {
       const found = findAssignmentRow_(ss, assignmentId);
       if (!found) return { success: false, message: '課題が見つかりません。' };
       const sheet = ss.getSheetByName(SHEETS.ASSIGNMENTS);
-      sheet.getRange(found.rowNum, 1, 1, sheet.getLastColumn()).clearContent();
+      // 行そのものを消します（中身を空にするだけだと、途中に空行が残って
+      // getLastRow() が下がらず、以後の読み込みが不要な行まで走り続けます）。
+      // 行番号は findAssignmentRow_ が課題IDから引き直したもので、
+      // しかも withLock_ の中なので、別の課題を消してしまう心配はありません。
+      sheet.deleteRow(found.rowNum);
       return { success: true, message: '課題を削除しました。', board: getAssignmentBoard(true) };
     } catch (e) {
       return { success: false, message: e.message };
@@ -642,7 +685,7 @@ function countOverdueAssignments_(ss, students) {
   const counts = {};
   if (assignments.length === 0) return counts;
 
-  const logs = getAllLogRows_(ss);
+  const logs = assignmentLogRows_(ss, assignments);
   const studies = assignmentStudyRows_(ss, assignments);
   students.forEach(s => {
     let n = 0;

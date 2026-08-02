@@ -238,7 +238,7 @@ function ensureConfigRows_(ss) {
   );
   const missing = DEFAULT_CONFIG.filter(row => !existing.has(String(row[0])));
   if (missing.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, 3).setValues(missing);
+    appendRows_(sheet, missing, 3);
   }
 }
 
@@ -266,7 +266,7 @@ function appendMissingRowsById_(ss, sheetName, rows) {
   );
   const missing = rows.filter(row => !existing.has(String(row[0]).trim()));
   if (missing.length > 0) {
-    sheet.getRange(sheet.getLastRow() + 1, 1, missing.length, missing[0].length).setValues(missing);
+    appendRows_(sheet, missing);
   }
   return missing.length;
 }
@@ -307,7 +307,10 @@ function onOpen() {
       .addItem('自動送信を設定（毎週月曜 朝）', 'setupWeeklySummaryTrigger')
       .addItem('今すぐ送信（テスト）', 'sendWeeklySummaryNow')
       .addItem('自動送信を停止', 'removeWeeklySummaryTrigger'))
-    .addItem('🗄️ 年度末アーカイブ（データ退避）', 'archiveYearEndData')
+    .addSubMenu(SpreadsheetApp.getUi().createMenu('🧹 データベースの整理')
+      .addItem('📊 容量をチェック', 'reportDatabaseCapacity')
+      .addItem('🗄️ 年度末アーカイブ（データ退避）', 'archiveYearEndData')
+      .addItem('✂️ 使っていない行・列を詰める', 'trimAllSheetGrids'))
     .addSeparator()
     .addItem('🔄 設定キャッシュをクリア', 'clearConfigCache')
     .addToUi();
