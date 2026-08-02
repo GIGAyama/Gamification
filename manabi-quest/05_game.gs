@@ -438,11 +438,22 @@ function getEarnedBadges_(ss, email) {
     .map(row => ({ id: row[2], timestamp: row[0] }));
 }
 
-/** ユーザーの記録件数を数えます（バッジ判定用） */
-function countUserRecords_(ss, sheetName, email, filterFunc) {
+/**
+ * ユーザーの記録件数を数えます（バッジ判定用）。
+ *
+ * 読む列数は必要なぶんだけにします。以前は `getLastColumn()` で全列を読んでいましたが、
+ * 記録シートには「感想」「ふり返り」のような長い文章の列があり、
+ * **件数を数えるだけなのに本文をすべて読み込んでいました**。
+ * 数えるだけならメールアドレス（B列）まで、条件つきでもその列までで足ります。
+ *
+ * @param {number} [numCols] - 読む列数（既定2＝日時・メールアドレス）
+ * @param {Function} [filterFunc] - 追加の絞り込み（numCols の範囲内の列だけ見られます）
+ */
+function countUserRecords_(ss, sheetName, email, numCols, filterFunc) {
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return 0;
-  let rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, sheet.getLastColumn()).getValues()
+  const cols = Math.min(numCols || 2, sheet.getMaxColumns());
+  let rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues()
     .filter(row => String(row[1]).toLowerCase().trim() === email);
   if (filterFunc) rows = rows.filter(filterFunc);
   return rows.length;
@@ -510,7 +521,8 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
         break;
       }
       case 'CALC_PERFECT_COUNT':
-        achieved = countUserRecords_(ss, SHEETS.CALC, email, row => Number(row[4]) === 100) >= v;
+        // 点数はE列なので、そこまでの5列を読みます
+        achieved = countUserRecords_(ss, SHEETS.CALC, email, 5, row => Number(row[4]) === 100) >= v;
         break;
       case 'TYPING_COUNT': achieved = countUserRecords_(ss, SHEETS.TYPING, email) >= v; break;
       case 'CALC_COUNT': achieved = countUserRecords_(ss, SHEETS.CALC, email) >= v; break;
