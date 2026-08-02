@@ -7,8 +7,10 @@
 #                           静的サイトとしては動かないため配信しません
 # - *.md                  … リポジトリの説明。GitHub 上で読めれば十分なので配信しません
 # - icons/make_icons.py   … アイコンの生成スクリプト（配信不要）
+# - tools/                … 受信側の自動テスト（Node から手元で回すもの。配信不要）
 exclude:
   - manabi-quest
   - README.md
   - manabi-portal/README.md
   - icons/make_icons.py
+  - tools

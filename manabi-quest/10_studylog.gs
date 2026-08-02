@@ -67,7 +67,8 @@ const STUDY_APPS = {
   'square100': '100マス計算',
   'kuku-card': '九九カード',
   'reading-books': 'どくしょ ちょきんばこ',
-  'typa': 'Typa（タイピング）'
+  'typa': 'Typa（タイピング）',
+  'kana-master': 'かきかたマスター（ひらがな・カタカナ）'
 };
 
 /**
@@ -131,7 +132,11 @@ const STUDY_APP_LINKS = [
   { id: 'typa', name: 'Typa', subject: 'タイピング', icon: 'keyboard', color: 'blue',
     url: 'https://gigayama.github.io/Typa/',
     iconUrl: 'https://gigayama.github.io/Typa/icons/icon-192.png',
-    note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' }
+    note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' },
+  { id: 'kana-master', name: 'かきかたマスター', subject: 'こくご', icon: 'note', color: 'orange',
+    url: 'https://gigayama.github.io/KANA_Master/',
+    iconUrl: 'https://gigayama.github.io/KANA_Master/icon-192.png',
+    note: 'ひらがな・カタカナを かいて よんで おぼえるよ。「っ」や「ゃ」も れんしゅうできる。' }
 ];
 
 /**
@@ -184,6 +189,12 @@ const READING_APP_ID = 'reading-books';
 /** 「タイピング記録」シートへ自動転記する対象アプリ（Typa） */
 const TYPING_APP_ID = 'typa';
 
+/** かきかたマスター（1つのアプリの中に、たがいに代わりの利かない4つの活動が同居します／仕様 §3.10） */
+const KANA_APP_ID = 'kana-master';
+
+/** かきかたマスターの「ちからだめし」（MIM-PM 型の流暢性課題）の mode（§3.10.4） */
+const KANA_MIMCHECK_MODE = 'mimcheck';
+
 /**
  * 学習時間（elapsedMs / activeMs）を合計に加えないアプリ（仕様 §3.8.2）。
  *
@@ -212,9 +223,64 @@ STUDY_ABORT_NORMAL_APPS[TYPING_APP_ID] = true;
 /**
  * 中断の回数に数えるレコードか（仕様 §5.4）。
  * 中断が正常な使い方であるアプリ（§STUDY_ABORT_NORMAL_APPS）は数えません。
+ *
+ * ※ かきかたマスターはここに入れていません。1年生はタブを閉じる操作が多いものの、
+ *   このアプリは「めあての問題数に到達したら completed」という区切りを持っています（仕様 §3.10.5）。
+ *   途中でやめたことは「量が多すぎる」「難しすぎる」のサインとして意味を持つため、
+ *   Typa（区切りを作らないことを設計の中心に置くアプリ）と同じ扱いにはしません。
  */
 function isStudyAbortNotable_(r) {
   return r.status === 'aborted' && !STUDY_ABORT_NORMAL_APPS[r.appId];
+}
+
+/**
+ * アプリの正答率を「ひとつにまとめて出さない」アプリ（仕様 §3.7.1 / §3.10）。
+ *
+ * かきかたマスターには **かく（書字）・よむ（読字）・ことば（語彙）・とくべつな おと（特殊音節）**
+ * という、たがいに代わりの利かない4つの活動が同居しています。これを合算した正答率は
+ * 「何ができて何ができないか」を打ち消し合ってしまい、**下がっても上がっても
+ * 次に何をすればよいかが決まりません。**
+ *
+ * ここに登録したアプリは、アプリ別一覧の初回正答率を出さず、
+ * 「指導のてがかり」で**ちから別に**見せます（buildStudyKanaHints_）。
+ */
+const STUDY_SPLIT_RATE_APPS = {};
+STUDY_SPLIT_RATE_APPS[KANA_APP_ID] = true;
+
+/**
+ * 正答率・つまずきの集計から外すレコードの判定（アプリ別／仕様 §9.3.1）。
+ *
+ * 「このアプリのこの記録は正答率として読めない」という判断は、集計関数のあちこちに
+ * 条件を書くのではなく、このテーブルに集めます。こうしておけば、新しい集計を足したときも
+ * 判定が自動でそろいます。
+ *
+ * 判定は isStudyRateExcluded_() に集約し、正答率（isStudyRateEligible_）と
+ * つまずき問題の集計の両方がそこを通ります。
+ */
+const STUDY_RATE_EXCLUDERS = {};
+
+/**
+ * かきかたマスターで、正答率として読んではいけないレコード。
+ *
+ * 1. **ちからだめし（mimcheck）** … 1分×2の制限時間つき流暢性課題です。
+ *    点数は「時間内にいくつ答えられたか」であって正答率ではなく、
+ *    他アプリの正答率と並べてはいけません（仕様 §3.10.4）。
+ *    伸びは「指導のてがかり」で、前の自分との比べ方として別に見せます。
+ * 2. **なぞり書き（ext.guided: true）** … お手本をなぞって書いた回です。
+ *    アプリは初回正答（firstTryCorrect）を**自力書きだけ**から数えるため（仕様 §3.10.2）、
+ *    なぞり中心の回は分母だけが増えて正答率が実態より低く出ます。
+ *    逆に混ぜたまま数えると、なぞりを繰り返す児童ほど成績が良く見える読み違いも起きます。
+ */
+STUDY_RATE_EXCLUDERS[KANA_APP_ID] = function (r) {
+  if (r.mode === KANA_MIMCHECK_MODE) return true;
+  const ext = parseStudyExt_(r);
+  return !!(ext && ext.guided === true);
+};
+
+/** 正答率・つまずきの集計から外すレコードか（アプリ別テーブル経由／仕様 §9.3.1） */
+function isStudyRateExcluded_(r) {
+  const exclude = STUDY_RATE_EXCLUDERS[r.appId];
+  return typeof exclude === 'function' ? exclude(r) === true : false;
 }
 
 /** study.v1 の mode → 「100マス計算記録」の「モード」表示名 */
@@ -1155,9 +1221,11 @@ function parseStudyExt_(r) {
  * 通常出題（course）× 客観採点（objective）× ソロプレイのみ。
  * weak / review は母集団が偏り、selfReport は採点の意味が異なり、
  * multiplayer は妨害要素で正誤が学力を反映しないため除外します（§2.4 / §2.9 / §3.2 / §5.5）。
+ * アプリ固有の「正答率として読めない記録」は §9.3.1 のテーブルで除きます。
  */
 function isStudyRateEligible_(r) {
-  return r.grading === 'objective' && !r.multiplayer && r.source === 'course' && studyAttempted_(r) > 0;
+  return r.grading === 'objective' && !r.multiplayer && r.source === 'course' &&
+    !isStudyRateExcluded_(r) && studyAttempted_(r) > 0;
 }
 
 /** ミリ秒 → 表示用の分（1分未満の活動は1分に切り上げ） */
@@ -1185,6 +1253,9 @@ function studyMinutes_(ms) {
  * | 作戦べつの定着 | さんすうブロック `ext.strategyStats`（§3.5） | 減減法だけ低ければ、その作戦をもう一度教え直す |
  * | ミスの多い指 | Typa `ext.missByFinger`（§3.9） | 右小指のミスが多い＝人さし指2本打ちの癖。運指指導の的が絞れる |
  * | 入力のしかた | 100マス計算 `ext.input`（§3.6） | 手書きとキーボードのタイムを同じ土俵で並べない |
+ * | 4つのちから | かきかたマスター `ext.ability` / `kanaMode`（§3.10） | 「よめるが書けない」「カタカナだけ低い」なら、その時間を増やす |
+ * | とくべつな おと | かきかたマスター `ext.unitKey` / `weakIds`（§3.10.1） | 促音の「きって」を12人が落としている＝明日その語を全体で扱う |
+ * | MIM の層 | かきかたマスター `ext.tier`（§3.10.3） | 層をまたいで正答率を比べない。手あつい支援ほど高く出る逆転を防ぐ |
  * | よくある誤答 | 設問層の `wrong`（§2.10） | 何人が同じ問題を落としたかに加え、**どう間違えたか**が分かる |
  */
 
@@ -1219,6 +1290,85 @@ const SQUARE100_INPUT_LABELS = {
   'handwriting': 'AI手書き', 'numpad': 'テンキー', 'mixed': '手書き＋テンキー', 'keyboard': 'キーボード'
 };
 
+/**
+ * かきかたマスターの「4つのちから」（§3.10 の ext.ability ／ mode）のラベル。
+ *
+ * このアプリの中では、書字・読字・語彙・特殊音節が**たがいの代わりになりません**。
+ * 合算した正答率は主指標にせず、必ずこの単位で分けて見ます（仕様 §3.7.1 / §3.10）。
+ * `review`（ふくしゅう）は複数のちからが混ざる出題なので、まとめずに別の行として置きます。
+ */
+const KANA_ABILITY_LABELS = {
+  'write':   'かく（書字）',
+  'read':    'よむ（読字）',
+  'vocab':   'ことば（語彙）',
+  'special': 'とくべつな おと（特殊音節）',
+  'review':  'ふくしゅう（まざり）'
+};
+
+/** mode → ちから。ext.ability が無いレコードのための対応表（§3.10.1） */
+const KANA_MODE_ABILITY = {
+  'write': 'write', 'read': 'read', 'vocab': 'vocab', 'special': 'special', 'review': 'review'
+};
+
+/**
+ * とくべつな おと の6ユニット（§3.10.1 の ext.unitKey ／ unit.id の後半）。
+ * **このアプリで最も指導価値が高い6つ**で、1年生のつまずきがそのまま現れます。
+ */
+const KANA_UNIT_LABELS = {
+  'dakuten': 'てん と まる（濁音・半濁音）',
+  'hatsuon': 'はねる おと（ん）',
+  'sokuon':  'つまる おと（っ）',
+  'youon':   'ねじれる おと（ゃゅょ）',
+  'chouon':  'のばす おと（ー）',
+  'joshi':   'くっつきの ことば（は・へ・を）'
+};
+
+/** ひらがな／カタカナ（§3.10.5 の ext.kanaMode）。難しさが違うので混ぜて集計しません */
+const KANA_KANAMODE_LABELS = { 'hiragana': 'ひらがな', 'katakana': 'カタカナ' };
+
+/** ちからだめしの2つの課題（§3.10.4 の ext.testType）のラベル */
+const KANA_TEST_LABELS = {
+  'spelling':     'えに あう ことば さがし',
+  'segmentation': '3つの ことば さがし'
+};
+
+/**
+ * にがてボックスのID（§3.10.5 の ext.weakIds）の種別。
+ * `s:sokuon:きって` のように**単元と語がIDに入っている**ため、
+ * 学級で数えると「促音の『きって』を12人が落とした」がそのまま見えます。
+ */
+const KANA_WEAK_KINDS = {
+  's': 'とくべつな おと',
+  'g': 'なかまの ことば',
+  'o': 'はんたいの ことば',
+  'r': 'よむ（もじ）',
+  'c': 'にた もじ'
+};
+
+/** レコード1件から「ちから」を決めます。ext.ability を優先し、無ければ mode から引きます */
+function kanaAbilityOf_(r, ext) {
+  const ability = ext && ext.ability;
+  if (typeof ability === 'string' && KANA_ABILITY_LABELS[ability]) return ability;
+  return KANA_MODE_ABILITY[r.mode] || null;
+}
+
+/**
+ * にがてボックスのIDを、先生が読める「ことば」と「どの単元か」に分けます。
+ * 知らない種別・長すぎる値は捨てます（自由入力に由来する値を画面に出さないため）。
+ * @returns {{label: string, group: string}|null}
+ */
+function kanaWeakEntry_(id) {
+  if (typeof id !== 'string' || id === '' || id.length > 40) return null;
+  const parts = id.split(':');
+  const group = KANA_WEAK_KINDS[parts[0]];
+  if (!group) return null;
+  // s:（とくべつ）だけ「s:単元:ことば」の3つ組。ほかは「種別:ことば」
+  const label = parts[0] === 's' ? parts.slice(2).join(':') : parts.slice(1).join(':');
+  if (!label || label.length > 16) return null;
+  const unit = (parts[0] === 's' && KANA_UNIT_LABELS[parts[1]]) ? KANA_UNIT_LABELS[parts[1]] : '';
+  return { label: label, group: unit || group };
+}
+
 /** { キー: 回数 } の連想配列を、多い順の配列にします（数値でない値は捨てます） */
 function topCountEntries_(map, labels, limit) {
   if (!map || typeof map !== 'object') return [];
@@ -1227,6 +1377,225 @@ function topCountEntries_(map, labels, limit) {
     .filter(e => isFinite(e.count) && e.count > 0)
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
+}
+
+/**
+ * かきかたマスターの「指導のてがかり」を組み立てます（仕様 §3.10）。
+ *
+ * このアプリだけ専用の関数を分けているのは、**1つのアプリの中に、たがいに代わりの利かない
+ * 4つの活動が同居している**ためです。ほかのアプリのように「このアプリの正答率は何%」と
+ * ひとつの数字にまとめると、「よめるが書けない」も「カタカナだけ苦しい」も打ち消され、
+ * 明日の指導が決まりません。ここでは次の5つに分けて見せます。
+ *
+ * 1. **ちから別**（かく／よむ／ことば／とくべつな おと）× **ひらがな／カタカナ**
+ *    → 弱いちからに時間を回す判断ができます（§3.10.1・§3.10.5）
+ * 2. **とくべつな おと の6ユニット別**
+ *    → 促音だけ低ければ、明日その単元をもう一度扱えます（§3.10.1）
+ * 3. **にがてボックスの中身（`ext.weakIds`）**
+ *    → 「促音の『きって』を12人が落としている」が語のレベルで見えます（§3.10.5）
+ * 4. **なぞり書きと自力書きの内訳（`ext.guided`）**
+ *    → なぞりばかりの児童に、自力で書く場面を用意する判断ができます（§3.10.2）
+ * 5. **MIM の層（`ext.tier`）と ちからだめしの伸び**
+ *    → 層をまたいで正答率を比べないための注意書きと、前の自分との比べ方（§3.10.3・§3.10.4）
+ *
+ * `ext.weakIds` は「いまのにがてボックスの中身」であって1回ぶんの成績ではないため、
+ * 漢字タウンの4技能と同じく**児童ごとにいちばん新しい1件**だけを見ます。
+ * 足し合わせると、たくさん取り組んだ児童のにがてほど重く数えてしまいます。
+ *
+ * @returns {Object|null} かきかたマスターのレコードが1件も無ければ null
+ */
+function buildStudyKanaHints_(records) {
+  const abilities = {};      // ちから×かな別
+  const units = {};          // とくべつな おと の6ユニット別
+  const tiers = {};          // MIM の層別
+  const latestWeak = {};     // 児童ごとに いちばん新しい にがてボックス
+  const mim = {};            // ちからだめし: 課題 → 児童 → 点数の並び
+  const guided = { guided: 0, solo: 0, guidedStudents: {}, soloStudents: {} };
+  const stageUpChars = {};
+  const stageUpStudents = new Set();
+  const students = new Set();
+  let total = 0;
+
+  records.forEach(r => {
+    if (r.appId !== KANA_APP_ID) return;
+    total++;
+    students.add(r.email);
+    const ext = parseStudyExt_(r) || {};
+    // 正答率として読めない記録（ちからだめし・なぞり書き）は、件数だけ数えて
+    // 分母・分子には入れません（§9.3.1 の STUDY_RATE_EXCLUDERS で判定）
+    const eligible = isStudyRateEligible_(r);
+    const attempted = eligible ? studyAttempted_(r) : 0;
+    const firstTry = eligible ? studyFirstTry_(r) : 0;
+
+    // --- ちから別 × ひらがな／カタカナ（§3.10.5: かなを混ぜて集計しない）---
+    const ability = kanaAbilityOf_(r, ext);
+    if (ability) {
+      const kana = KANA_KANAMODE_LABELS[ext.kanaMode] ? ext.kanaMode : '';
+      const key = ability + '|' + kana;
+      const a = abilities[key] = abilities[key] || {
+        key: key, ability: ability, label: KANA_ABILITY_LABELS[ability],
+        kana: kana, kanaLabel: KANA_KANAMODE_LABELS[kana] || '',
+        records: 0, students: new Set(), count: 0, firstTry: 0
+      };
+      a.records++;
+      a.students.add(r.email);
+      a.count += attempted;
+      a.firstTry += firstTry;
+    }
+
+    // --- とくべつな おと の6ユニット別（§3.10.1）---
+    const unitKey = (typeof ext.unitKey === 'string' && KANA_UNIT_LABELS[ext.unitKey])
+      ? ext.unitKey
+      : (r.unitId.indexOf('special-') === 0 && KANA_UNIT_LABELS[r.unitId.slice(8)] ? r.unitId.slice(8) : null);
+    if (unitKey) {
+      const u = units[unitKey] = units[unitKey] || {
+        key: unitKey, label: KANA_UNIT_LABELS[unitKey],
+        records: 0, students: new Set(), count: 0, firstTry: 0
+      };
+      u.records++;
+      u.students.add(r.email);
+      u.count += attempted;
+      u.firstTry += firstTry;
+    }
+
+    // --- なぞり書きと自力書き（§3.10.2）---
+    if (ability === 'write' && typeof ext.guided === 'boolean') {
+      if (ext.guided) { guided.guided++; guided.guidedStudents[r.email] = true; }
+      else { guided.solo++; guided.soloStudents[r.email] = true; }
+    }
+
+    // --- 段階が上がった字（§3.10.2 の ext.stageUp）---
+    if (ext.stageUp === true) {
+      stageUpStudents.add(r.email);
+      const char = r.unitId.indexOf('kana-') === 0 ? r.unitId.slice(5) : '';
+      if (char && char.length <= 4) stageUpChars[char] = (stageUpChars[char] || 0) + 1;
+    }
+
+    // --- MIM の層（§3.10.3）---
+    const tier = Number(ext.tier);
+    if (isFinite(tier) && tier >= 1 && tier <= 3) {
+      const t = tiers[tier] = tiers[tier] || {
+        tier: Math.round(tier), records: 0, students: new Set(), count: 0, firstTry: 0
+      };
+      t.records++;
+      t.students.add(r.email);
+      t.count += attempted;
+      t.firstTry += firstTry;
+    }
+
+    // --- にがてボックスの中身（児童ごとに最新の1件だけ）---
+    if (Array.isArray(ext.weakIds)) {
+      const when = r.receivedAt ? r.receivedAt.getTime() : 0;
+      const prev = latestWeak[r.email];
+      if (!prev || when >= prev.when) latestWeak[r.email] = { when: when, ids: ext.weakIds.slice(0, 40) };
+    }
+
+    // --- ちからだめし（§3.10.4）---
+    if (r.mode === KANA_MIMCHECK_MODE) {
+      const score = Number(ext.score);
+      const type = KANA_TEST_LABELS[ext.testType] ? ext.testType : '';
+      if (type && isFinite(score) && score >= 0 && score <= 200) {
+        const byStudent = mim[type] = mim[type] || {};
+        const list = byStudent[r.email] = byStudent[r.email] || [];
+        list.push({ when: r.receivedAt ? r.receivedAt.getTime() : 0, score: score });
+      }
+    }
+  });
+
+  if (total === 0) return null;
+
+  const rateOf = (o) => (o.count > 0 ? Math.round(100 * o.firstTry / o.count) : null);
+  const byRateAsc = (a, b) => (a.rate === null ? 999 : a.rate) - (b.rate === null ? 999 : b.rate);
+  const ABILITY_ORDER = ['write', 'read', 'vocab', 'special', 'review'];
+
+  // ちから別（表の並びは固定。毎回おなじ順に出したほうが、先生が見くらべやすい）
+  const abilityRows = Object.keys(abilities).map(k => {
+    const a = abilities[k];
+    return {
+      key: a.key, ability: a.ability, label: a.label, kanaLabel: a.kanaLabel,
+      records: a.records, students: a.students.size, count: a.count, firstTry: a.firstTry, rate: rateOf(a)
+    };
+  }).sort((a, b) =>
+    ABILITY_ORDER.indexOf(a.ability) - ABILITY_ORDER.indexOf(b.ability) ||
+    (a.kanaLabel < b.kanaLabel ? -1 : 1));
+
+  // とくべつな おと（つまずきの大きい単元を先頭に）
+  const unitRows = Object.keys(units).map(k => {
+    const u = units[k];
+    return {
+      key: u.key, label: u.label, records: u.records, students: u.students.size,
+      count: u.count, firstTry: u.firstTry, rate: rateOf(u)
+    };
+  }).sort(byRateAsc);
+
+  // にがてボックス（同じ児童の中では1回だけ数え、何人のにがてに入っているかを見ます）
+  const weakCount = {};
+  Object.keys(latestWeak).forEach(email => {
+    const seen = {};
+    latestWeak[email].ids.forEach(id => {
+      const entry = kanaWeakEntry_(id);
+      if (!entry) return;
+      const key = entry.group + '|' + entry.label;
+      if (seen[key]) return;
+      seen[key] = true;
+      const w = weakCount[key] = weakCount[key] || { label: entry.label, group: entry.group, students: 0 };
+      w.students++;
+    });
+  });
+  const weakWords = Object.keys(weakCount).map(k => weakCount[k])
+    .sort((a, b) => b.students - a.students)
+    .slice(0, 10);
+
+  // MIM の層
+  const tierRows = Object.keys(tiers).map(k => {
+    const t = tiers[k];
+    return {
+      tier: t.tier, records: t.records, students: t.students.size,
+      count: t.count, firstTry: t.firstTry, rate: rateOf(t)
+    };
+  }).sort((a, b) => a.tier - b.tier);
+
+  // ちからだめし（点数そのものより、前の自分と比べて伸びているか）
+  const mimRows = Object.keys(mim).map(type => {
+    const byStudent = mim[type];
+    const emails = Object.keys(byStudent);
+    let sum = 0, up = 0, down = 0, same = 0;
+    emails.forEach(email => {
+      const list = byStudent[email].slice().sort((a, b) => a.when - b.when);
+      const latest = list[list.length - 1];
+      sum += latest.score;
+      if (list.length >= 2) {
+        const diff = latest.score - list[list.length - 2].score;
+        if (diff > 0) up++;
+        else if (diff < 0) down++;
+        else same++;
+      }
+    });
+    return {
+      key: type, label: KANA_TEST_LABELS[type], students: emails.length,
+      avg: emails.length > 0 ? Math.round(10 * sum / emails.length) / 10 : null,
+      up: up, down: down, same: same, compared: up + down + same
+    };
+  }).sort((a, b) => (a.key < b.key ? -1 : 1));
+
+  const stageUpList = topCountEntries_(stageUpChars, null, 12);
+  return {
+    records: total,
+    students: students.size,
+    abilities: abilityRows.length > 0 ? abilityRows : null,
+    units: unitRows.length > 0 ? unitRows : null,
+    weakWords: weakWords.length > 0 ? weakWords : null,
+    guided: (guided.guided + guided.solo) > 0
+      ? { guided: guided.guided, solo: guided.solo,
+          guidedStudents: Object.keys(guided.guidedStudents).length,
+          soloStudents: Object.keys(guided.soloStudents).length }
+      : null,
+    stageUp: stageUpList.length > 0
+      ? { chars: stageUpList, students: stageUpStudents.size }
+      : null,
+    tiers: tierRows.length > 0 ? tierRows : null,
+    mimCheck: mimRows.length > 0 ? mimRows : null
+  };
 }
 
 /**
@@ -1378,7 +1747,9 @@ function buildStudyTeachingHints_(records) {
           keys: topCountEntries_(keyMisses, null, 8) }
       : null,
     // 入力のしかたが1種類しかない学級では、比べるものが無いので出しません
-    inputs: inputs.length >= 2 ? inputs : null
+    inputs: inputs.length >= 2 ? inputs : null,
+    // かきかたマスターは4つのちからを分けて見せます（§3.10）
+    kana: buildStudyKanaHints_(records)
   };
 }
 
@@ -1475,6 +1846,9 @@ function getStudyLogDashboard(period) {
     const stumbleMap = {};
     records.forEach(r => {
       if (!(r.grading === 'objective' && !r.multiplayer && r.source === 'course')) return;
+      // なぞり書きのように「まちがい」が正答率と同じ意味を持たない記録は、
+      // つまずきの数え上げからも外します（§9.3.1 のテーブルで判定）
+      if (isStudyRateExcluded_(r)) return;
       if (!r.itemsJson) return;
       let items;
       try { items = JSON.parse(r.itemsJson); } catch (e) { return; }
@@ -1553,10 +1927,14 @@ function getStudyLogDashboard(period) {
       },
       apps: Object.keys(apps).map(id => {
         const a = apps[id];
+        // 合算した正答率を主指標にしないアプリ（かきかたマスター）は、
+        // ここでひとつの数字にまとめず、「指導のてがかり」でちから別に見せます（§3.10）
+        const splitRate = !!STUDY_SPLIT_RATE_APPS[a.appId];
         return {
           appId: a.appId, label: a.label, records: a.records,
           students: a.students.size, minutes: Math.round(a.ms / 60000),
-          rate: a.attempted > 0 ? Math.round(100 * a.firstTry / a.attempted) : null,
+          rate: (!splitRate && a.attempted > 0) ? Math.round(100 * a.firstTry / a.attempted) : null,
+          splitRate: splitRate,
           books: a.books, pages: a.pages,
           // 時間を計測していないアプリは、画面で時間を出さないための目印
           timed: !STUDY_NO_TIME_APPS[a.appId]

@@ -827,9 +827,15 @@ function renderStudyLog(d) {
   // 初回正答率も採点をともなわない活動には無いため、冊数を右側に置きます（仕様 §3.8）。
   document.getElementById('tl-app-list').innerHTML = (d.apps || []).map(a => {
     const amount = a.timed === false ? `${a.pages}ページ` : fmtStudyMinutes(a.minutes);
+    // 1つのアプリの中に、たがいに代わりの利かない活動が同居しているアプリ
+    // （かきかたマスター）は、合算した正答率を出しません。打ち消し合って
+    // 「で、次に何をするか」が決まらなくなるためです（仕様 §3.10）。下の
+    // 「指導のてがかり」でちから別に見せます。
     const right = a.timed === false
       ? `<b>${a.books}さつ</b><div class="text-muted" style="font-size:.7rem;">読んだ冊数</div>`
-      : (a.rate === null ? '<span class="text-muted small">-</span>' : `<b>${a.rate}%</b><div class="text-muted" style="font-size:.7rem;">初回正答率</div>`);
+      : a.splitRate
+        ? `<span class="text-muted small">ちから別に見ます</span><div class="text-muted" style="font-size:.7rem;">↓指導のてがかり</div>`
+        : (a.rate === null ? '<span class="text-muted small">-</span>' : `<b>${a.rate}%</b><div class="text-muted" style="font-size:.7rem;">初回正答率</div>`);
     return `
     <div class="d-flex justify-content-between align-items-center border-bottom py-2">
       <div>
@@ -1009,8 +1015,169 @@ function renderStudyHints(h) {
       </div>`);
   }
 
+  // かきかたマスター（4つのちから・とくべつな おと・MIM の層 / 仕様 §3.10）
+  renderKanaHints(h.kana, cards);
+
   box.innerHTML = cards.join('');
   box.parentElement.classList.toggle('d-none', cards.length === 0);
+}
+
+/**
+ * かきかたマスターの「指導のてがかり」を描きます（仕様 §3.10）。
+ *
+ * このアプリだけカードを3枚に分けているのは、**1つのアプリの中に、たがいに代わりの
+ * 利かない4つの活動が同居している**ためです。「かきかたマスターの正答率は70%」と
+ * ひとつにまとめてしまうと、「よめるが書けない」も「カタカナだけ苦しい」も
+ * 打ち消し合って見えなくなり、明日の指導が決まりません。
+ *
+ * @param {Object|null} k サーバーが返す hints.kana
+ * @param {Array} cards 描いたカードを積む配列（renderStudyHints と共有）
+ */
+function renderKanaHints(k, cards) {
+  if (!k) return;
+  const rateHtml = (rate, label) => `
+    <div class="text-end">
+      <b class="${rate !== null && rate < 60 ? 'text-danger' : (rate === null ? 'text-muted' : 'text-success')}">${rate === null ? '-' : rate + '%'}</b>
+      <div class="text-muted" style="font-size:.7rem;">${label}</div>
+    </div>`;
+
+  // ① 4つのちから（ひらがな／カタカナも分けます）
+  if (k.abilities) {
+    const rows = k.abilities.map(a => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(a.label)}${a.kanaLabel
+            ? ` <span class="badge bg-light text-dark border fw-normal">${esc(a.kanaLabel)}</span>` : ''}</div>
+          <div class="text-muted" style="font-size:.7rem;">${a.records}回 / ${a.students}人${a.count > 0 ? ` / ${a.firstTry}問正解（${a.count}問）` : ''}</div>
+        </div>
+        ${rateHtml(a.rate, '初回正答率')}
+      </div>`).join('');
+    // いちばん低いちからを1つだけ名ざしします（並べるだけでは「で、どうする？」が残ります）
+    const scored = k.abilities.filter(a => a.rate !== null);
+    const low = scored.slice().sort((a, b) => a.rate - b.rate)[0];
+    const high = scored.slice().sort((a, b) => b.rate - a.rate)[0];
+    const advice = (low && high && high.rate - low.rate >= 10)
+      ? `<div class="alert alert-warning small py-2 mb-0 mt-2">
+           <b>${esc(low.label)}${low.kanaLabel ? `（${esc(low.kanaLabel)}）` : ''}が ${low.rate}%</b>、
+           いちばん高い${esc(high.label)}${high.kanaLabel ? `（${esc(high.kanaLabel)}）` : ''}は ${high.rate}% です。
+           <b>ちからのあいだに ${high.rate - low.rate} ポイントの差</b>があります。次の国語の時間は、低いほうに時間を回すと効きます。
+         </div>`
+      : '';
+    const guided = k.guided
+      ? `<div class="small text-muted mt-2">
+           <i class="bi bi-pencil"></i> かくの内わけ: <b>なぞり ${k.guided.guided}回</b>（${k.guided.guidedStudents}人） /
+           <b>自力 ${k.guided.solo}回</b>（${k.guided.soloStudents}人）。
+           上の初回正答率は<b>自力書きだけ</b>で数えています（お手本をなぞって書けても、
+           ガイドなしで書けるとは限らないため）。なぞりばかりの児童には、自力で書く場面を用意してください。
+         </div>`
+      : '';
+    const stageUp = k.stageUp
+      ? `<div class="small text-muted mt-2">
+           <i class="bi bi-check-circle"></i> この期間に段階が上がった字（${k.stageUp.students}人）:
+           ${k.stageUp.chars.map(c => `<span class="badge bg-success-subtle text-success-emphasis border border-success">${esc(c.key)}<span class="fw-normal"> ${c.count}</span></span>`).join(' ')}
+         </div>`
+      : '';
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-journal-text"></i> かきかたマスター：4つのちから</div>
+          <div class="card-body">
+            <p class="small text-muted">かきかたマスターには<b>かく・よむ・ことば・とくべつな おと</b>という、
+              たがいに代わりの利かない4つの活動があります。<b>合わせた正答率はアプリ別の一覧に出していません。</b>
+              ひらがなとカタカナも難しさが違うので分けています（${k.records}回 / ${k.students}人）。</p>
+            ${rows}${advice}${guided}${stageUp}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  // ② とくべつな おと（このアプリで最も指導価値が高い6ユニット）
+  if (k.units || k.weakWords) {
+    const rows = (k.units || []).map(u => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(u.label)}</div>
+          <div class="text-muted" style="font-size:.7rem;">${u.records}回 / ${u.students}人</div>
+        </div>
+        ${rateHtml(u.rate, '初回正答率')}
+      </div>`).join('');
+    const worst = (k.units || []).filter(u => u.rate !== null)[0];
+    const advice = (worst && worst.rate < 70)
+      ? `<div class="alert alert-warning small py-2 mb-0 mt-2"><b>${esc(worst.label)}</b>の初回正答率が ${worst.rate}% です。
+           手をたたきながら音をかぞえる（拍を体で取る）活動を、もう一度いっしょにどうぞ。</div>`
+      : '';
+    // 語のレベルまで見えるのがこのアプリの強みです（IDに単元と語が入っているため）
+    const words = (k.weakWords || []).map(w =>
+      `<span class="badge bg-danger-subtle text-danger-emphasis border border-danger">${esc(w.label)}
+         <span class="fw-normal">${w.students}人</span>
+         <span class="fw-normal text-muted">／${esc(w.group)}</span></span>`).join(' ');
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-soundwave"></i> かきかたマスター：とくべつな おと</div>
+          <div class="card-body">
+            <p class="small text-muted">促音（っ）・拗音（ゃゅょ）・長音（ー）・助詞（は・へ・を）など、
+              <b>1年生がいちばんつまずくところ</b>です。単元ごとに分けて見ます。</p>
+            ${rows}${advice}
+            ${words ? `<div class="small text-muted mt-2">
+              いま にがてボックスに入っていることば（児童ごとの最新のきろくから）:<br>${words}
+              <div class="mt-1">同じことばが何人にも出ていれば、<b>明日そのことばを学級全体で扱う</b>のが早道です。</div>
+            </div>` : ''}
+          </div>
+        </div>
+      </div>`);
+  }
+
+  // ③ MIM の層と ちからだめし（点数より「前の自分との差」）
+  if (k.tiers || k.mimCheck) {
+    // ステージの呼び名はアプリの画面（MIM_TIER_INFO）と同じにします。
+    // 先生が児童の画面を見たときに、同じ言葉で話せるようにするためです
+    const TIER_LABELS = {
+      1: '1st ステージ（ふつう）',
+      2: '2nd ステージ（すこし ていねい）',
+      3: '3rd ステージ（とても ていねい）'
+    };
+    const tierRows = (k.tiers || []).map(t => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(TIER_LABELS[t.tier] || (t.tier + ' ステージ'))}</div>
+          <div class="text-muted" style="font-size:.7rem;">${t.records}回 / ${t.students}人${t.count > 0 ? ` / ${t.count}問` : ''}</div>
+        </div>
+        ${rateHtml(t.rate, '初回正答率')}
+      </div>`).join('');
+    const checkRows = (k.mimCheck || []).map(m => `
+      <div class="d-flex justify-content-between align-items-center border-bottom py-2">
+        <div>
+          <div class="fw-bold small">${esc(m.label)}</div>
+          <div class="text-muted" style="font-size:.7rem;">${m.students}人が挑戦${m.compared > 0
+            ? ` / 前回とくらべて のびた ${m.up}人・下がった ${m.down}人・同じ ${m.same}人` : ''}</div>
+        </div>
+        <div class="text-end">
+          <b>${m.avg === null ? '-' : m.avg}</b>
+          <div class="text-muted" style="font-size:.7rem;">最新の平均点</div>
+        </div>
+      </div>`).join('');
+    cards.push(`
+      <div class="col-lg-6">
+        <div class="card shadow-sm border-0 rounded-4 h-100">
+          <div class="card-header bg-transparent fw-bold"><i class="bi bi-layers"></i> かきかたマスター：ステージ（層）と ちからだめし</div>
+          <div class="card-body">
+            <p class="small text-muted">かきかたマスターは、ちからだめしの結果から<b>児童ごとに出題のあつさを変えます</b>
+              （2ndステージ以降は えらぶ答えが3つ→2つに減ります）。</p>
+            ${tierRows}
+            ${k.tiers ? `<div class="alert alert-warning small py-2 mb-0 mt-2">
+              <b>ステージをまたいで正答率を比べないでください。</b>えらぶ答えが3つから2つに減ると、
+              あてずっぽうでも 33%→50% に上がります。<b>手あつい支援を受けている児童ほど成績が良く見える</b>
+              逆転が起きます。同じステージの中での移りかわりで見てください。
+            </div>` : ''}
+            ${checkRows ? `<div class="mt-3"><div class="fw-bold small mb-1">ちからだめし（よみめいじん）</div>${checkRows}
+              <div class="small text-muted mt-2">1分×2の時間つきの課題です。<b>この点数を、ほかのアプリの正答率と並べないでください。</b>
+              見るのは点数そのものではなく<b>前の自分からの伸び</b>です（2週間に1回・この期間に2回以上ためした児童だけを数えています）。
+              ステージの境目はこのアプリ独自の目安で、MIM-PM の正式な標準得点ではありません。</div></div>` : ''}
+          </div>
+        </div>
+      </div>`);
+  }
 }
 
 /** 児童詳細画面に出す「学習アプリのきろく」カード */
