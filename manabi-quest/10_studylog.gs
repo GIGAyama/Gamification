@@ -298,6 +298,16 @@ const STUDY_LOG_ID_COL = 27;              // 「レコードID」列（1始ま�
 const STUDY_MAX_RECORDS_PER_POST = 200;   // 1回のPOSTで受け付ける最大レコード数
 const STUDY_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * items / ext の1セルあたりの上限文字数。
+ *
+ * スプレッドシートは**1セル50,000文字**までで、これを超える値を setValues に渡すと
+ * 例外になります。書き込みは最大 STUDY_MAX_RECORDS_PER_POST 件の一括なので、
+ * 1件でも超えると**そのPOST全体が失敗**してしまいます。
+ * そこでバリデーションの時点で1件だけ弾けるよう、余裕をみた上限で判定します。
+ */
+const STUDY_MAX_CELL_CHARS = 45000;
+
 // ---------------------------------------------------------------------
 // 受信エンドポイント
 // ---------------------------------------------------------------------
@@ -1025,6 +1035,9 @@ function validateStudyRecord_(rec, now) {
       items.push(o);
     }
     if (items.length > 0) itemsJson = JSON.stringify(items);
+    // 1セルに収まらない設問層はここで弾きます。通してしまうと setValues の時点で
+    // 例外になり、同じPOSTに入っている他の児童のレコードまで巻き添えで失われます。
+    if (itemsJson.length > STUDY_MAX_CELL_CHARS) return fail('items-size');
   }
 
   // 拡張層（§2.11）: 8KB以内

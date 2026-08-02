@@ -32,6 +32,7 @@ const prelude = `
 const src = prelude + fs.readFileSync(path, 'utf8') + `
   module.exports = {
     STUDY_APPS, STUDY_APP_LINKS, STUDY_SPLIT_RATE_APPS, STUDY_ABORT_NORMAL_APPS, STUDY_NO_TIME_APPS,
+    STUDY_MAX_CELL_CHARS, STUDY_MAX_RECORDS_PER_POST,
     validateStudyRecord_, isStudyRateEligible_, isStudyRateExcluded_, isStudyAbortNotable_,
     buildStudyKanaHints_, buildStudyTeachingHints_, kanaWeakEntry_, getStudyAppLinks_
   };
@@ -95,6 +96,44 @@ const vMim = S.validateStudyRecord_(rec({
 ok('ちからだめしのレコードを受理する', vMim.ok === true, vMim);
 const vAbort = S.validateStudyRecord_(rec({ status: 'aborted', summary: { count: 6, attempted: 2, firstTryCorrect: 1 } }), now);
 ok('中断レコードを受理する', vAbort.ok === true, vAbort);
+
+console.log('■ 1セルの文字数上限（items-size）');
+// スプレッドシートは1セル50,000文字まで。200件の一括書き込みなので、
+// 1件でも超えると同じPOSTの他レコードまで巻き添えで失われます。
+ok('上限はスプレッドシートの50,000文字より小さい', S.STUDY_MAX_CELL_CHARS < 50000, S.STUDY_MAX_CELL_CHARS);
+
+/** 1問あたりの文字数を最大近くまで使った設問層をつくります */
+const fatItems = (n) => Array.from({ length: n }, (_, i) => ({
+  q: ('q' + i).padEnd(64, 'x'), ok: false, firstTry: false,
+  tries: 9, ms: 99999, hint: true, skill: ('s' + i).padEnd(20, 'y'),
+  wrong: Array.from({ length: 8 }, (_, j) => ('w' + j).padEnd(12, 'z'))
+}));
+
+const vFat = S.validateStudyRecord_(rec({
+  summary: { count: 200, attempted: 200, firstTryCorrect: 0, correct: 0 },
+  items: fatItems(200)
+}), now);
+ok('1セルに入らない設問層は items-size で拒否する',
+  vFat.ok === false && vFat.reason === 'items-size', vFat);
+ok('上限を超える設問層は実際に45,000文字を超えている',
+  JSON.stringify(fatItems(200)).length > S.STUDY_MAX_CELL_CHARS,
+  JSON.stringify(fatItems(200)).length);
+
+const vSlim = S.validateStudyRecord_(rec({
+  summary: { count: 100, attempted: 100, firstTryCorrect: 0, correct: 0 },
+  items: fatItems(100)
+}), now);
+ok('上限内の設問層はそのまま受理する', vSlim.ok === true, vSlim);
+
+// 200件は仕様上の最大なので、「最大件数 × 最小の設問」は必ず通る必要があります
+const vMany = S.validateStudyRecord_(rec({
+  summary: { count: 200, attempted: 200, firstTryCorrect: 0, correct: 0 },
+  items: Array.from({ length: 200 }, (_, i) => ({ q: 'q' + i, ok: true, firstTry: true }))
+}), now);
+ok('最大件数でも設問が短ければ通る（上限が厳しすぎない）', vMany.ok === true, vMany);
+ok('201件は今までどおり items で拒否', S.validateStudyRecord_(rec({
+  items: Array.from({ length: 201 }, (_, i) => ({ q: 'q' + i, ok: true, firstTry: true }))
+}), now).reason === 'items');
 
 console.log('■ 集計方針テーブル（§9.3.1）');
 const asRow = (r, over) => Object.assign({
