@@ -83,7 +83,7 @@ Web アプリ「まなびクエスト」のリポジトリです。
 **[`sw.js`](./sw.js) の `VERSION` を必ず1つ上げてから push してください。**
 
 ```javascript
-const VERSION = 'v2';   // → 'v3' のように上げる
+const VERSION = 'v3';   // → 'v4' のように上げる
 ```
 
 Service Worker はキャッシュ名にこの版数を含めています。上げないと、
