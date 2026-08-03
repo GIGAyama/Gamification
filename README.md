@@ -12,7 +12,8 @@ Web アプリ「まなびクエスト」のリポジトリです。
 | **[`manabi-quest/`](./manabi-quest/)** | **まなびクエスト本体**。学習記録・ふり返り・ゲーミフィケーション・AI所見・PDF出力に加え、**先生が児童に出す「課題」と提出率の自動集計**、努力の成果を実感するための可視化（がんばりカレンダー・成長カード・じこベスト・めあて・週次ふり返り・応援スタンプ）と、GIGA山学習アプリ群の**共通学習ログ（study.v1）の収集サーバー**、**学習アプリを新しいタブでひらく「がくしゅうアプリ」**を内蔵 | Google Apps Script（スプレッドシートにバインド） |
 | **[`manabi-portal/`](./manabi-portal/)** | **学習ポータル（PWA本体）**。まなびクエストを全画面表示しながら、**同じ画面から学習アプリのデータを送信**でき、下部ナビゲーションバーと「戻る」操作を提供します。児童にはこのURLを配付します | GitHub Pages（このリポジトリから公開） |
 | `manifest.json` / `sw.js` / `icons/` | **PWA（インストール可能なアプリ）の定義**。アプリ名・アイコン・オフライン起動を担当します | GitHub Pages（リポジトリのルート） |
-| [`tools/`](./tools/) | **自動テスト**。`node tools/check-studylog.js`（受信側 study.v1）と `node tools/check-assignment.js`（課題の提出判定）を、スプレッドシートを触らずに手元で確かめます | 手元で実行（配信しません） |
+| [`tools/`](./tools/) | **自動テスト**。受信側 study.v1・課題の提出判定・経験値・分析・ポータルとの受け渡しを、スプレッドシートを触らずに手元で確かめます（`npm test`） | 手元で実行（配信しません） |
+| [`scripts/`](./scripts/) | **品質ゲート**。構文・秘密情報・OAuthスコープ・`postMessage` の宛先などを機械的に検査します（`npm run check`） | 手元と CI で実行（配信しません） |
 
 学習アプリの学習ログは `localStorage` にあり、同一オリジンのページからしか読めません。
 そのため**ポータル（github.io）を親ページ、まなびクエストを iframe** にする構成にしています
@@ -83,7 +84,7 @@ Web アプリ「まなびクエスト」のリポジトリです。
 **[`sw.js`](./sw.js) の `VERSION` を必ず1つ上げてから push してください。**
 
 ```javascript
-const VERSION = 'v2';   // → 'v3' のように上げる
+const VERSION = 'v4';   // → 'v5' のように上げる
 ```
 
 Service Worker はキャッシュ名にこの版数を含めています。上げないと、
@@ -96,6 +97,19 @@ Service Worker はキャッシュ名にこの版数を含めています。上�
 > まなびクエスト本体（Apps Script）は毎回サーバーから読み込むため、この版数とは無関係です。
 > 本体を直したときは **「デプロイを管理」→ 既存のデプロイを編集** で版だけ上げてください。
 > **新規デプロイを作るとURLが変わり、児童のブックマークが切れます。**
+
+### ⚠️ `manabi-quest/` を直したときは、Apps Script への貼り替えが要ります
+
+GitHub と Apps Script は**自動で同期しません。** `manabi-quest/` の中を直しても、
+Apps Script エディタに貼り直さないかぎり本番は古いままです。
+
+1. Apps Script エディタを開き、変更したファイルの中身を**まるごと貼り替える**
+2. **「デプロイを管理」→ 既存のデプロイを編集 → バージョンを「新バージョン」** にして更新
+3. ポータルを開き直して、児童の画面が出ることを確かめる
+
+貼り替えが済むまでの間は「新しいポータル ＋ 古い本体」の組み合わせになりますが、
+**そのままでも動くように作ってあります**（本体は `APP_READY` で自分の対応状況を
+名乗り、ポータルはそれを見て送信経路を選びます）。
 
 ## 📲 アプリとしてインストールする（PWA）
 
@@ -229,6 +243,58 @@ Google の中を移動し、その遷移先が端末・アカウントの状態�
 
 > `frame-ancestors` は `<meta>` では無視されます（HTTPヘッダー専用）。GitHub Pages では設定できないため入れていません。
 
+## ✅ 品質ゲート（`npm run check` / `npm test`）
+
+push と Pull Request のたびに、[`.github/workflows/quality.yml`](./.github/workflows/quality.yml) が
+次の 2 つを自動で回します。手元でも同じものを走らせられます。
+
+```bash
+npm run check   # 品質ゲート
+npm test        # 中身のテスト
+npm run quality # 両方
+```
+
+外部サービスにつながないので数秒で終わります。npm パッケージも使いません（`npm ci` 不要）。
+
+### `npm run check` が見ているもの
+
+検査の本体 [`scripts/lib/project-quality.mjs`](./scripts/lib/project-quality.mjs) は
+**`SchoolPlan_Editor` の正本を1バイトも変えずにコピーした**ものです。
+正本が新しくなったら、そのまま上書きコピーしてください。
+
+| 検査 | 内容 |
+|---|---|
+| `REQUIRED_FILE_MISSING` | 必要なファイルがそろっているか |
+| `MERGE_CONFLICT_MARKER` | `<<<<<<<` などの消し忘れ |
+| `SECRET_CANDIDATE` | APIキー・トークン・秘密鍵らしき文字列 |
+| `HTML_SCRIPT_SYNTAX` / `GAS_SYNTAX` | ファイルごとの構文 |
+| `GAS_GLOBAL_SYNTAX` | 全 `.gs` をつないだときの構文（トップレベル名の重複） |
+| `ASSEMBLED_APP_SYNTAX` | `include()` を展開したあとの構文 |
+| `MANIFEST_INVALID` / `FORBIDDEN_OAUTH_SCOPE` | `appsscript.json` と OAuth スコープ |
+| `WILDCARD_POSTMESSAGE` | `postMessage(..., '*')` が残っていないか |
+| `XFRAME_ALLOWALL` | `XFrameOptionsMode.ALLOWALL` の使用 |
+| `LARGE_FILE_LINES` / `LARGE_FILE_BYTES` | 5,000行・400KB を超えたら警告 |
+
+このリポジトリは C+型で中身が 2 つに分かれているため、
+[`scripts/check-project.mjs`](./scripts/check-project.mjs) が検査を **2 回**まわします。
+設定はそれぞれの場所に置いています。
+
+| 場所 | 設定ファイル | 対象 |
+|---|---|---|
+| リポジトリ直下 | [`quality.config.json`](./quality.config.json) | GitHub Pages 側（児童が開くページ） |
+| `manabi-quest/` | [`manabi-quest/quality.config.json`](./manabi-quest/quality.config.json) | Apps Script 側 |
+
+### 明示的に許可している例外
+
+**検査を緩めるのではなく、理由を書いて明示的に許可します。** いまある例外は 2 つだけです。
+
+| 例外 | 場所 | 理由 |
+|---|---|---|
+| `XFRAME_ALLOWALL` | `03_main.gs` | ポータルの iframe に本体を表示するために必要。これが無いと C+型の構成が成り立ちません。埋め込み元は `isPortalOrigin_()` で `*.github.io` に限っています |
+| `auth/drive` を禁止リストから外す | `manabi-quest/quality.config.json` | 上の「OAuth スコープについて」の理由。判断の記録として設定ファイル内にも書いてあります |
+
+`WILDCARD_POSTMESSAGE` の例外は **ゼロ**です。宛先のオリジンは必ず 1 つに決めています。
+
 ## ⚠️ 制限とクォータ
 
 | 対象 | 上限・めやす | 超えたときに起きること | 対処 |
@@ -240,10 +306,23 @@ Google の中を移動し、その遷移先が端末・アカウントの状態�
 | `UrlFetchApp`（AI） | 1日 **20,000回** | AI所見が失敗する | APIキー未設定でもAI以外は動作 |
 | 同時アクセス | 1クラス40人の一斉送信を想定 | 行がずれる | 書き込みは `LockService` で1人ずつ通す |
 | 初回JS（ポータル） | 71KB・外部依存ゼロ | — | — |
-| 初回JS（本体） | **300KB を超過**（Bootstrap / SweetAlert2 / Google Charts / kuroshiro を CDN から取得） | 校内Wi-Fi混雑時に初回表示が遅い | kuroshiro（ふりがな）は読み込めなくてもルビなしで動作する設計。遅延読み込み化は今後の課題 |
+| 初回JS（本体・外部） | **157KB**（Bootstrap 79KB + SweetAlert2 78KB） | 校内Wi-Fi混雑時に初回表示が遅い | kuroshiro 111KB と Google Charts は**必要になってから**読み込む方式に変更済み（下記） |
+| 初回JS（本体・自前） | **285KB**（js_core 53 + js_student 144 + js_teacher 87） | 同上 | 役割ごとの出し分けは未実施。`doGet` の段階で先生／児童を判定して切り分ける案があります |
+
+### あとから読み込むもの（初回表示を軽くするため）
+
+次の 3 つは `<head>` に並べず、**必要になった時点で** `loadScriptOnce_()` が取りにいきます。
+読み込めなかったときは、その機能だけ無しで通常どおり使えます。
+
+| ライブラリ | 大きさ | いつ読み込むか |
+|---|--:|---|
+| kuroshiro | 34KB | 児童画面で `initFurigana()` が呼ばれたとき（**先生の画面では一切読み込みません**） |
+| kuroshiro-analyzer-kuromoji | 77KB | 同上（辞書 約6MB は、さらにその後） |
+| Google Charts ローダー | — | グラフを実際に描くとき（記録タブを開かない児童は読み込みません） |
 
 CDN の版数は URL に直接書いているため、Dependabot では追えません。
-更新するときは [`manabi-quest/index.html`](./manabi-quest/index.html) の `<head>` を直接直してください。
+更新するときは [`manabi-quest/index.html`](./manabi-quest/index.html) の `<head>` と、
+[`manabi-quest/js_core.html`](./manabi-quest/js_core.html) の `initFurigana()` を直してください。
 
 ## セットアップ
 

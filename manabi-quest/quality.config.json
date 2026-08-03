@@ -1,0 +1,42 @@
+{
+  "_note": "まなびクエスト本体（Apps Script へ貼り付ける側）の検査設定。",
+
+  "entryHtml": "index.html",
+  "requiredFiles": [
+    "appsscript.json",
+    "index.html",
+    "css.html",
+    "js_core.html"
+  ],
+  "ignoreDirectories": [
+    ".git",
+    ".clasp",
+    "node_modules",
+    "coverage",
+    "dist"
+  ],
+
+  "manifest": {
+    "_note_drive": "auth/drive（Drive全体）は正本の既定では禁止です。このリポジトリでは、あえて禁止リストから外しています。理由は README の『🔐 セキュリティ設計 → OAuth スコープについて』に、使用箇所ごとに書いてあります。要約すると、02_setup.gs が先生の指定した任意フォルダを DriveApp.getFolderById() で開き、08_pdf.gs / 09_ops.gs がバインド元シートの親フォルダを解決するため、drive.file では実運用中のPDF生成とアーカイブが壊れます。縮小するには GAS 側の機能変更と全先生の再認可が必要で、別の作業として切り離しています。検査を黙って緩めたのではなく、判断の記録としてここに残しています。",
+    "forbiddenOauthScopes": [
+      "https://mail.google.com/",
+      "https://www.googleapis.com/auth/drive.readonly",
+      "https://www.googleapis.com/auth/spreadsheets.currentonly"
+    ]
+  },
+
+  "securityExceptions": {
+    "_note_postmessage": "いまは例外ゼロです。postToPortal() は宛先のオリジンを必ず1つに決めており、'*' は使いません。",
+    "wildcardPostMessage": [],
+
+    "_note_xframe": "03_main.gs の XFrameOptionsMode.ALLOWALL は、学習ポータル（gigayama.github.io）の iframe にこのアプリを表示するために必要です。これが無いと C+型の構成そのものが成り立ちません（ポータルが親でないと児童の端末の学習ログを読めない）。埋め込み元は js_core.html の isPortalOrigin_() で *.github.io に限っており、postMessage の宛先も固定しています。",
+    "xFrameAllowAll": [
+      "03_main.gs"
+    ]
+  },
+
+  "maintainability": {
+    "warningLineCount": 5000,
+    "warningByteCount": 400000
+  }
+}

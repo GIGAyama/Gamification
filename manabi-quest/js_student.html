@@ -3,9 +3,45 @@
  * js_student.html — 児童用ビュー
  * ===================================================================== */
 
+/* ---- グラフのライブラリ（必要になってから読み込む） ----------------------
+ * 以前は <head> で Google Charts のローダーを読み、ここですぐ
+ * google.charts.load() を呼んでいました。そのため、記録タブを一度も開かない
+ * 児童の端末でもグラフ用のコードを丸ごとダウンロードしていました。
+ *
+ * いまは drawTypingChart / drawCalcChart / drawTestChart が呼ばれた時点で
+ * はじめて取りにいきます。取りに行けなかったときはグラフの場所が空になるだけで、
+ * ほかの記録は今までどおり表で読めます。
+ * ---------------------------------------------------------------------- */
 let chartsReady = false;
-google.charts.load('current', { packages: ['corechart'], language: 'ja' });
-google.charts.setOnLoadCallback(() => { chartsReady = true; });
+let chartsLoading = null;
+
+/** グラフのライブラリを用意します。使えるようになったら true */
+function ensureCharts() {
+  if (chartsReady) return Promise.resolve(true);
+  if (chartsLoading) return chartsLoading;
+  chartsLoading = loadScriptOnce_('https://www.gstatic.com/charts/loader.js')
+    .then(() => new Promise(resolve => {
+      google.charts.load('current', { packages: ['corechart'], language: 'ja' });
+      google.charts.setOnLoadCallback(() => { chartsReady = true; resolve(true); });
+    }))
+    .catch(e => {
+      console.warn('グラフのライブラリを読み込めませんでした（表だけで表示します）:', e && e.message);
+      chartsLoading = null;   // つながったときに、もう一度ためせるようにする
+      return false;
+    });
+  return chartsLoading;
+}
+
+/**
+ * グラフを描く関数の先頭で使います。
+ * まだ用意できていなければ読み込みを始め、そろってから同じ関数をもう一度呼びます。
+ * @returns {boolean} いま描いてよければ true
+ */
+function chartsReadyOrLoad_(retry) {
+  if (chartsReady) return true;
+  ensureCharts().then(ok => { if (ok) retry(); });
+  return false;
+}
 
 /**
  * 奥の画面につける「もどる」つき見出しの一覧。
@@ -1443,7 +1479,11 @@ function renderBadges(earnedBadges, allBadges) {
   container.innerHTML = `<div class="d-flex flex-wrap gap-2 justify-content-center">` +
     badges.map(b => {
       const earned = earnedIds.has(b.id);
-      const inner = b.imageUrl && earned ? `<img src="${esc(b.imageUrl)}" referrerpolicy="no-referrer">` : icon(earned ? 'medal' : 'lock');
+      // 読み込み前に高さが 0 だと下の名前がずれるので width/height を書く（CLS対策）。
+      // すぐ下に同じ名前が文字で出ているため、alt は空にして読み上げの重複を避ける。
+      const inner = b.imageUrl && earned
+        ? `<img src="${esc(b.imageUrl)}" width="56" height="56" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer">`
+        : icon(earned ? 'medal' : 'lock');
       return `<div class="text-center badge-tip" title="${esc(b.name)}: ${esc(b.description)}" style="width:64px;">
         <div class="badge-icon ${earned ? '' : 'locked'}">${inner}</div>
         <div class="small text-truncate ${earned ? 'fw-bold' : 'text-muted'}" style="font-size:.65rem;">${esc(b.name)}</div>
@@ -2323,7 +2363,8 @@ function recordTable(headers, rows) {
 /* ---- グラフ ---- */
 
 function drawTypingChart(chartData) {
-  if (!chartsReady || !chartData || chartData.length < 2) return;
+  if (!chartData || chartData.length < 2) return;
+  if (!chartsReadyOrLoad_(() => drawTypingChart(chartData))) return;
   const el = document.getElementById('typing-chart');
   if (!el) return;
   const data = google.visualization.arrayToDataTable(chartData);
@@ -2336,7 +2377,8 @@ function drawTypingChart(chartData) {
 }
 
 function drawCalcChart(chartDataByQuestions) {
-  if (!chartsReady || !chartDataByQuestions) return;
+  if (!chartDataByQuestions) return;
+  if (!chartsReadyOrLoad_(() => drawCalcChart(chartDataByQuestions))) return;
   const el = document.getElementById('calc-chart');
   const selectorArea = document.getElementById('calc-chart-selector');
   if (!el || !selectorArea) return;
@@ -2359,7 +2401,7 @@ function drawCalcChart(chartDataByQuestions) {
 
 /** テストの点数と目標点の推移グラフ（教科ごと） */
 function drawTestChart(testRecords) {
-  if (!chartsReady) return;
+  if (!chartsReadyOrLoad_(() => drawTestChart(testRecords))) return;
   const el = document.getElementById('test-chart');
   const selectorArea = document.getElementById('test-chart-selector');
   if (!el || !selectorArea) return;
@@ -2461,7 +2503,7 @@ function renderItemGrid(data, filterCategory) {
       data-item="${esc(String(id))}" data-cat="${esc(item['カテゴリ'] || '')}" data-owned="${has}" data-cost="${cost}"
       title="${esc(item['アイテム名'])}${has ? '' : (cost > 0 ? `（${cost}Ptでこうかん）` : '（ガチャでゲット）')}">
       ${rarity ? `<span class="rarity-tag rarity-${esc(rarity)}">${esc(rarity)}</span>` : ''}
-      ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : icon('box')}
+      ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" width="68" height="68" alt="${esc(item['アイテム名'])}" loading="lazy" decoding="async" referrerpolicy="no-referrer">` : icon('box')}
       ${!has && cost > 0 ? `<span class="cost-tag">${cost}Pt</span>` : ''}
     </div>`;
   }).join('');
@@ -2641,7 +2683,7 @@ async function runGacha(count, btn) {
     <div class="d-inline-block text-center m-1" style="width:80px;">
       <div class="item-slot mx-auto ${item.isDuplicate ? 'locked' : ''}" style="cursor:default;">
         ${item['レアリティー'] ? `<span class="rarity-tag rarity-${esc(item['レアリティー'])}">${esc(item['レアリティー'])}</span>` : ''}
-        ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" referrerpolicy="no-referrer">` : '<i class="bi bi-box"></i>'}
+        ${item.imageUrl ? `<img src="${esc(item.imageUrl)}" width="68" height="68" alt="" decoding="async" referrerpolicy="no-referrer">` : '<i class="bi bi-box"></i>'}
       </div>
       <div class="small text-truncate">${esc(item['アイテム名'])}</div>
       ${item.isDuplicate ? `<div class="small text-warning-emphasis">+${item.awardedPoints}Pt</div>` : '<div class="small text-success fw-bold">NEW!</div>'}

@@ -125,7 +125,10 @@
       --brand-dark: #1c5fb8;
       --bg: #eef4fb;
       --ink: #26313d;
-      --muted: #7b8794;
+      /* うすい文字。#7b8794 は背景 #eef4fb に対して 3.31:1 しかなく、
+         Chromebook の安価な液晶では読みにくかった。#5c6874 で 5.14:1（白地では 5.70:1）。
+         「うすい文字」という見え方は保ったまま、基準の 4.5:1 を満たします。 */
+      --muted: #5c6874;
       --line: #dbe6f3;
       --tabbar-h: 58px;
       --safe-b: env(safe-area-inset-bottom, 0px);
@@ -276,11 +279,12 @@
     .tab:disabled { color: #bcc6d1; cursor: default; }
     .tab:active:not(:disabled) { background: #eef4fb; }
     .tab.primary { color: var(--brand); }
-    .tab.primary.alert { color: #e5484d; }
+    /* 赤は #e5484d だと白地で 3.91:1 で足りなかった。#d32f2f で 4.98:1。赤い印象は変わりません */
+    .tab.primary.alert { color: #d32f2f; }
     .tab .badge {
       position: absolute; top: 4px; right: 50%; margin-right: -22px;
       min-width: 18px; height: 18px; padding: 0 5px;
-      border-radius: 999px; background: #e5484d; color: #fff;
+      border-radius: 999px; background: #d32f2f; color: #fff;   /* 白文字で 4.98:1 */
       font-size: .68rem; line-height: 18px; text-align: center;
     }
     .tab .badge[hidden] { display: none; }
@@ -834,10 +838,20 @@
     }
   }
 
+  /**
+   * まなびクエスト（iframe の中）へメッセージを送ります。
+   *
+   * 宛先のオリジンは、相手から届いたメッセージで確かめた値（state.appOrigin）だけを使います。
+   * 以前は `state.appOrigin || '*'` と書いていましたが、'*' は「どのサイトが
+   * 相手でも届ける」という意味で、乗っ取られた iframe に未送信件数や出席番号を
+   * 渡してしまう可能性があります。分からないときは送らないのが正解です。
+   * （state.appConnected が true のときは必ず state.appOrigin も入っているので、
+   *   この条件で送れなくなることはありません）
+   */
   function notifyApp(message) {
-    if (!state.appConnected || !state.appWindow) return;
+    if (!state.appConnected || !state.appWindow || !state.appOrigin) return;
     try {
-      state.appWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin || '*');
+      state.appWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin);
     } catch (e) { /* 表示できていないだけなので無視 */ }
   }
 
@@ -854,7 +868,13 @@
     }
     frame.hidden = false;
     $('fallback-link').hidden = false;
-    const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
+    // portalOrigin … まなびクエスト側が「返事をどこへ送ればよいか」を最初から知るためのものです。
+    // 相手のオリジンが分かる前に postMessage を '*'（どこへでも）で送ると、
+    // 別のサイトに埋め込まれたときに中身を読まれてしまいます。それを無くすために渡します。
+    // この値がまちがっていても情報は漏れません。ブラウザは「送り先のオリジンが
+    // 一致するときだけ届ける」ので、合わなければ単に届かないだけです。
+    const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?')
+      + 'embed=1&portalOrigin=' + encodeURIComponent(location.origin);
     $('fallback-link').href = conf.appUrl;
     frame.addEventListener('load', () => { state.frameLoaded = true; });
     frame.src = url;
