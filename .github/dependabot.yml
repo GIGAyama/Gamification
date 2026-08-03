@@ -1,0 +1,24 @@
+# =====================================================================
+# dependabot.yml — 依存ライブラリの更新チェック
+# =====================================================================
+# このリポジトリは npm パッケージを使わない構成（GitHub Pages の
+# 静的ファイル + Google Apps Script）なので、監視するのは
+# GitHub Actions のワークフローだけです。
+#
+# 更新の通知は月1回にしています。学校で使うアプリは、
+# 学期中に何度もバージョンが動くほうが困るためです。
+#
+# ※ まなびクエスト本体（manabi-quest/index.html）が読み込んでいる
+#    Bootstrap・SweetAlert2・kuroshiro などの CDN は、URL に版数を
+#    直接書いているため Dependabot では追えません。
+#    更新の要否は README の「制限とクォータ」の節を参照してください。
+# =====================================================================
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(deps)"
