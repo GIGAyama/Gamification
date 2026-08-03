@@ -5,8 +5,8 @@
   "description": "小学校の学習記録とゲーミフィケーションをまとめた学習ポータル。学習アプリのきろくを送って、けいけんちをためよう。",
   "lang": "ja",
   "dir": "ltr",
-  "start_url": "./manabi-portal/",
-  "scope": "./",
+  "start_url": "/Gamification/manabi-portal/",
+  "scope": "/Gamification/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
@@ -45,7 +45,7 @@
       "name": "きろくを おくる",
       "short_name": "おくる",
       "description": "たまっている学習アプリのきろくをまなびクエストへ送ります",
-      "url": "./manabi-portal/?action=send",
+      "url": "/Gamification/manabi-portal/?action=send",
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]

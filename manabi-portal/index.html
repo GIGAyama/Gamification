@@ -2,6 +2,27 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+
+  <!--
+    ① インストールの合図を「いちばん先に」受け取ります。
+       Chrome は条件がそろうとページを読み込んだ直後に beforeinstallprompt を出します。
+       このページは 1600 行あり、下のほうで受け取ろうとすると、校内 Wi-Fi が混んでいる
+       端末では合図が先に流れてしまい、「📲 アプリとして入れる」が出なくなります。
+       そこで、いちばん上で受け取っておいて、あとから initPwa() が拾いにきます。
+  -->
+  <script>
+    window.__deferredInstallPrompt = null;
+    addEventListener('beforeinstallprompt', e => {
+      e.preventDefault();
+      window.__deferredInstallPrompt = e;
+      dispatchEvent(new Event('pwa-installable'));
+    });
+    addEventListener('appinstalled', () => {
+      window.__deferredInstallPrompt = null;
+      dispatchEvent(new Event('pwa-installed'));
+    });
+  </script>
+
   <!--
     minimum-scale=1.0 … 指2本でつまむ操作（ピンチ）で 100% より小さくできないようにします。
     縮めてしまうとアプリ全体が画面より小さくなり、まわりに背景のすきまが出たままになるためです。
@@ -10,6 +31,26 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, viewport-fit=cover">
   <title>まなびクエスト｜学習ポータル</title>
   <meta name="description" content="まなびクエストと学習アプリのきろく送信をひとつの画面にまとめた学習ポータル">
+
+  <!--
+    ★ CSP（コンテンツセキュリティポリシー）について — いまは入れていません
+
+    入口ページ（../index.html）とオフライン案内（../offline.html）は
+    外から何も読み込まないので、いちばん厳しい CSP を入れてあります。
+    このページだけは入れていません。理由は次のとおりです。
+
+      このページは まなびクエスト（GAS）を iframe で表示します。
+      児童がまだログインしていないと、その iframe は
+        script.google.com → accounts.google.com → 〇〇.googleusercontent.com
+      と、Google の中を何段も移動します。移動先のドメインは端末や
+      アカウントの状態で変わるため、frame-src を書きちがえると
+      「iframe がまっしろのまま、原因も表示されない」状態になります。
+      これは授業中にいちばん起きてほしくない壊れ方です。
+
+      本物の GAS デプロイに つないだ実機で確かめられる環境が用意できるまでは、
+      入れないほうが安全と判断しました。入れるときの手順とポリシー案は
+      README の「CSP を入れるときの手順」に書いてあります。
+  -->
 
   <!-- ---- PWA（Chrome / Safari からアプリとしてインストールできるようにする） ---- -->
   <link rel="manifest" href="../manifest.json">
@@ -91,9 +132,30 @@
       --safe-t: env(safe-area-inset-top, 0px);
       --safe-l: env(safe-area-inset-left, 0px);
       --safe-r: env(safe-area-inset-right, 0px);
+
+      /* ---- 文字の大きさ（Part I §2-4）----------------------------------
+         これまでは rem 固定でした。固定だと、375px のスマホで
+         ちょうどよくしたときに 1366px の Chromebook では小さすぎ、
+         逆もまた同じになります。clamp() は「最小・画面幅に応じた値・最大」を
+         1行で書けるので、メディアクエリを何段も積まずに揃えられます。
+         下部バーの文字（--fs-tab）は、これまで .68rem ≒ 10.9px でした。
+         Chromebook の安価な液晶では低学年に読みにくいので、下限を 12px にしています。 */
+      --fs-body:  clamp(15px, 1.6vw + 10px, 18px);
+      --fs-lead:  clamp(13px, 1vw + 9px, 15px);
+      --fs-small: clamp(13px, .9vw + 10px, 15px);
+      --fs-tab:   clamp(12px, 1.1vw + 8px, 15px);
+      --fs-title: clamp(17px, 1.6vw + 12px, 21px);
+      --fs-btn:   clamp(16px, 1.2vw + 12px, 18px);
     }
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+    /* 押せるものは 44px を下限にし、ダブルタップ判定の 300ms 待ちを消します（Part I §2-9）。
+       min-height だけだと文字が上に寄るため、中身は中央ぞろえにしています。 */
+    button, .btn, a[href], [role="button"] { touch-action: manipulation; }
+
+    /* キーボードだけで操作する子・先生のために、いまどこにいるかを必ず見せる */
+    :focus-visible { outline: 3px solid var(--brand); outline-offset: 2px; }
 
     html, body {
       height: 100%;
@@ -116,6 +178,8 @@
       height: 100dvh;      /* アドレスバーの伸縮で高さが変わる端末に対応 */
       max-width: 100%;
       overflow: hidden;
+      font-size: var(--fs-body);
+      line-height: 1.8;    /* 児童が読む画面なので行間を広くとる */
     }
 
     button { font-family: inherit; }
@@ -133,9 +197,9 @@
     }
     .brand { display: flex; align-items: center; gap: 8px; font-weight: bold; white-space: nowrap; }
     .brand img { width: 26px; height: 26px; border-radius: 7px; }
-    .brand .sub { font-size: .72rem; color: var(--muted); font-weight: normal; }
+    .brand .sub { font-size: var(--fs-small); color: var(--muted); font-weight: normal; }
     .spacer { flex: 1 1 auto; }
-    .status { font-size: .8rem; color: var(--muted); }
+    .status { font-size: var(--fs-small); color: var(--muted); }
 
     /* ---- コンテンツ（まなびクエスト本体） ---- */
     .stage {
@@ -199,9 +263,13 @@
     .tab {
       flex: 1 1 0; min-width: 0;
       display: flex; flex-direction: column; align-items: center; justify-content: center;
-      gap: 2px; padding: 6px 4px; height: var(--tabbar-h);
+      gap: 2px; padding: 6px 4px;
+      min-height: 44px;                 /* 低学年の指で確実に押せる下限（Part I §2-9） */
+      height: var(--tabbar-h);
       border: none; background: none; color: #4a5763;
-      font-size: .68rem; font-weight: bold; cursor: pointer;
+      font-size: var(--fs-tab); font-weight: bold; cursor: pointer;
+      /* body の 1.8 を継ぐと文字とアイコンで 58px を超えるため、ここだけ詰める */
+      line-height: 1.25;
       position: relative;
     }
     .tab .ico { font-size: 1.25rem; line-height: 1.1; }
@@ -219,7 +287,7 @@
     .tab .num-chip {
       display: inline-block; min-width: 2rem; padding: 0 .35rem;
       border-radius: 999px; background: #eef4fb; color: var(--brand-dark);
-      font-size: .95rem; line-height: 1.35;
+      font-size: var(--fs-body); line-height: 1.35;
     }
     .tab .num-chip.empty { background: #fdecea; color: #c0392b; }
 
@@ -232,10 +300,10 @@
       transition: bottom .15s;
     }
     /* インストール案内が出ているときは、その上に重ならないよう持ち上げる */
-    body.has-install .toast-area { bottom: 84px; }
+    body.has-install .toast-area { bottom: 96px; }   /* ✕ を 44px にした分、案内バーが高くなった */
     .toast {
       pointer-events: auto;
-      padding: 10px 14px; border-radius: 12px; font-size: .88rem; line-height: 1.6;
+      padding: 10px 14px; border-radius: 12px; font-size: var(--fs-small); line-height: 1.6;
       box-shadow: 0 6px 20px rgba(38, 49, 61, .18); cursor: pointer;
       animation: toast-in .18s ease-out;
     }
@@ -270,26 +338,28 @@
       .sheet-backdrop { align-items: center; }
       .sheet { border-radius: 20px; max-height: calc(100% - 32px); }
     }
-    .sheet h2 { margin: 0 0 4px; font-size: 1.05rem; }
-    .sheet .lead { margin: 0 0 14px; font-size: .82rem; color: var(--muted); line-height: 1.7; }
+    .sheet h2 { margin: 0 0 4px; font-size: var(--fs-title); line-height: 1.5; }
+    .sheet .lead { margin: 0 0 14px; font-size: var(--fs-lead); color: var(--muted); line-height: 1.7; }
     .field { margin-bottom: 12px; }
-    .field label { display: block; font-size: .78rem; font-weight: bold; color: #55616e; margin-bottom: 4px; }
+    .field label { display: block; font-size: var(--fs-lead); font-weight: bold; color: #55616e; margin-bottom: 4px; }
     .field input[type=url], .field input[type=text], .field input[type=number] {
       width: 100%; padding: 10px; border: 2px solid #cfe0f5; border-radius: 10px;
-      font-size: 1rem; font-family: inherit; background: #fff; color: var(--ink);
+      font-size: var(--fs-btn); font-family: inherit; background: #fff; color: var(--ink);
     }
     .field input:focus { outline: none; border-color: var(--brand); }
-    .field .hint { font-size: .74rem; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+    .field .hint { font-size: var(--fs-lead); color: var(--muted); margin-top: 4px; line-height: 1.6; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     .btn {
+      display: inline-flex; align-items: center; justify-content: center;
+      min-height: 44px;              /* 低学年の指で押せる下限（Part I §2-9） */
       padding: 12px 18px; border-radius: 12px; border: none; cursor: pointer;
-      font-size: 1rem; font-weight: bold; font-family: inherit;
+      font-size: var(--fs-btn); font-weight: bold; font-family: inherit; line-height: 1.4;
     }
     .btn.primary { background: var(--brand); color: #fff; }
     .btn.ghost { background: #fff; color: #46535f; border: 1px solid #b9c6d4; }
     .btn:disabled { background: #ccd6e0; color: #fff; cursor: not-allowed; }
     .btn.wide { width: 100%; }
-    .muted { color: var(--muted); font-size: .8rem; }
+    .muted { color: var(--muted); font-size: var(--fs-small); }
     code { background: #f4f7fa; border-radius: 4px; padding: 1px 5px; font-size: .95em; }
 
     /* 出席番号シートは大きく打てるように */
@@ -303,20 +373,25 @@
       background: #fff; border: 1px solid var(--line); border-radius: 14px;
       box-shadow: 0 8px 24px rgba(38, 49, 61, .18);
       padding: 12px 14px; display: flex; align-items: center; gap: 10px;
-      font-size: .85rem; line-height: 1.5;
+      font-size: var(--fs-small); line-height: 1.5;
     }
     .install-bar[hidden] { display: none; }
     .install-bar img { width: 34px; height: 34px; border-radius: 9px; flex: 0 0 auto; }
+    /* 320px の端末では「入れる」が1文字ずつ折り返して縦長になっていた */
+    .install-bar .btn { flex: 0 0 auto; white-space: nowrap; }
     .install-bar .close {
       border: none; background: none; color: var(--muted); font-size: 1.2rem;
-      cursor: pointer; padding: 2px 6px; flex: 0 0 auto;
+      /* ✕ は 2px の余白しかなく、低学年の指では押せなかった。44px を確保する */
+      min-width: 44px; min-height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; padding: 0; flex: 0 0 auto;
     }
 
     /* ---- 大きい画面（PC・タブレット横）では上部バーを出す ---- */
     @media (min-width: 768px) {
       .appbar { display: flex; }
       .stage { padding-top: 0; }
-      .tab { font-size: .72rem; }
+      /* .tab の文字サイズは clamp() が画面幅から決めるので、ここでの上書きはやめました */
     }
 
     /* ---- ダークモード ---- */
@@ -336,6 +411,19 @@
       .toast.bad  { background: #3a1a1a; border-color: #6d3230; }
       .toast.warn { background: #3a2f12; border-color: #6d5a24; }
     }
+
+    /* ---- 動きの配慮（Part I §2-10）----------------------------------
+       感覚過敏の子や、動きで気持ちが悪くなる子のために、端末の
+       「視差効果を減らす／アニメーションを減らす」設定にしたがって
+       通知・シートのスライドを止めます。表示される中身は変わりません。 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -347,8 +435,8 @@
     <span>まなびクエスト<span class="sub">　がくしゅうポータル</span></span>
   </div>
   <div class="spacer"></div>
-  <span class="status" id="pending-label"></span>
-  <button class="btn ghost" id="install-btn" hidden style="padding:8px 14px;font-size:.85rem;">📲 アプリとして入れる</button>
+  <span class="status" id="pending-label" aria-live="polite"></span>
+  <button class="btn ghost" id="install-btn" hidden style="padding:8px 14px;font-size:var(--fs-small);">📲 アプリとして入れる</button>
 </header>
 
 <!-- ===================== コンテンツ ===================== -->
@@ -373,12 +461,14 @@
     こうすると下部ナビゲーションバーが必ず操作できる状態で残り、
     シートを開いていても「もどる」でひとつ前に戻れます。
   -->
-  <div class="toast-area" id="toast-area"></div>
+  <!-- 送信の結果は見た目（トースト）でしか出ていなかったので、読み上げにも届くようにします。
+       polite ＝ いま話していることが終わってから読む（作業のじゃまをしない） -->
+  <div class="toast-area" id="toast-area" role="status" aria-live="polite" aria-atomic="false"></div>
 
   <div class="install-bar" id="install-bar" hidden>
     <img src="../icons/icon-192.png" alt="">
     <div style="flex:1 1 auto;" id="install-text"></div>
-    <button class="btn primary" id="install-bar-btn" style="padding:8px 14px;font-size:.85rem;">入れる</button>
+    <button class="btn primary" id="install-bar-btn" style="padding:8px 14px;font-size:var(--fs-small);">入れる</button>
     <button class="close" id="install-close" aria-label="とじる">×</button>
   </div>
 
@@ -431,7 +521,7 @@
       <button class="btn ghost" id="conf-test-btn">接続テスト</button>
       <button class="btn ghost" id="conf-close-btn">とじる</button>
     </div>
-    <div class="muted" id="conf-status"></div>
+    <div class="muted" id="conf-status" role="status" aria-live="polite"></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
     <div class="muted" id="install-help"></div>
   </div>
@@ -1265,6 +1355,35 @@
   }
 
   /* ================================================================
+   * 画面を閉じる直前の しあげ（Part I §3-5 / 仕様 C3）
+   * ----------------------------------------------------------------
+   * Chromebook（メモリ4GB）は、タブをたくさん開くと古いタブを
+   * だまって捨てます。捨てられるときに出るのは pagehide だけで、
+   * unload は出ないことがあります。
+   *
+   * 学習ログ（study.records.v1）そのものは、サーバーが受け取った
+   * かたまりごとに その場で localStorage へ書き戻しているので、
+   * ここで書き出さなくても失われません（removeRecords）。
+   *
+   * 消えてしまうのは「入力したのに まだ ほぞんを押していない出席番号」です。
+   * 児童が番号を打っている最中にタブを捨てられると、開き直したときに
+   * また打ち直しになります。そこで、正しい番号（1〜99）が入っていたら
+   * ここで確定させます。
+   *
+   * 送信キー（せってい）は、まちがった値が残ると先生が原因を探しにくく
+   * なるため、ここでは保存しません。
+   * ================================================================ */
+  function commitBeforeHide() {
+    if ($('number-sheet').hidden) return;              // 番号を入力していない
+    const raw = String($('number-input').value || '').trim().replace(/[^0-9]/g, '');
+    if (!raw) return;
+    const n = Number(raw);
+    if (!(n >= 1 && n <= 99)) return;                  // へんな値は保存しない
+    if (raw === currentNumber()) return;               // 変わっていない
+    try { localStorage.setItem(NUMBER_KEY, raw); } catch (e) { /* 保存できなくても続行 */ }
+  }
+
+  /* ================================================================
    * PWA（インストールと更新）
    * ================================================================ */
 
@@ -1321,15 +1440,21 @@
     let hintDismissed = false;
     try { hintDismissed = localStorage.getItem(INSTALL_HINT_KEY) === 'off'; } catch (e) { /* 続行 */ }
 
-    window.addEventListener('beforeinstallprompt', e => {
-      e.preventDefault();
-      state.installPrompt = e;
+    // インストールの合図は <head> のいちばん上で先に受け取ってあります。
+    // ここでは「もう届いているか」を確かめ、まだなら合図を待ちます。
+    // （このページを読み終わるより先に Chrome が合図を出すことがあるため）
+    const useInstallPrompt = () => {
+      const prompt = window.__deferredInstallPrompt;
+      if (!prompt) return;
+      state.installPrompt = prompt;
       $('install-btn').hidden = false;
       if (!hintDismissed) {
         $('install-text').innerHTML = 'まなびクエストを <b>アプリとして</b> ホーム画面に入れられます。';
         setInstallBar(true);
       }
-    });
+    };
+    window.addEventListener('pwa-installable', useInstallPrompt);
+    useInstallPrompt();
 
     // iOS はインストール用のイベントがないので、案内だけ出す
     if (isIos() && !hintDismissed) {
@@ -1338,7 +1463,7 @@
       setInstallBar(true);
     }
 
-    window.addEventListener('appinstalled', () => {
+    window.addEventListener('pwa-installed', () => {
       setInstallBar(false);
       $('install-btn').hidden = true;
       state.installPrompt = null;
@@ -1353,6 +1478,7 @@
     }
     const prompt = state.installPrompt;
     state.installPrompt = null;
+    window.__deferredInstallPrompt = null;   // 使い終わった合図は捨てる（二度は使えません）
     setInstallBar(false);
     $('install-btn').hidden = true;
     prompt.prompt();
@@ -1484,7 +1610,14 @@
   // 別タブの学習アプリで学習ログが増えたら件数表示を更新する
   window.addEventListener('storage', e => { if (e.key === LOG_KEY) renderPending(); });
   window.addEventListener('focus', renderPending);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) renderPending(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) commitBeforeHide();   // 裏に回った時点でもう捨てられる可能性がある
+    else renderPending();
+  });
+
+  // Chromebook でタブが捨てられるとき・アプリを閉じるときに、入力途中を確定させる。
+  // unload は出ないことがあるので、必ず pagehide を使います。
+  window.addEventListener('pagehide', commitBeforeHide);
 })();
 </script>
 </body>

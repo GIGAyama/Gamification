@@ -18,8 +18,13 @@
 
 'use strict';
 
-// キャッシュを作り直したいときはこの版数を上げます
-const VERSION = 'v1';
+// キャッシュを作り直したいときはこの版数を上げます。
+//
+// ★ ファイルを直して GitHub へ push したら、かならずここを 1 つ上げてください。
+//   上げ忘れると、児童の端末では前のまま表示され続けます
+//   （「直したのに変わらない」の原因のほとんどがこれです）。
+//   手順は README の「公開するときの手順」を見てください。
+const VERSION = 'v2';
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 

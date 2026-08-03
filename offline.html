@@ -2,31 +2,62 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <!--
+    このページは外から何ひとつ読み込みません（画像もスクリプトも自分の中だけ）。
+    だからいちばん厳しい設定にできます。'unsafe-inline' を style と script に
+    残しているのは、CSS とスクリプトをこのファイルの中に書いているためです。
+    防ぎたいのは「外部のスクリプトが差し込まれること」で、それは止められています。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'self'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>オフラインです｜まなびクエスト</title>
+  <meta name="theme-color" content="#2b7de9">
+  <meta name="color-scheme" content="light">
   <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
   <style>
-    * { box-sizing: border-box; }
+    /* 画面幅にあわせて文字を大きくする（Part I §2-4）。
+       固定 px だと、Chromebook の 1366px と スマホの 375px で読みやすさが揃わない */
+    :root {
+      --fs-body:  clamp(15px, 1.6vw + 10px, 18px);
+      --fs-title: clamp(20px, 2.6vw + 13px, 28px);
+      --fs-btn:   clamp(16px, 1.4vw + 12px, 19px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0;
+      min-height: 100vh;    /* 古い端末向けフォールバック */
       min-height: 100dvh;
       display: flex; align-items: center; justify-content: center;
-      padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+      padding: calc(24px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-right, 0px))
+               calc(24px + env(safe-area-inset-bottom, 0px)) calc(24px + env(safe-area-inset-left, 0px));
       font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
       background: linear-gradient(160deg, #eaf4ff, #fdf1e7);
       color: #33404d;
+      font-size: var(--fs-body);
     }
     .card {
       width: 100%; max-width: 420px; background: #fff;
       border-radius: 24px; padding: 32px 28px; text-align: center;
       box-shadow: 0 12px 32px rgba(60, 90, 130, .14);
     }
-    h1 { margin: 0 0 8px; font-size: 1.35rem; }
-    p { margin: 0 0 20px; color: #6a7a8a; font-size: .95rem; line-height: 1.8; }
+    h1 { margin: 0 0 8px; font-size: var(--fs-title); line-height: 1.5; }
+    p { margin: 0 0 20px; color: #6a7a8a; font-size: var(--fs-body); line-height: 1.8; }
     button {
-      width: 100%; padding: 16px; border: none; border-radius: 16px;
-      background: #2b7de9; color: #fff; font-size: 1.05rem; font-weight: bold;
+      width: 100%; min-height: 44px; padding: 16px; border: none; border-radius: 16px;
+      background: #2b7de9; color: #fff; font-size: var(--fs-btn); font-weight: bold;
       font-family: inherit; cursor: pointer;
+      touch-action: manipulation;   /* ダブルタップ判定の 300ms 待ちを消す */
+    }
+    :focus-visible { outline: 3px solid #1c5fb8; outline-offset: 2px; }
+
+    /* 動きが苦手な子のために、端末の設定にしたがって演出を止める */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
     }
   </style>
 </head>
@@ -38,7 +69,12 @@
       Wi-Fi や つうしんの じょうたいを たしかめてから、<br>
       もういちど ひらいてみてね。
     </p>
-    <button type="button" onclick="location.reload()">もういちど よみこむ</button>
+    <button type="button" id="retry">もういちど よみこむ</button>
   </div>
+  <script>
+    // onclick 属性を使わず、ここで結びつけます。
+    // 属性に JavaScript を書くやり方は、CSP を厳しくするときに邪魔になるためです。
+    document.getElementById('retry').addEventListener('click', () => location.reload());
+  </script>
 </body>
 </html>

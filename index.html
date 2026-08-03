@@ -2,6 +2,14 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
+  <!--
+    このページは外から何ひとつ読み込みません（アイコンも自分の中）。
+    そのため default-src を 'self' に絞れます。
+    'unsafe-inline' が style と script に残っているのは、
+    CSS と受け渡しスクリプトをこのファイルの中に書いているためです。
+    防ぎたいのは「外部のスクリプトが差し込まれること」で、それは止まります。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>まなびクエスト</title>
   <meta name="description" content="小学校の学習記録×ゲーミフィケーション「まなびクエスト」の入口ページ">
@@ -9,6 +17,7 @@
   <!-- ---- PWA（このページからインストールしても学習ポータルが起動します） ---- -->
   <link rel="manifest" href="./manifest.json">
   <meta name="theme-color" content="#2b7de9">
+  <meta name="color-scheme" content="light dark">
   <link rel="icon" href="./icons/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,7 +32,17 @@
     ポータルへの受け渡しを担当します。
   -->
   <style>
-    * { box-sizing: border-box; }
+    /* 画面幅にあわせて文字の大きさを変えます（Part I §2-4）。
+       メディアクエリを何段も書かずに、375px のスマホから
+       1920px の教員用PCまで同じ読みやすさにするためです。 */
+    :root {
+      --fs-body:  clamp(15px, 1.6vw + 10px, 18px);
+      --fs-lead:  clamp(15px, 1.4vw + 11px, 18px);
+      --fs-title: clamp(22px, 2.8vw + 14px, 32px);
+      --fs-go:    clamp(17px, 1.8vw + 12px, 21px);
+      --fs-note:  clamp(13px, 1vw + 9px, 15px);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0;
       min-height: 100vh;
@@ -31,10 +50,13 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      padding: calc(24px + env(safe-area-inset-top, 0px)) 24px calc(24px + env(safe-area-inset-bottom, 0px));
+      padding: calc(24px + env(safe-area-inset-top, 0px)) calc(24px + env(safe-area-inset-right, 0px))
+               calc(24px + env(safe-area-inset-bottom, 0px)) calc(24px + env(safe-area-inset-left, 0px));
       font-family: "Zen Maru Gothic", "Hiragino Maru Gothic ProN", "BIZ UDGothic", sans-serif;
       background: linear-gradient(160deg, #eaf4ff, #fdf1e7);
       color: #33404d;
+      font-size: var(--fs-body);
+      line-height: 1.8;   /* 児童も読むページなので行間を広くとる */
     }
     .card {
       width: 100%;
@@ -46,30 +68,45 @@
       text-align: center;
     }
     .card > img { width: 72px; height: 72px; border-radius: 18px; }
-    h1 { margin: 12px 0 4px; font-size: 1.5rem; }
-    .lead { margin: 0 0 24px; color: #6a7a8a; font-size: .95rem; }
+    h1 { margin: 12px 0 4px; font-size: var(--fs-title); line-height: 1.5; }
+    .lead { margin: 0 0 24px; color: #6a7a8a; font-size: var(--fs-lead); }
     .go {
-      display: block;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 44px;          /* 低学年の指で確実に押せる下限（Part I §2-9） */
       padding: 16px;
       border-radius: 16px;
       background: #2b7de9;
       color: #fff;
-      font-size: 1.15rem;
+      font-size: var(--fs-go);
       font-weight: bold;
       text-decoration: none;
+      touch-action: manipulation;  /* ダブルタップ判定の 300ms 待ちを消す */
     }
     .go:hover { background: #1c5fb8; }
     .note {
       margin: 24px 0 0;
       padding-top: 20px;
       border-top: 1px solid #eef2f6;
-      font-size: .8rem;
+      font-size: var(--fs-note);
       line-height: 1.7;
       color: #8a99a8;
       text-align: left;
     }
     .note a { color: #6a7a8a; }
     code { background: #f4f7fa; border-radius: 4px; padding: 1px 5px; font-size: .95em; }
+    :focus-visible { outline: 3px solid #1c5fb8; outline-offset: 2px; }
+
+    /* 動きが苦手な子のために、端末の設定にしたがって演出を止める（Part I §2-10） */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
 
     @media (prefers-color-scheme: dark) {
       body { background: linear-gradient(160deg, #121a24, #1c1a22); color: #e8eef5; }
@@ -82,7 +119,8 @@
 </head>
 <body>
   <div class="card">
-    <img src="./icons/icon-192.png" alt="">
+    <!-- 読み込み前でもレイアウトがガタつかないよう width/height を書きます（CLS 対策） -->
+    <img src="./icons/icon-192.png" width="72" height="72" alt="" decoding="async">
     <h1>まなびクエスト</h1>
     <p class="lead">学習ポータルへ すすんでください</p>
     <a class="go" id="go" href="./manabi-portal/">ポータルを ひらく</a>
