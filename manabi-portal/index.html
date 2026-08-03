@@ -838,10 +838,20 @@
     }
   }
 
+  /**
+   * まなびクエスト（iframe の中）へメッセージを送ります。
+   *
+   * 宛先のオリジンは、相手から届いたメッセージで確かめた値（state.appOrigin）だけを使います。
+   * 以前は `state.appOrigin || '*'` と書いていましたが、'*' は「どのサイトが
+   * 相手でも届ける」という意味で、乗っ取られた iframe に未送信件数や出席番号を
+   * 渡してしまう可能性があります。分からないときは送らないのが正解です。
+   * （state.appConnected が true のときは必ず state.appOrigin も入っているので、
+   *   この条件で送れなくなることはありません）
+   */
   function notifyApp(message) {
-    if (!state.appConnected || !state.appWindow) return;
+    if (!state.appConnected || !state.appWindow || !state.appOrigin) return;
     try {
-      state.appWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin || '*');
+      state.appWindow.postMessage({ source: 'manabi-portal', ...message }, state.appOrigin);
     } catch (e) { /* 表示できていないだけなので無視 */ }
   }
 
@@ -858,7 +868,13 @@
     }
     frame.hidden = false;
     $('fallback-link').hidden = false;
-    const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?') + 'embed=1';
+    // portalOrigin … まなびクエスト側が「返事をどこへ送ればよいか」を最初から知るためのものです。
+    // 相手のオリジンが分かる前に postMessage を '*'（どこへでも）で送ると、
+    // 別のサイトに埋め込まれたときに中身を読まれてしまいます。それを無くすために渡します。
+    // この値がまちがっていても情報は漏れません。ブラウザは「送り先のオリジンが
+    // 一致するときだけ届ける」ので、合わなければ単に届かないだけです。
+    const url = conf.appUrl + (conf.appUrl.indexOf('?') >= 0 ? '&' : '?')
+      + 'embed=1&portalOrigin=' + encodeURIComponent(location.origin);
     $('fallback-link').href = conf.appUrl;
     frame.addEventListener('load', () => { state.frameLoaded = true; });
     frame.src = url;

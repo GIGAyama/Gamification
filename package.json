@@ -1,0 +1,21 @@
+{
+  "name": "gamification",
+  "version": "1.0.0",
+  "description": "まなびクエスト — 小学校の学習記録×ゲーミフィケーション（GitHub Pages シェル + Google Apps Script）",
+  "private": true,
+  "license": "MIT",
+  "_comment_type": "\"type\": \"module\" は書きません。既存の tools/*.js は require を使う書き方（CommonJS）で、これを付けると全部動かなくなります。scripts/ 側は拡張子が .mjs なので、指定がなくても新しい書き方で読まれます。",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node scripts/check-project.mjs",
+    "check:json": "node scripts/check-project.mjs --json",
+    "test": "node tools/check-syntax.js && node tools/check-portal-bridge.js && node tools/check-studylog.js && node tools/check-assignment.js && node tools/check-exp.js && node tools/check-insights.js",
+    "quality": "npm run check && npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GIGAyama/Gamification.git"
+  }
+}

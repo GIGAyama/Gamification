@@ -1,0 +1,39 @@
+# =====================================================================
+# quality.yml — 品質ゲート
+# =====================================================================
+# push と Pull Request のたびに、次の2つを自動で確かめます。
+#
+#   npm run check … 品質ゲート（構文・秘密情報・OAuthスコープ・postMessage の宛先ほか）
+#   npm test      … 中身のテスト（学習ログの受け取り・課題の提出判定・経験値・分析）
+#
+# どちらも外部サービスにつながないので、数秒で終わります。
+# 赤くなったときは、ログのファイル名と行番号を見て直してください。
+#
+# ※ このリポジトリは npm パッケージを使わないので npm ci は要りません。
+# =====================================================================
+name: quality
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 品質ゲート（npm run check）
+        run: npm run check
+
+      - name: テスト（npm test）
+        run: npm test

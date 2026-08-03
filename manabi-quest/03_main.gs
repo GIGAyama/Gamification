@@ -19,6 +19,13 @@ function doGet(e) {
     const template = HtmlService.createTemplateFromFile('index');
     // 埋め込み表示のときはポータル側にヘッダーがあるので、アプリ側の余白を詰める
     template.embedded = !!(e && e.parameter && e.parameter.embed);
+    // ポータルのオリジン。この画面からポータルへ postMessage を送るときの宛先に使います。
+    // 宛先を '*'（どこへでも）にすると、別のサイトに埋め込まれたときに中身を読まれるため、
+    // ポータルが自分のオリジンを名乗ってきたものをここで受け取ります。
+    // 値は GitHub Pages のドメインの形だけを通します（それ以外は空にして既定値を使う）。
+    // ※ まちがった値を入れられても情報は漏れません。ブラウザは宛先のオリジンが
+    //   実際に一致するときだけメッセージを届けるので、合わなければ届かないだけです。
+    template.portalOrigin = sanitizePortalOrigin_(e && e.parameter && e.parameter.portalOrigin);
     // viewport-fit=cover: ノッチのある端末でも画面のはしまで使い、
     //   下部バーは CSS の env(safe-area-inset-*) で安全な位置に置きます
     // minimum-scale=1.0: 指2本でつまむ操作でうっかり縮めると、アプリだけが
@@ -33,6 +40,17 @@ function doGet(e) {
     console.error(`doGet Error: ${err.message}`);
     return HtmlService.createHtmlOutput('<h1>エラー</h1><p>アプリの起動に失敗しました。管理者に連絡してください。</p>');
   }
+}
+
+/**
+ * ポータルが名乗ってきたオリジンを検査します。
+ * GitHub Pages（https://〇〇.github.io）の形だけを通し、それ以外は空文字にします。
+ * @param {*} value - URLパラメータ portalOrigin の値（改ざんされている前提で扱う）
+ * @returns {string} 通ったオリジン、または空文字
+ */
+function sanitizePortalOrigin_(value) {
+  const origin = String(value || '').trim();
+  return /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin) ? origin : '';
 }
 
 /** HTMLテンプレートに部分ファイルを差し込むためのヘルパー */

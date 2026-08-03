@@ -9,13 +9,29 @@
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-  <script src="https://www.gstatic.com/charts/loader.js"></script>
-  <!-- ふりがな（ルビ）自動付与: 児童画面のみで使用。読み込めない環境ではルビなしで通常動作します -->
-  <script src="https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js"></script>
+  <!--
+    以前ここには次の3つも並べていましたが、あとから読み込む方式に変えました。
+
+      ・Google Charts のローダー      … グラフを実際に描くときだけ
+      ・kuroshiro                     … ふりがなを付けるときだけ（児童画面のみ）
+      ・kuroshiro-analyzer-kuromoji   … 同上
+
+    kuroshiro の2つだけで 111KB あり、しかも先生の画面ではまったく使いません。
+    グラフのローダーも、記録タブを開かない児童には要りませんでした。
+    ここに script タグで並べると、画面が出るより先に全部そろうのを待つため、
+    校内Wi-Fiが混んでいる時間帯に最初の表示が目に見えて遅くなります。
+    （このコメントの中に script のタグをそのまま書くと、検査ツールが
+      本物のタグと見まちがえるので、ことばで書いています）
+
+    読み込み先は js_core.html の loadScriptOnce_() が必要になった時点で足します。
+    読み込めなかったときは、ふりがな無し・グラフ無しでそのまま使えます。
+  -->
   <?!= include('css'); ?>
 </head>
-<body class="bg-body-tertiary d-flex flex-column min-vh-100<?!= (typeof embedded !== 'undefined' && embedded) ? ' embedded' : '' ?>">
+<!-- data-portal-origin … ポータルへ返事を送るときの宛先。doGet が形を検査したものだけが入ります
+     （検査を通らなかったときは空。js_core の postToPortal が既定値を使います） -->
+<body class="bg-body-tertiary d-flex flex-column min-vh-100<?!= (typeof embedded !== 'undefined' && embedded) ? ' embedded' : '' ?>"
+      data-portal-origin="<?= (typeof portalOrigin !== 'undefined' && portalOrigin) ? portalOrigin : '' ?>">
 
   <?!= include('icons'); ?>
 

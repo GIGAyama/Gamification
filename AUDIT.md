@@ -4,7 +4,7 @@
 - 対象コミット: `aa9e852`
 - 実施者: GIGA Standard v4 Rollout Engineer（Part III / `/rollout`）
 - **Phase 0（監査）時点では、コードを1行も変更していません。**
-- **その後、合意のうえで P0 → P1 → P3 を実施しました。結果は末尾の[対応後の状態](#対応後の状態)を参照してください。**
+- **その後、合意のうえで P0 → P1 → P2 → P3 → P4 を実施しました。結果は末尾の[対応後の状態](#対応後の状態)を参照してください。**
 
 ---
 
@@ -266,13 +266,146 @@ Part III 絶対安全規則 6「UI の配色を変更しない」に触れるた
 > `.tab:disabled { color: #bcc6d1 }`（押せない状態のタブ）は基準を下回りますが、
 > WCAG 1.4.3 は**無効化されたコントロールを対象外**としているため変更していません。
 
+## P2 — 性能とアクセシビリティ（GAS 本体を含む）
+
+**ここから先は `manabi-quest/`（Apps Script 側）にも手を入れています。**
+GitHub と Apps Script は自動同期しないため、**先生による貼り替えとデプロイの更新が必要**です
+（手順は README「`manabi-quest/` を直したときは、Apps Script への貼り替えが要ります」）。
+貼り替えるまでは古い本体のまま動きますが、その組み合わせでも壊れないようにしてあります。
+
+### D7 / F1 — 動的 `<img>` の `alt` / `width` / `height`
+
+`js_student.html` の 3 箇所を修正しました。`alt` は「読み上げとして正しいか」で決めています。
+
+| 場所 | 内容 | `alt` | 大きさ |
+|---|---|---|---|
+| バッジ一覧 | 獲得したバッジの絵 | **空**（すぐ下に同じ名前が文字で出るため。読み上げの重複を避ける） | 56×56 |
+| アイテム一覧 | きせかえアイテム | **アイテム名**（文字の名前が出ないため） | 68×68 |
+| ガチャの結果 | 当たったアイテム | **空**（すぐ下に名前が出る） | 68×68 |
+
+あわせて `loading="lazy"`（一覧のみ）と `decoding="async"` を付けました。
+ガチャの結果は開いた瞬間に見えるので `lazy` にしていません。
+
+### B4 — `postMessage` の宛先から `'*'` を無くした
+
+**これが今回いちばん実害のあった項目です。**
+
+改修前は、相手のオリジンが分かる前に送るメッセージが `'*'`（どのサイトが相手でも届ける）
+になっていました。悪意のあるページがまなびクエストを iframe で埋め込むと、
+画面階層（`NAV_STATE`）や起動の合図（`APP_READY`）をそのまま読めます。
+
+| 変更 | 内容 |
+|---|---|
+| ポータル → 本体 | iframe のURLに `portalOrigin=<自分のオリジン>` を付けて名乗る |
+| `03_main.gs` | `sanitizePortalOrigin_()` で `https://〇〇.github.io` の形だけを通し、テンプレートへ渡す |
+| `index.html`（GAS） | `<body data-portal-origin="…">` として画面側に渡す |
+| `js_core.html` | 起動時にこれを `Portal.origin` へ控える。`postToPortal()` は **`'*'` を一切使わない** |
+| `manabi-portal/index.html` | `notifyApp()` から `\|\| '*'` を削除し、`state.appOrigin` が無ければ送らない |
+
+**URLパラメータを改ざんされても情報は漏れません。** ブラウザは
+`postMessage` の宛先オリジンが実際に一致するときだけ届けるので、
+まちがった値を入れられても「届かない」だけです。
+
+最初のあいさつ（`APP_READY`）だけは、相手がまだ名乗っていないため
+`PORTAL_ORIGIN_DEFAULT`（`https://gigayama.github.io`）を使います。
+これは「古いポータル ＋ 新しい本体」の組み合わせを壊さないための逃げ道でもあります。
+別ドメインの GitHub Pages へ移すときは、この定数を書きかえてください
+（新しいポータルなら `portalOrigin` で自動的に上書きされます）。
+
+> 起動直後の `NAV_STATE` が送れないことがあるため、`PORTAL_READY` を受け取った時点で
+> `navNotify()` を呼び直すようにしました。これが無いと、古いポータルで
+> 「もどる」ボタンの状態が更新されないままになります。
+
+### F3 — 初回に読み込む JavaScript を減らした
+
+`<head>` に並べていた 3 つを、**必要になってから読み込む**方式に変えました。
+
+| ライブラリ | 大きさ（実測） | 変更後 |
+|---|--:|---|
+| kuroshiro | 34KB | 児童画面で `initFurigana()` が呼ばれたとき。**先生の画面では読み込まない** |
+| kuroshiro-analyzer-kuromoji | 77KB | 同上 |
+| Google Charts ローダー | — | グラフを実際に描くとき。記録タブを開かない児童は読み込まない |
+
+`js_core.html` に `loadScriptOnce_()` を足し、`js_student.html` の
+`drawTypingChart` / `drawCalcChart` / `drawTestChart` は
+「まだ用意できていなければ読み込んでから自分をもう一度呼ぶ」形にしました。
+読み込めなかったときは、ふりがな無し・グラフ無しでそのまま使えます（元からその設計です）。
+
+**残っている分**（未実施）：自前の JS が 285KB あります
+（`js_core` 53KB + `js_student` 144KB + `js_teacher` 87KB）。
+先生の画面と児童の画面を両方とも全員に配っている状態で、`doGet` の段階で
+役割を判定して切り分ければ半分近く減らせますが、**認証まわりの構造に踏み込む**ため
+今回は手を付けていません。
+
+---
+
+## P4 — 品質ゲートの移植
+
+`SchoolPlan_Editor/scripts/lib/project-quality.mjs` を**正本として 1 バイトも変えずにコピー**しました
+（sha256 `84bce94b…` で一致を確認）。正本が更新されたら、そのまま上書きできます。
+
+このリポジトリは C+型で中身が 2 つに分かれているため、
+`scripts/check-project.mjs`（薄い実行係）が検査を **2 回**まわします。
+ライブラリ側は書きかえていません。
+
+| 場所 | 設定 | 対象 |
+|---|---|---|
+| リポジトリ直下 | `quality.config.json` | GitHub Pages 側（31 ファイル） |
+| `manabi-quest/` | `manabi-quest/quality.config.json` | Apps Script 側（22 ファイル） |
+
+**結果：エラー 0 件 / 警告 0 件。**
+
+### 明示的に許可した例外（2 件のみ）
+
+検査を緩めるのではなく、理由を設定ファイル内に書いて許可しています。
+
+| 例外 | 場所 | 理由 |
+|---|---|---|
+| `XFRAME_ALLOWALL` | `03_main.gs` | ポータルの iframe に本体を表示するために必要。無いと C+型が成り立たない |
+| `auth/drive` を `forbiddenOauthScopes` から外す | `manabi-quest/quality.config.json` | 合意のうえで据え置いた判断。使用箇所ごとの理由を設定ファイルと README に記録 |
+
+`WILDCARD_POSTMESSAGE` の例外は **ゼロ**です（B4 で解消したため）。
+
+### 追加したテスト
+
+`tools/check-portal-bridge.js` を新設し、`npm test` に組み込みました（24 項目）。
+ポータルとの受け渡しで**宛先が `'*'` にならないこと**を、実際に関数を動かして確かめます。
+
+- `sanitizePortalOrigin_` … `http://` / 別ドメイン / `github.io.evil.com` / パス付きを拒否
+- `isPortalOrigin_` … サーバー側と判定がそろっていること
+- `postToPortal` … あいさつ以外は相手不明なら送らない・宛先が `'*'` にならない
+- ソース 3 ファイルに `postMessage(..., '*')` が残っていないこと
+
+### CI
+
+`.github/workflows/quality.yml` を追加し、push と Pull Request で
+`npm run check` と `npm test` が回るようにしました。
+npm パッケージを使わない構成なので `npm ci` は不要で、数秒で終わります。
+
+---
+
+## 実施後の全体確認
+
+| 確認 | 結果 |
+|---|---|
+| `npm run check` | **0 エラー / 0 警告**（53 ファイル） |
+| `npm test` | **全 6 スイート合格**（構文・ポータル受け渡し・学習ログ・課題・経験値・分析） |
+| 320 / 375 / 810 / 1366px の横スクロール | 発生せず |
+| コンソールのエラー | **0 件** |
+| Service Worker | `manabi-shell-v4` を生成、オフライン再読み込みで起動 |
+| コントラスト | 変更した全箇所が 4.5:1 以上 |
+
+> 品質ゲートは導入直後に実際に 1 件見つけています。
+> `manabi-quest/index.html` のコメント内に書いた `script` タグの文字列が
+> 本物のタグとして拾われ、`HTML_SCRIPT_SYNTAX` エラーになりました（修正済み）。
+
+---
+
 ## 残っている項目（未実施・要判断）
 
 | # | 内容 | 状況 |
 |---|---|---|
-| B1 | ポータルへの CSP 投入 | **保留**。iframe が Google 内を多段遷移するため、本番 GAS につないだ実機でしか検証できない。ポリシー案と検証手順を README に記載済み |
-| B3 | `auth/drive` の縮小 | **据え置き（合意済み）**。理由を README「OAuth スコープについて」に明記した |
-| B4 | `postMessage` の `\|\| '*'` フォールバック | **未対応**。相手 origin が確定する前に送るとワイルドカードになる。**片側は GAS 本体（`js_core.html`）にあり、本体の変更を伴うため P2 以降** |
-| D7 / F1 | GAS 側の動的 `<img>` 3 箇所（`js_student.html:1446, 2464, 2644`）の `alt` / `width` / `height` 欠落 | **未対応（P2）**。GAS 本体の変更にあたる |
-| F3 | 初回 JS 300KB 超 | **未対応（P2）**。kuroshiro（ふりがな）が主因で、児童のアクセシビリティに直結するため単純削除は後退になる |
-| P4 | 品質ゲート（`scripts/check-project.mjs` / `quality.config.json`） | **未実施**。`SchoolPlan_Editor` の正本が手元に無いため、移植には正本の所在確認が必要 |
+| B1 | **ポータルへの CSP 投入** | **保留（環境の制約）**。iframe が `script.google.com` → `accounts.google.com` → `〇〇.googleusercontent.com` と Google 内を多段遷移し、遷移先が端末・アカウントの状態で変わる。**本番の GAS デプロイにつないだ実機でしか検証できない**。ポリシー案と「1件でも `Refused to` が出たら入れずに戻す」手順を README に記載済み。入口ページとオフライン案内には投入済み（実機でブロック0件を確認） |
+| B3 | `auth/drive` の縮小 | **据え置き（合意済み）**。理由を README と `quality.config.json` に記録 |
+| F3 | 自前 JS 285KB の役割別出し分け | **未実施**。`doGet` で先生／児童を判定して `js_teacher` / `js_student` を出し分ければ半減するが、認証まわりの構造変更にあたる |
+| — | `manabi-quest/` の Apps Script への反映 | **先生の操作が必要**。今回 GAS 側も変更したため、貼り替えとデプロイの更新をお願いします（手順は README） |

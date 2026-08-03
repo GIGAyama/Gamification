@@ -1,0 +1,35 @@
+{
+  "_note": "GitHub Pages 側（児童が開くページ）の検査設定。GAS 側は manabi-quest/quality.config.json を見てください。",
+  "entryHtml": "index.html",
+  "requiredFiles": [
+    "index.html",
+    "offline.html",
+    "sw.js",
+    "manifest.json",
+    "LICENSE",
+    "README.md",
+    "MANUAL.md"
+  ],
+  "ignoreDirectories": [
+    ".git",
+    ".clasp",
+    "node_modules",
+    "coverage",
+    "dist",
+    "manabi-quest",
+    ".assets-original"
+  ],
+  "manifest": {
+    "_note": "この側に appsscript.json は無いので、この設定は使われません。",
+    "forbiddenOauthScopes": []
+  },
+  "securityExceptions": {
+    "_note": "いまは例外ゼロです。postMessage の宛先は必ず相手のオリジンを指定しています。",
+    "wildcardPostMessage": [],
+    "xFrameAllowAll": []
+  },
+  "maintainability": {
+    "warningLineCount": 5000,
+    "warningByteCount": 400000
+  }
+}

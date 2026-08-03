@@ -246,6 +246,18 @@ function isPortalOrigin_(origin) {
 }
 
 /**
+ * ポータルの既定オリジン。
+ *
+ * ポータルは iframe のURLに portalOrigin=… を付けて自分のオリジンを名乗ってきますが、
+ * 「古いポータル ＋ 新しいこのコード」の組み合わせでは名乗りが無いことがあります。
+ * そのときの最初のあいさつ（APP_READY）の宛先として使います。
+ *
+ * ★ このアプリを別のドメインの GitHub Pages に置いて使う場合は、ここを書きかえてください。
+ *   （ポータル側が新しければ portalOrigin で自動的に上書きされるので、ふつうは不要です）
+ */
+const PORTAL_ORIGIN_DEFAULT = 'https://gigayama.github.io';
+
+/**
  * ポータル（いちばん外側のページ）へメッセージを送ります。
  *
  * ※ 宛先は window.parent ではなく window.top です。
@@ -255,10 +267,21 @@ function isPortalOrigin_(origin) {
  *       ポータル(github.io) ＞ script.google.com ＞ googleusercontent.com（このコード）
  *   window.parent は script.google.com のページであってポータルではありません。
  */
-function postToPortal(message) {
+function postToPortal(message, isGreeting) {
   if (window.self === window.top) return false;   // いちばん外側なら送り先がない
+
+  // 宛先のオリジンは必ず1つに決めます。
+  // 以前は Portal.origin が分からないときに '*'（どこへでも）で送っていましたが、
+  // これは「このページを埋め込んだのが誰であっても中身を渡す」という意味になり、
+  // 別のサイトに埋め込まれると画面階層や送信の状態を読まれてしまいます。
+  //
+  // 最初のあいさつ（APP_READY）だけは、まだ相手が名乗る前なので既定値を使います。
+  // それ以外は、相手のオリジンが分かっていないなら送りません。
+  const target = Portal.origin || (isGreeting ? PORTAL_ORIGIN_DEFAULT : '');
+  if (!target) return false;
+
   try {
-    window.top.postMessage({ source: 'manabi-quest', ...message }, Portal.origin || '*');
+    window.top.postMessage({ source: 'manabi-quest', ...message }, target);
     return true;
   } catch (e) {
     return false;
@@ -271,6 +294,12 @@ function initPortalBridge() {
   // 「ポータルに埋め込まれているか」を判定できません。
   // サーバー側が ?embed=1 のときに付ける body.embedded を正とします。
   Portal.embedded = document.body.classList.contains('embedded');
+
+  // ポータルが iframe のURLで名乗ってきたオリジンを、返事の宛先として先に控えます。
+  // これがあると、相手からの1通目を待たずに正しい宛先へ送れます。
+  // （サーバー側の doGet も同じ形で検査していますが、ここでも必ず確かめます）
+  const declared = document.body.dataset.portalOrigin || '';
+  if (isPortalOrigin_(declared)) Portal.origin = declared;
 
   window.addEventListener('message', event => {
     // いちばん外側のページ かつ GitHub Pages のオリジンからのメッセージだけを受け付ける
@@ -287,7 +316,14 @@ function initPortalBridge() {
         Portal.studentNumber = String(msg.studentNumber || '');
         Portal.sending = false;
         // 初期データの取得が先に終わっていた場合は、ここで出席番号を知らせます
-        if (msg.type === 'PORTAL_READY') notifyPortalIdentity();
+        if (msg.type === 'PORTAL_READY') {
+          notifyPortalIdentity();
+          // 画面階層の状態を送り直します。
+          // 起動直後の NAV_STATE は、相手のオリジンがまだ分からず送れていないことが
+          // あるためです（古いポータルは iframe のURLで名乗ってきません）。
+          // 送らないままだと、ポータルの「もどる」が正しく光りません。
+          navNotify();
+        }
         if (Portal.onUpdate) Portal.onUpdate(msg);
         break;
       case 'SEND_STARTED':
@@ -315,7 +351,9 @@ function initPortalBridge() {
   // relay: true は「学習ログの中継（RELAY_POST）に対応した版です」という合図です。
   // ポータルは GitHub Pages で自動的に新しくなりますが、この GAS 側は先生が
   // 貼り替えるまで古いままなので、対応済みかどうかをここで伝えます。
-  postToPortal({ type: 'APP_READY', relay: true });
+  // 第2引数の true は「これは最初のあいさつです」という印です。
+  // まだ相手が名乗っていないときだけ、既定のオリジンへ送ることを許します。
+  postToPortal({ type: 'APP_READY', relay: true }, true);
 }
 
 /**
@@ -942,6 +980,38 @@ const Furigana = {
 };
 
 /**
+ * 外部のスクリプトを、必要になった時点で1回だけ読み込みます。
+ *
+ * <head> に <script src> を並べると、画面が出るより先に全部そろうのを待ちます。
+ * 使うかどうか分からないもの（ふりがな・グラフ）まで待たせると、
+ * 校内Wi-Fiが混んでいる時間帯に最初の表示が目に見えて遅くなります。
+ *
+ * 同じURLを2回頼まれても、読み込みは1回だけです（Promise を使いまわします）。
+ * 読み込めなかったときは reject するので、呼び出し側でその機能を
+ * 「無し」にして続けられます。
+ *
+ * @param {string} src - スクリプトのURL
+ * @returns {Promise<void>}
+ */
+const loadedScripts_ = new Map();
+function loadScriptOnce_(src) {
+  if (loadedScripts_.has(src)) return loadedScripts_.get(src);
+  const promise = new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = src;
+    el.async = true;
+    el.onload = () => resolve();
+    el.onerror = () => {
+      loadedScripts_.delete(src);   // 次にまた頼まれたら、もう一度ためせるようにする
+      reject(new Error(`読み込めませんでした: ${src}`));
+    };
+    document.head.appendChild(el);
+  });
+  loadedScripts_.set(src, promise);
+  return promise;
+}
+
+/**
  * kuromoji は辞書URLを path.join で連結するため「https://」が「https:/」に潰れ、
  * GAS のサンドボックス（googleusercontent.com）ではこれが自ドメイン相対として
  * 解決されて全辞書ファイルが 404 になる。辞書取得の XHR に限り、URL を正しい
@@ -962,7 +1032,17 @@ function patchKuromojiDictUrl_() {
 /** 児童画面向けにふりがなエンジンを起動します（教員画面では呼びません） */
 async function initFurigana() {
   try {
-    if (Furigana.ready || typeof Kuroshiro === 'undefined' || typeof KuromojiAnalyzer === 'undefined') return;
+    if (Furigana.ready) return;
+
+    // ふりがなの本体（111KB）は、児童画面を開いたこの時点ではじめて取りにいきます。
+    // 先生の画面では initFurigana() を呼ばないので、まったく読み込まれません。
+    // 取りに行けなかったときは下の catch に入り、ルビなしでそのまま動きます。
+    await Promise.all([
+      loadScriptOnce_('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js'),
+      loadScriptOnce_('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js')
+    ]);
+    if (typeof Kuroshiro === 'undefined' || typeof KuromojiAnalyzer === 'undefined') return;
+
     const KuroshiroCtor = Kuroshiro.default || Kuroshiro;
     const AnalyzerCtor = KuromojiAnalyzer.default || KuromojiAnalyzer;
     const kuroshiro = new KuroshiroCtor();

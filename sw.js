@@ -24,7 +24,7 @@
 //   上げ忘れると、児童の端末では前のまま表示され続けます
 //   （「直したのに変わらない」の原因のほとんどがこれです）。
 //   手順は README の「公開するときの手順」を見てください。
-const VERSION = 'v3';
+const VERSION = 'v4';
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 
