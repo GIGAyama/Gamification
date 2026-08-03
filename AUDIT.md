@@ -2,8 +2,9 @@
 
 - 監査日: 2026-08-03
 - 対象コミット: `aa9e852`
-- 実施者: GIGA Standard v4 Rollout Engineer（Part III / `/rollout` Phase 0）
-- **この文書の作成時点で、コードは1行も変更していません。**
+- 実施者: GIGA Standard v4 Rollout Engineer（Part III / `/rollout`）
+- **Phase 0（監査）時点では、コードを1行も変更していません。**
+- **その後、合意のうえで P0 → P1 → P3 を実施しました。結果は末尾の[対応後の状態](#対応後の状態)を参照してください。**
 
 ---
 
@@ -178,3 +179,67 @@ kuroshiro（ふりがな自動付与）は児童のアクセシビリティに�
 ---
 
 > **Phase 0 はここまでです。** 上記フェーズの実施について合意をいただいてから、P0 → P1 → … と進めます。
+
+
+---
+
+# 対応後の状態
+
+Phase 0 の合意にもとづき **P0（法務）→ P1（表示・PWA）→ P3（保守性）** を実施しました。
+**GAS 本体（`manabi-quest/`）は 1 バイトも変更していません。**
+児童が見る画面の**文言・配色・アプリ名も変えていません**（Part III 絶対安全規則 5・6）。
+
+## 解消した項目
+
+| # | 項目 | 前 | 後 | 何をしたか |
+|---|---|:--:|:--:|---|
+| A1 | LICENSE | ❌ | ✅ | MIT / Copyright (c) 2026 GIGAyama |
+| A2 | `.gitignore` | ❌ | ✅ | `.clasp.json` `.env` `node_modules/` `.assets-original/` ほか |
+| A3 | `dependabot.yml` | ❌ | ✅ | github-actions を monthly で監視。CDN が追えない理由をコメントに明記 |
+| A4 | MANUAL.md | ❌ | ✅ | 先生向け・専門用語ゼロ。「うまくいかないとき」8項目・iOS のホーム画面追加手順つき |
+| B1 | CSP | ❌ | ⚠️ | `index.html` / `offline.html` に投入し実機でブロック0件を確認。**ポータルは未投入**（理由と手順は README「CSP を入れるときの手順」） |
+| C3 | `pagehide` | ❌ | ✅ | 入力途中の出席番号（1〜99 のみ）を確定。学習ログ自体は送信のかたまりごとに書き戻しており元から失われない旨をコード内に明記 |
+| D4 | fluid type | ❌ | ✅ | `clamp()` を 6 種導入。下部タブは 10.9px 固定 → **320px で 12.1px / 1366px で 15px**。行間 1.8 |
+| D7 | `<img>` の width/height | ⚠️ | ⚠️ | 入口ページの `<img>` に付与。**GAS 側の動的 `<img>` 3 箇所は未対応（P2）** |
+| D9 | タップ領域・`touch-action` | ⚠️ | ✅ | インストール案内の ✕ を 2px 余白 → **44×44px**。押せる要素すべてに `touch-action: manipulation` |
+| D10 | `prefers-reduced-motion` | ⚠️ | ✅ | ポータル・入口・オフライン案内に追加（本体側は元から対応済み） |
+| E1 | manifest の絶対パス | ⚠️ | ✅ | `scope` / `start_url` / shortcut を `/Gamification/…` で明示。**解決結果は従来と同一のため、インストール済みアプリに影響なし** |
+| E3 | `beforeinstallprompt` の位置 | ❌ | ✅ | 1324 行目 → **`<head>` 最上部**。`pwa-installable` / `pwa-installed` イベントで受け渡し |
+| E9 | `APP_VERSION` | ⚠️ | ✅ | `v1` → `v2`。上げ忘れ防止の注意書きを `sw.js` / README / MANUAL に記載 |
+| E10 | iOS 手順 | ⚠️ | ✅ | MANUAL.md に手順を記載（Safari 限定である旨も明記） |
+| F1 | `aria-live` | ⚠️ | ⚠️ | ポータルのトースト・未送信件数・接続テスト結果に付与。**GAS 側の `<img>` の alt 欠落は未対応（P2）** |
+| F2 | フォーカス表示 | ⚠️ | ✅ | `:focus-visible { outline: 3px solid }` を 3 ファイルに追加 |
+
+## 実機で確認したこと
+
+`npx serve . -p 8000` + Chromium（Playwright）で自動計測しました。
+
+| 確認項目 | 結果 |
+|---|---|
+| 320 / 375 / 810 / 1366px で横スクロール | **すべて発生せず**（`documentElement.scrollWidth == clientWidth`） |
+| コンソールのエラー | **0 件**（`Refused to` / CSP 違反も 0 件） |
+| Service Worker | `manabi-shell-v2` を生成し、シェル 10 件をキャッシュ |
+| オフラインで再読み込み | **起動する**（ポータルがキャッシュから表示） |
+| `pagehide` の動作 | `7` は保存され、`0`（範囲外）は保存されない |
+| 下部タブの文字 | 320px で 12.1px / 1366px で 15px。58px の枠からはみ出さない |
+| タップ領域 | 下部タブ 58px / ✕ 44×44px / インストール 44px |
+
+> 入口ページの「リポジトリの README」リンクは 160×17px で 44px 未満ですが、
+> **本文中のインラインリンク**であり WCAG 2.5.8 の例外に当たるため対応不要と判断しました。
+>
+> ポータルの `body.scrollWidth` が viewport より 60px 大きく出ますが、これは画面端の
+> スワイプ目印（`.edge-hint`、`opacity:0` / `pointer-events:none`）が
+> `translateX(60px)` で画面外に置かれているためです。`html { overflow: hidden }` に
+> 囲まれており、実際のスクロールは発生しません（改修前からの仕様）。
+
+## 残っている項目（未実施・要判断）
+
+| # | 内容 | 状況 |
+|---|---|---|
+| B1 | ポータルへの CSP 投入 | **保留**。iframe が Google 内を多段遷移するため、本番 GAS につないだ実機でしか検証できない。ポリシー案と検証手順を README に記載済み |
+| B3 | `auth/drive` の縮小 | **据え置き（合意済み）**。理由を README「OAuth スコープについて」に明記した |
+| B4 | `postMessage` の `\|\| '*'` フォールバック | **未対応**。相手 origin が確定する前に送るとワイルドカードになる。**片側は GAS 本体（`js_core.html`）にあり、本体の変更を伴うため P2 以降** |
+| D7 / F1 | GAS 側の動的 `<img>` 3 箇所（`js_student.html:1446, 2464, 2644`）の `alt` / `width` / `height` 欠落 | **未対応（P2）**。GAS 本体の変更にあたる |
+| D8 | コントラスト | **未対応**。`--muted: #7b8794` は背景 `#eef4fb` に対し **3.31:1**（本文サイズの基準 4.5:1 に不足）。`#5c6874` にすると **5.15:1** になる。ただし Part III 絶対安全規則 6「UI の配色を変更しない」に触れるため、**別途の合意が要る** |
+| F3 | 初回 JS 300KB 超 | **未対応（P2）**。kuroshiro（ふりがな）が主因で、児童のアクセシビリティに直結するため単純削除は後退になる |
+| P4 | 品質ゲート（`scripts/check-project.mjs` / `quality.config.json`） | **未実施**。`SchoolPlan_Editor` の正本が手元に無いため、移植には正本の所在確認が必要 |

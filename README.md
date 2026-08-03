@@ -18,6 +18,10 @@ Web アプリ「まなびクエスト」のリポジトリです。
 そのため**ポータル（github.io）を親ページ、まなびクエストを iframe** にする構成にしています
 （詳しくは [manabi-portal/README.md](./manabi-portal/README.md)）。
 
+> 📖 **先生向けの使い方ガイドは [MANUAL.md](./MANUAL.md) にあります。**
+> 専門用語を使わずに、配付URL・ホーム画面への追加手順・「うまくいかないとき」をまとめています。
+> このリポジトリの現状診断は [AUDIT.md](./AUDIT.md) を参照してください。
+
 ## 🎮 学習アプリをひらく
 
 まなびクエストのホームに **「がくしゅうアプリ」** があり、GIGA山の学習アプリ
@@ -73,6 +77,26 @@ Web アプリ「まなびクエスト」のリポジトリです。
 `manabi-quest/` は Apps Script へ貼り付けるためのソースで静的サイトとしては動かないため、
 [`_config.yml`](./_config.yml) で配信対象から除外しています。
 
+### ⚠️ 公開するときの手順（ファイルを直したら必ず）
+
+`manabi-portal/` `index.html` `offline.html` `icons/` `manifest.json` のいずれかを直したら、
+**[`sw.js`](./sw.js) の `VERSION` を必ず1つ上げてから push してください。**
+
+```javascript
+const VERSION = 'v2';   // → 'v3' のように上げる
+```
+
+Service Worker はキャッシュ名にこの版数を含めています。上げないと、
+すでにアプリを入れている児童の端末では **前のファイルが出続けます**
+（「直したのに変わらない」の原因のほとんどがこれです）。
+
+上げると、児童の画面に「✨ あたらしいバージョンがあります」が出て、
+タップすると `SKIP_WAITING` → 再読み込みで新しくなります。
+
+> まなびクエスト本体（Apps Script）は毎回サーバーから読み込むため、この版数とは無関係です。
+> 本体を直したときは **「デプロイを管理」→ 既存のデプロイを編集** で版だけ上げてください。
+> **新規デプロイを作るとURLが変わり、児童のブックマークが切れます。**
+
 ## 📲 アプリとしてインストールする（PWA）
 
 学習ポータルは **PWA** に対応しています。ブラウザで開いたあと、次の操作でホーム画面や
@@ -117,6 +141,109 @@ Web アプリ「まなびクエスト」のリポジトリです。
 ページだけです。オリジンは **スキーム＋ホスト＋ポート** で決まり、**パスは関係しません**。
 `https://gigayama.github.io/Gamification/manabi-portal/` も学習アプリ本体と同じ
 `https://gigayama.github.io` オリジンなので、サブパスでの公開で問題ありません。
+
+## 🔐 セキュリティ設計
+
+### 信頼境界
+
+**信用してよい入力は、サーバー側の `Session.getActiveUser().getEmail()` だけ**です。
+`postMessage` の中身・`google.script.run` の引数・URLパラメータは、すべて改ざん可能として扱っています。
+
+| 層 | 何を信じるか |
+|---|---|
+| ポータル（GitHub Pages） | **何も信じない**。表示と受け渡しだけを担当し、判定はしない |
+| まなびクエスト（GAS） | ログイン中のメールアドレスのみ。ここから児童・教員を判定する |
+
+児童の出席番号は、ポータルの手入力より **本体のログイン判定を優先**します。
+共用端末で前の児童の番号が残っていても、ログインした児童の記録として保存されます。
+
+### 個人情報の扱い
+
+- ポータルは氏名・メールアドレス・出席番号を**サーバーへ送りません**（本体経由の場合）
+- 学習ログ `study.records.v1` は仕様どおり氏名・出席番号・メールを持ちません
+- ポータルは `localStorage.clear()` を使わず、**自分の接頭辞（`studySender.`）のキーだけ**を扱います。
+  他の学習アプリのデータ（`study.records.v1` を含む）を壊しません
+
+### 同一オリジン共有への配慮
+
+`gigayama.github.io` は数十個の学習アプリが同じオリジンを共有しています。
+[`sw.js`](./sw.js) は `caches.keys()` を全削除せず、**`manabi-` で始まるキャッシュだけ**を掃除します。
+全削除すると、他のアプリがオフラインで起動しなくなるためです。
+Service Worker は `localStorage` に一切触れません。
+
+### 秘密情報
+
+- Gemini APIキーは `PropertiesService`（スクリプトプロパティ `GEMINI_API_KEY`）に置きます。**ソースに直書きしません**
+- 学習ログ送信キーは、先生がURLパラメータで渡し、**端末の `localStorage` にだけ**保存されます。
+  リポジトリには含まれません
+- [`.gitignore`](./.gitignore) で `.clasp.json` `.env` の混入を止めています
+
+### OAuth スコープについて
+
+[`appsscript.json`](./manabi-quest/appsscript.json) は `https://www.googleapis.com/auth/drive`（Drive全体）を
+要求しています。**最小権限の原則からは広すぎる**ため、理由をここに明記します。
+
+| 使用箇所 | 呼び出し | なぜ `drive.file` では足りないか |
+|---|---|---|
+| `02_setup.gs` | `DriveApp.getFolderById(folderId)` | 先生が任意に指定したフォルダIDを開くため。`drive.file` はアプリが作った／開いたファイルにしか届かない |
+| `08_pdf.gs` | `DriveApp.getFileById(ss.getId()).getParents()` | 学期末ポートフォリオPDFの保存先を、バインド元シートの親フォルダから解決するため |
+| `09_ops.gs` | アーカイブ用スプレッドシートの `moveTo(folder)` | 同上 |
+
+`https://mail.google.com/`（Gmail全体）と `auth/drive.readonly` は**要求していません**。
+メール送信は `script.send_mail`（自分あて通知のみ）に限定しています。
+
+> 縮小するには、保存先フォルダを「バインド元シートと同じ場所」に固定して
+> `getFolderById` をやめる必要があり、**GAS 本体の機能変更＋全先生の再認可**を伴います。
+> 実運用中のPDF・アーカイブを壊すリスクがあるため、現時点では据え置いています。
+
+### CSP を入れるときの手順
+
+外部からの読み込みが無い [`index.html`](./index.html) と [`offline.html`](./offline.html) には、
+すでに厳しい CSP を入れてあります（Chromium 実機でブロック0件を確認済み）。
+
+[`manabi-portal/index.html`](./manabi-portal/index.html) には**まだ入れていません。**
+iframe が `script.google.com` → `accounts.google.com` → `〇〇.googleusercontent.com` と
+Google の中を移動し、その遷移先が端末・アカウントの状態で変わるためです。
+書きちがえると「iframe がまっしろのまま、原因も出ない」状態になります。
+
+入れるときは、**本番のGASデプロイにつないだ実機**で次の手順を踏んでください。
+
+1. 未ログインの児童アカウントでポータルを開き、DevTools のコンソールを開いたままにする
+2. 下のポリシーを `<head>` に入れる（`frame-src` は実際に遷移したドメインで補正する）
+
+   ```html
+   <meta http-equiv="Content-Security-Policy" content="
+     default-src 'self';
+     img-src 'self' data:;
+     style-src 'self' 'unsafe-inline';
+     script-src 'self' 'unsafe-inline';
+     connect-src 'self' https://script.google.com https://script.googleusercontent.com;
+     frame-src https://script.google.com https://accounts.google.com https://*.googleusercontent.com;
+     manifest-src 'self'; worker-src 'self';
+     object-src 'none'; base-uri 'self'; form-action 'none'">
+   ```
+
+3. **ログイン → 表示 → きろく送信 → 設定の接続テスト**まで通し、
+   コンソールに `Refused to` が**1件も出ない**ことを確認する
+4. 1件でも出たら**入れずに戻す**。授業中に原因が見えない壊れ方をするほうが害が大きい
+
+> `frame-ancestors` は `<meta>` では無視されます（HTTPヘッダー専用）。GitHub Pages では設定できないため入れていません。
+
+## ⚠️ 制限とクォータ
+
+| 対象 | 上限・めやす | 超えたときに起きること | 対処 |
+|---|---|---|---|
+| スプレッドシート | **1ファイル 1,000万セル**（空セルも数える） | 書き込みが失敗する | 「データベースの容量」メニューで確認 → 古い年度をアーカイブ |
+| 容量の警告 | 6割で注意 / 8割で早めのアーカイブ | 週次メールでお知らせ | `01_config.gs` の `CAPACITY` で調整 |
+| Apps Script 実行時間 | 1回 **6分**（無償アカウント） | 途中で止まる | アーカイブは行を削除して縮めるため、学期に1回を目安に |
+| Gmail 送信 | 1日 **100通**（無償）/ **1,500通**（Workspace） | 週次メールが届かない | 通知先を絞る |
+| `UrlFetchApp`（AI） | 1日 **20,000回** | AI所見が失敗する | APIキー未設定でもAI以外は動作 |
+| 同時アクセス | 1クラス40人の一斉送信を想定 | 行がずれる | 書き込みは `LockService` で1人ずつ通す |
+| 初回JS（ポータル） | 71KB・外部依存ゼロ | — | — |
+| 初回JS（本体） | **300KB を超過**（Bootstrap / SweetAlert2 / Google Charts / kuroshiro を CDN から取得） | 校内Wi-Fi混雑時に初回表示が遅い | kuroshiro（ふりがな）は読み込めなくてもルビなしで動作する設計。遅延読み込み化は今後の課題 |
+
+CDN の版数は URL に直接書いているため、Dependabot では追えません。
+更新するときは [`manabi-quest/index.html`](./manabi-quest/index.html) の `<head>` を直接直してください。
 
 ## セットアップ
 

@@ -11,6 +11,8 @@
 exclude:
   - manabi-quest
   - README.md
+  - MANUAL.md
+  - AUDIT.md
   - manabi-portal/README.md
   - icons/make_icons.py
   - tools
