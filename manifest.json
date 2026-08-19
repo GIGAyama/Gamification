@@ -45,7 +45,7 @@
       "name": "きろくを おくる",
       "short_name": "おくる",
       "description": "たまっている学習アプリのきろくをまなびクエストへ送ります",
-      "url": "/Gamification/manabi-portal/?action=send",
+      "url": "./manabi-portal/?action=send",
       "icons": [{ "src": "./icons/icon-192.png", "sizes": "192x192", "type": "image/png" }]
     }
   ]
