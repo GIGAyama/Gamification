@@ -153,6 +153,15 @@
 
     * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
+    /* ---- hidden は必ず効かせる（この画面でいちばん効く1行です） ----
+       .btn { display: inline-flex } のようにクラスで display を書くと、
+       ブラウザ標準の [hidden] { display: none } を上書きしてしまい、
+       JavaScript で hidden を付けてもボタンが消えません。
+       そのため「📲 アプリとして入れる」が、まだ入れられない場面でも
+       出たままになり、押しても設定シートが開くだけ＝何も起きない
+       ボタンに見えていました。ここで一度だけ、確実に効かせておきます。 */
+    [hidden] { display: none !important; }
+
     /* 押せるものは 44px を下限にし、ダブルタップ判定の 300ms 待ちを消します（Part I §2-9）。
        min-height だけだと文字が上に寄るため、中身は中央ぞろえにしています。 */
     button, .btn, a[href], [role="button"] { touch-action: manipulation; }
@@ -528,6 +537,14 @@
     <div class="muted" id="conf-status" role="status" aria-live="polite"></div>
     <hr style="border:none;border-top:1px solid var(--line);margin:14px 0;">
     <div class="muted" id="install-help"></div>
+    <!--
+      上部バーは 768px 未満の端末では丸ごと隠れるため、そこに置いた
+      「📲 アプリとして入れる」はスマートフォンからは押せません。
+      どの画面の大きさでも必ず届く入口として、ここにも同じボタンを置きます。
+    -->
+    <div class="row" style="margin-top:10px;">
+      <button class="btn primary" id="install-sheet-btn" type="button" hidden>📲 アプリとして入れる</button>
+    </div>
   </div>
 </div>
 </div>
@@ -1421,6 +1438,19 @@
     /iphone|ipad|ipod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);   // iPadOS はMac判定になる
 
+  /** ブラウザごとの「入れかた」。合図が来ない環境ではこれが唯一の道になります。 */
+  function installHelpText() {
+    return isIos()
+      ? 'iPhone / iPad（Safari）: 下の「共有」ボタン → <b>「ホーム画面に追加」</b> をえらぶと、アプリとして使えます。'
+      : 'Chrome / Edge: アドレスバーの「インストール」アイコン、またはメニューの <b>「アプリをインストール」</b> からアプリとして使えます。';
+  }
+
+  /** 「📲 アプリとして入れる」ボタンの表示切替（上部バーと設定シートの2か所） */
+  function setInstallButtons(visible) {
+    $('install-btn').hidden = !visible;
+    $('install-sheet-btn').hidden = !visible;
+  }
+
   function initPwa() {
     // --- Service Worker（オフライン起動とインストール要件） ---
     if ('serviceWorker' in navigator) {
@@ -1450,12 +1480,17 @@
     }
 
     // --- インストールの案内 ---
-    const helpText = isIos()
-      ? 'iPhone / iPad（Safari）: 下の「共有」ボタン → <b>「ホーム画面に追加」</b> をえらぶと、アプリとして使えます。'
-      : 'Chrome: アドレスバーの「インストール」アイコン、またはメニューの <b>「アプリをインストール」</b> からアプリとして使えます。';
-    $('install-help').innerHTML = `📲 <b>アプリとしてインストールする</b><br>${helpText}`;
+    $('install-help').innerHTML = `📲 <b>アプリとしてインストールする</b><br>${installHelpText()}`;
 
-    if (isStandalone()) return;   // すでにアプリとして起動している
+    if (isStandalone()) {          // すでにアプリとして起動している
+      setInstallButtons(false);
+      return;
+    }
+
+    // Chrome の合図（beforeinstallprompt）が来ない環境
+    // （iOS の Safari、Firefox、すでに入れてある端末）でもボタンは出しておき、
+    // 押されたら「入れかた」を出します。押しても何も起きないボタンを作らないためです。
+    setInstallButtons(true);
 
     let hintDismissed = false;
     try { hintDismissed = localStorage.getItem(INSTALL_HINT_KEY) === 'off'; } catch (e) { /* 続行 */ }
@@ -1467,7 +1502,7 @@
       const prompt = window.__deferredInstallPrompt;
       if (!prompt) return;
       state.installPrompt = prompt;
-      $('install-btn').hidden = false;
+      setInstallButtons(true);
       if (!hintDismissed) {
         $('install-text').innerHTML = 'まなびクエストを <b>アプリとして</b> ホーム画面に入れられます。';
         setInstallBar(true);
@@ -1485,24 +1520,48 @@
 
     window.addEventListener('pwa-installed', () => {
       setInstallBar(false);
-      $('install-btn').hidden = true;
+      setInstallButtons(false);
       state.installPrompt = null;
+      window.__deferredInstallPrompt = null;
       showToast('good', '🎉 アプリとしてインストールしました！つぎからはアイコンからひらけます。');
     });
   }
 
+  /**
+   * 「📲 アプリとして入れる」を押したとき。
+   *
+   * Chrome の合図は 1回しか使えません。使い終わる前にボタンを消してしまうと、
+   * ダイアログで「あとで」を選んだ人はその場では二度と入れられなくなります。
+   * ここではボタンを消さず、合図が無いときは「入れかた」を出します。
+   */
   async function runInstall() {
-    if (!state.installPrompt) {
-      openConfigSheet();
+    const prompt = state.installPrompt;
+    if (!prompt) { showInstallHelp(); return; }
+
+    // 合図は一度きりなので、押した時点で手放します（続けて押されても安全にするため）
+    state.installPrompt = null;
+    window.__deferredInstallPrompt = null;
+    setInstallBar(false);
+
+    let outcome = '';
+    try {
+      prompt.prompt();
+      const choice = await prompt.userChoice;
+      outcome = choice && choice.outcome;
+    } catch (e) {
+      showInstallHelp();          // 合図が古くなっていた（別のタブで使われた等）
       return;
     }
-    const prompt = state.installPrompt;
-    state.installPrompt = null;
-    window.__deferredInstallPrompt = null;   // 使い終わった合図は捨てる（二度は使えません）
-    setInstallBar(false);
-    $('install-btn').hidden = true;
-    prompt.prompt();
-    try { await prompt.userChoice; } catch (e) { /* 選ばなくても問題なし */ }
+    if (outcome === 'accepted') return;   // 入った知らせは pwa-installed で受け取ります
+
+    // 「あとで」を選んだとき。ボタンは残したまま、やり直せることを伝えます。
+    showToast('info', 'あとからでも 📲「アプリとして入れる」から やりなおせます。');
+  }
+
+  /** 合図が使えないときの「入れかた」（押しても何も起きない状態を作らない） */
+  function showInstallHelp() {
+    $('install-help').innerHTML = `📲 <b>アプリとしてインストールする</b><br>${installHelpText()}`;
+    showToast('info', `📲 ${installHelpText()}<br>すでに入れてある端末では、ホーム画面のアイコンからひらいてください。`, 12000);
   }
 
   function dismissInstallHint() {
@@ -1616,6 +1675,7 @@
 
   $('install-btn').addEventListener('click', runInstall);
   $('install-bar-btn').addEventListener('click', runInstall);
+  $('install-sheet-btn').addEventListener('click', runInstall);
   $('install-close').addEventListener('click', dismissInstallHint);
 
   bindEdgeSwipe($('edge-left'), $('edge-hint-left'), 'left');
