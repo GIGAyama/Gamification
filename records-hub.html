@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>記録ハブ — 学習ログの集約（まなびクエスト）</title>
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+    line-height: 1.8; color: #1f2933; background: #f7f9fb;
+  }
+  main { max-width: 42rem; margin: 0 auto; }
+  h1 { font-size: 1.25rem; margin: 0 0 1rem; }
+  code { background: #e4e9f0; padding: 0 .25em; border-radius: 3px; }
+  .muted { color: #52606d; font-size: .95rem; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e4e9f0; background: #1f2933; }
+    code { background: #323f4b; }
+    .muted { color: #9aa5b1; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>記録ハブ（学習ログの集約）</h1>
+  <p>
+    このページは、学習アプリが書いた学習ログ（<code>study.v1</code>）を
+    <b>1か所に写しておくための受け皿</b>です。ふだんは学習アプリの中で
+    見えない <code>iframe</code> として開かれ、画面には出ません。
+  </p>
+  <p class="muted">
+    ここに写された記録は、この端末のブラウザの中（<code>localStorage</code>）だけに置かれます。
+    外部のサーバーへは送られません。学習ポータルの「おくる」を押したときだけ、
+    学校の Google アカウントで開いているまなびクエストを通してスプレッドシートへ届きます。
+  </p>
+  <p class="muted">
+    このハブは<b>書き込み（写し）専用</b>です。外から中身を読み出すことはできないので、
+    ある学習アプリが別の学習アプリの記録をのぞくことはできません。
+    削除もできません。消せるのは、同じアドレス（オリジン）にある学習ポータルだけです。
+  </p>
+  <p class="muted">
+    先生へ: 学習アプリ側の入れかたは、リポジトリの <code>records-hub-client.js</code> と
+    README「学習ログの集約（記録ハブ）」を見てください。
+  </p>
+</main>
+<script>
+/* =====================================================================
+ * 記録ハブ — 学習ログを1か所に写しておく受け皿
+ * =====================================================================
+ * なぜ要るのか
+ * ---------------------------------------------------------------------
+ * 独自ドメインへ移る前は、学習アプリもポータルも gigayama.github.io という
+ * ひとつのオリジンにあり、localStorage を共有していました。ポータルは自分の
+ * 保存領域を読むだけで全アプリぶんの学習ログが手に入りました。
+ *
+ * いまはアプリごとに別のサブドメイン（＝別オリジン）です。ポータルが
+ * 各アプリを iframe で開いて取り寄せる方法（records-export.html）は動きますが、
+ * アプリの数だけ往復が要り、いちばん遅いアプリに待たされ、送信ずみの記録を
+ * 元から消せないため控えが際限なく必要になります。
+ *
+ * そこで「集約点」をポータルと同じオリジンに1つだけ置きます。
+ * 学習アプリは記録を書いたときに、ここへ写しを1通送ります（write-through）。
+ * ポータルにとってこのハブは同一オリジンなので、iframe も往復もなしに
+ * 自分の保存領域を読むだけで全アプリぶんがそろい、送信ずみの記録は
+ * 実体ごと消せます。
+ *
+ * 大事な約束
+ * ---------------------------------------------------------------------
+ * ① 原本は消さない
+ *    アプリ側の localStorage にある記録が原本です。ここはその「写し」で、
+ *    写しが失われても、ポータルは従来どおりアプリから取り寄せて作り直せます。
+ * ② 足すだけ。書きかえない・消さない
+ *    同じ id の記録は二度入れません。既にある記録の中身は絶対に上書きしません。
+ *    外からの削除依頼は受け付けません（そういうメッセージ自体を実装しません）。
+ * ③ 読み出しはできない
+ *    外へ渡すのは「何件入ったか」という結果だけです。中身は返しません。
+ *    これにより、ある学習アプリが別の学習アプリの記録を読むことはできません。
+ * ④ 同一サイトからしか受け付けない
+ *    giga-school.com とそのサブドメイン、または自分と同じオリジンだけ。
+ *    そもそも別サイトの iframe からはブラウザのストレージ分割によって
+ *    この保存領域が見えないので、通しても意味がありません。
+ * ⑤ 送信ずみの記録は復活させない
+ *    ポータルが送信に成功して消した記録の id は studySender.sent.v1 に
+ *    控えてあります。写しが遅れて届いても、そこに載っている id は入れません。
+ * ===================================================================== */
+(() => {
+  'use strict';
+
+  /** 学習ログ本体（仕様 §1: 全アプリ共通のキー）。ポータルが同一オリジンとして読みます */
+  const LOG_KEY = 'study.records.v1';
+  /** どの学習アプリが、いつ写しを送ってきたか（ポータルが「取り寄せを省いてよいか」の判断に使う） */
+  const SEEN_KEY = 'study.hub.seen.v1';
+  /** 保存領域が尽きて写せなかったときの目印（ポータルが先生に知らせる） */
+  const QUOTA_KEY = 'study.hub.quota.v1';
+  /** ポータルが「送信ずみ」として控えた id。ここに載っている記録は復活させません */
+  const SENT_KEY = 'studySender.sent.v1';
+
+  const PROTOCOL_VERSION = 1;
+  const MAX_RECORDS_PER_MESSAGE = 200;   // 1通で受け取る上限（クライアントは100件ずつ送ります）
+  const MAX_RECORD_CHARS = 200000;       // 1件の上限。これを超えるものは受信側 GAS でも弾かれます
+  const MAX_APPID_CHARS = 40;
+  const MAX_REQID_CHARS = 64;
+
+  /** 同一サイト（eTLD+1 が giga-school.com）だけを通します。^ と $ で全体を縛ります */
+  const SAME_SITE_RE = /^https:\/\/([a-z0-9-]+\.)?giga-school\.com$/i;
+
+  /**
+   * 写しを受け付けてよい相手か。
+   *
+   * 自分と同じオリジン（フォークして1オリジンに同居させた構成）と、
+   * giga-school.com のサブドメイン（いまの構成）だけを通します。
+   * 別サイトを通しても、ストレージ分割でこの保存領域は見えないため無意味です。
+   */
+  function isTrustedEmbedder(origin) {
+    if (typeof origin !== 'string' || !origin) return false;
+    if (origin === location.origin) return true;
+    return SAME_SITE_RE.test(origin);
+  }
+
+  function readJson(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const value = JSON.parse(raw);
+      return (value === null || value === undefined) ? fallback : value;
+    } catch (e) { return fallback; }
+  }
+
+  function readLog() {
+    const list = readJson(LOG_KEY, []);
+    return Array.isArray(list) ? list : [];
+  }
+
+  /** 送信ずみとして控えられた id（小文字にそろえた集合） */
+  function readSentIds() {
+    const list = readJson(SENT_KEY, []);
+    const set = new Set();
+    if (Array.isArray(list)) {
+      list.forEach(id => { if (typeof id === 'string' && id) set.add(id.toLowerCase()); });
+    }
+    return set;
+  }
+
+  /**
+   * 学習ログとして最低限の形をしているか。
+   * 中身の本検査は受信側（10_studylog.gs の validateStudyRecord_）が行います。
+   * ここで見るのは「取り違えずに1件として並べられるか」だけです。
+   */
+  function isStudyRecord(rec) {
+    if (!rec || typeof rec !== 'object' || Array.isArray(rec)) return false;
+    if (rec.schema !== 'study.v1') return false;
+    if (typeof rec.id !== 'string' || rec.id.length < 8 || rec.id.length > 64) return false;
+    if (typeof rec.appId !== 'string' || !rec.appId || rec.appId.length > MAX_APPID_CHARS) return false;
+    return true;
+  }
+
+  /**
+   * 受け取ったものを、そのまま保存できる素の値に直します。
+   *
+   * postMessage は Map や循環参照のあるオブジェクトも運べてしまうので、
+   * 一度 JSON にできることを確かめ、できたものだけを保存します。
+   * 大きすぎるものはここで断ります（受信側 GAS も1セルに入らない記録は弾きます）。
+   */
+  function normalizeRecord(rec) {
+    let json;
+    try { json = JSON.stringify(rec); } catch (e) { return null; }
+    if (typeof json !== 'string' || json.length > MAX_RECORD_CHARS) return null;
+    try { return JSON.parse(json); } catch (e) { return null; }
+  }
+
+  function markQuota(error) {
+    try {
+      localStorage.setItem(QUOTA_KEY, JSON.stringify({
+        at: Date.now(), name: (error && error.name) || 'QuotaExceededError'
+      }));
+    } catch (e) { /* これも書けないなら、いずれにせよ保存領域が尽きています */ }
+  }
+
+  function clearQuota() {
+    try { if (localStorage.getItem(QUOTA_KEY) !== null) localStorage.removeItem(QUOTA_KEY); }
+    catch (e) { /* 目印を消せなくても、写し自体は成功しています */ }
+  }
+
+  /**
+   * どの学習アプリが写しを送ってきたかを控えます。
+   *
+   * first … はじめて写しが届いた時刻。ポータルはこれより後に1度でも
+   *          そのアプリを取り寄せていれば、「導入前の古い記録も拾い終えた」と判断できます
+   * last  … 最後に届いた時刻。しばらく途絶えたら、ポータルは取り寄せを再開します
+   *
+   * 件数や中身は入れません（外から読めない場所ですが、持たないに越したことはありません）。
+   */
+  function markSeen(appIds) {
+    if (!appIds || appIds.length === 0) return;
+    const stored = readJson(SEEN_KEY, {});
+    const map = (stored && typeof stored === 'object' && !Array.isArray(stored)) ? stored : {};
+    const now = Date.now();
+    appIds.forEach(appId => {
+      const entry = (map[appId] && typeof map[appId] === 'object' && !Array.isArray(map[appId]))
+        ? map[appId] : {};
+      if (typeof entry.first !== 'number' || !(entry.first > 0)) entry.first = now;
+      entry.last = now;
+      map[appId] = entry;
+    });
+    try { localStorage.setItem(SEEN_KEY, JSON.stringify(map)); }
+    catch (e) { /* 記録の本体ではないので、書けなくても写しは続けます */ }
+  }
+
+  /**
+   * 写しを受け取って保存します。
+   *
+   * 返すのは件数だけです（stored=新しく入った / skipped=すでにある・送信ずみ /
+   * rejected=形が違う・大きすぎる）。記録の中身は返しません。
+   */
+  function storeRecords(message) {
+    const incoming = Array.isArray(message.records) ? message.records : [];
+    if (incoming.length > MAX_RECORDS_PER_MESSAGE) {
+      return { ok: false, error: 'too-many', stored: 0, skipped: 0, rejected: 0 };
+    }
+
+    const known = new Set();
+    readLog().forEach(rec => {
+      if (rec && typeof rec.id === 'string') known.add(rec.id.toLowerCase());
+    });
+    // ポータルが送信して消した記録は、遅れて届いた写しで復活させません
+    readSentIds().forEach(id => known.add(id));
+
+    const appIds = new Set();
+    const added = [];
+    let skipped = 0, rejected = 0;
+
+    incoming.forEach(raw => {
+      if (!isStudyRecord(raw)) { rejected++; return; }
+      const rec = normalizeRecord(raw);
+      if (!rec) { rejected++; return; }
+      appIds.add(rec.appId);
+      const key = rec.id.toLowerCase();
+      if (known.has(key)) { skipped++; return; }
+      known.add(key);
+      added.push(rec);
+    });
+
+    if (added.length > 0) {
+      // 書く直前にもう一度読み直します。別のタブ（送信後に書きもどすポータル）と
+      // 行きちがったときの取りこぼしを、できるだけ小さくするためです。
+      // それでもすれ違ったぶんは、アプリ側に残る原本から拾い直せます。
+      const current = readLog();
+      const currentIds = new Set();
+      current.forEach(rec => { if (rec && typeof rec.id === 'string') currentIds.add(rec.id.toLowerCase()); });
+      const fresh = added.filter(rec => !currentIds.has(rec.id.toLowerCase()));
+      if (fresh.length > 0) {
+        try {
+          localStorage.setItem(LOG_KEY, JSON.stringify(current.concat(fresh)));
+        } catch (e) {
+          // 保存領域が尽きた。既にある写しはそのまま（setItem が失敗しても前の値は残ります）。
+          // 原本はアプリ側にあるので、記録が失われたわけではありません。
+          markQuota(e);
+          markSeen([...appIds]);
+          return { ok: false, error: 'quota', stored: 0, skipped, rejected };
+        }
+      }
+      clearQuota();
+      markSeen([...appIds]);
+      return { ok: true, stored: fresh.length, skipped: skipped + (added.length - fresh.length), rejected };
+    }
+
+    markSeen([...appIds]);
+    return { ok: true, stored: 0, skipped, rejected };
+  }
+
+  function replyIdOf(message) {
+    return (typeof message.reqId === 'string' && message.reqId.length <= MAX_REQID_CHARS)
+      ? message.reqId : '';
+  }
+
+  window.addEventListener('message', event => {
+    // このハブを埋め込んだページからの問い合わせだけを受け付けます
+    if (event.source !== window.parent) return;
+    if (!isTrustedEmbedder(event.origin)) return;
+
+    const message = event.data;
+    if (!message || typeof message !== 'object' || Array.isArray(message)) return;
+
+    let reply = null;
+    if (message.type === 'giga.hub.push') {
+      reply = Object.assign(
+        { type: 'giga.hub.result', v: PROTOCOL_VERSION, reqId: replyIdOf(message) },
+        storeRecords(message));
+    } else if (message.type === 'giga.hub.ping') {
+      // 生きているかの確認だけ。件数も中身も返しません
+      reply = { type: 'giga.hub.pong', v: PROTOCOL_VERSION, reqId: replyIdOf(message), ok: true };
+    } else {
+      return;
+    }
+
+    // 宛先は必ず相手のオリジン。'*' は使いません
+    try { event.source.postMessage(reply, event.origin); }
+    catch (e) { /* 返事が届かなくても、保存はもう終わっています */ }
+  });
+})();
+</script>
+</body>
+</html>

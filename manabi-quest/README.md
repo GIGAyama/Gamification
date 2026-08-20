@@ -563,8 +563,10 @@ https://gamification.giga-school.com/manabi-portal/?app=<本体URL>&endpoint=<�
 
 ```
 学習アプリ（保存のみ / 匿名）
-  └─ localStorage: study.records.v1
-       └─ 学習ポータル（../manabi-portal/ を GitHub Pages で公開）
+  └─ localStorage: study.records.v1 …………………… 原本（アプリのオリジン）
+       └─ 記録ハブ（/records-hub.html。ポータルと同じオリジン）へ写しを送る
+            └─ 学習ポータル（../manabi-portal/ を GitHub Pages で公開）
+            │    ├─ 記録ハブ（同一オリジン）を読むだけで全アプリぶんがそろう
             │    ├─ まなびクエスト本体を iframe で表示（postMessage で送信を依頼できる）
             │    └─ たまっているきろくを自動／ボタンで送信
             ├─ ① 本体経由 → まなびクエストの画面 → receiveStudyLogFromPortal（既定）
@@ -584,7 +586,10 @@ https://gamification.giga-school.com/manabi-portal/?app=<本体URL>&endpoint=<�
 **ブラウザのストレージ分離により、別サイトの iframe からは読めません**。
 まなびクエストは script.google.com 側で動く＝別サイトなので、
 「まなびクエストの中にポータルを iframe で置く」構成は成立せず、
-**ポータル（github.io）を親ページ、まなびクエストを iframe** にしています。
+**ポータルを親ページ、まなびクエストを iframe** にしています。
+アプリごとの記録は、同一サイトの記録ハブ（`gamification.giga-school.com/records-hub.html`）に
+写しを集めることで、ポータルから1か所で読めるようにしています
+（詳しくは [`../manabi-portal/README.md`](../manabi-portal/README.md)）。
 アプリ内のボタンは `postMessage` で親ページに送信を依頼するため、
 児童からは「まなびクエストの中に送信ボタンがある」ように見えます。
 `doGet` は iframe 表示のため `XFrameOptionsMode.ALLOWALL` を指定しています。

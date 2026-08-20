@@ -586,25 +586,37 @@
   const CONF_KEY = 'studySender.config.v1';    // 送信先URL・送信キー（端末ごとに保存）
   const NUMBER_KEY = 'studySender.number.v1';  // 出席番号（端末ごとに保存）
   const INSTALL_HINT_KEY = 'studySender.installHint.v1';
+  const HUB_SEEN_KEY = 'study.hub.seen.v1';    // 記録ハブが控えた「どのアプリから、いつ写しが届いたか」
+  const HUB_QUOTA_KEY = 'study.hub.quota.v1';  // 記録ハブが保存領域不足で写せなかったときの目印
+  const SWEPT_KEY = 'studySender.swept.v1';    // アプリごとに、最後に取り寄せに成功した時刻
+  const SWEEP_KEY = 'studySender.lastSweep.v1';// 全アプリを取り寄せ直した最後の時刻（点検用）
   const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
   const COLLECT_TIMEOUT_MS = 8000;             // 1つのアプリから記録を取り寄せるのを待つ上限
   const SENT_IDS_MAX = 5000;                   // 送信済みの控えの上限（古いものから捨てる）
+  const COLLECT_MIN_INTERVAL_MS = 60000;       // 自動更新でつづけて取り寄せない最短間隔
+  const HUB_TRUST_DAYS = 30;                   // 写しが届いていれば、この日数は取り寄せを省く
+  const FULL_SWEEP_DAYS = 7;                   // この日数に1度は、省かずに全アプリを読み直す
 
-  /* 学習ログの取り寄せ先。
+  /* 学習ログの取り寄せ先（点検・取りこぼしの拾い直し用）。
    *
-   * 旧構成では全アプリが gigayama.github.io というひとつのオリジンに置かれていたので、
-   * このページが自分の localStorage を読むだけで全アプリぶんの記録が手に入った。
-   * 独自ドメインに移り、アプリは kake-master.giga-school.com のように
-   * サブドメインごとの別オリジンになったため、それはもうできない。
+   * ふだんの集計にここは使わない。学習アプリは記録を書いたときに
+   * 記録ハブ（/records-hub.html。このページと同一オリジン）へ写しを送るので、
+   * このページは自分の localStorage を読むだけで全アプリぶんがそろう。
    *
-   * 各アプリに置いた読み取り専用の受け渡し口（records-export.html）を
-   * 同一サイトの iframe で開き、postMessage で記録を取り寄せる。
+   * それでもこの一覧を残しているのは、次の3つのためにアプリ側の原本が要るから。
+   *   ① 記録ハブのクライアントを入れる前に書かれた、古い記録を拾う
+   *   ② 写しが届いていないアプリ（フィルタで止まっている・入れ忘れ）を拾う
+   *   ③ 端末の保存領域が掃除されるなどして、写しが失われたときに作り直す
+   *
+   * 取り寄せは、各アプリに置いた読み取り専用の受け渡し口（records-export.html）を
+   * 同一サイトの iframe で開いて postMessage で行う。
    * サブドメイン同士は同一サイト（eTLD+1 が giga-school.com）なので、
    * ブラウザの third-party ストレージ分割の対象にならず、
    * iframe の中でも第一者と同じ localStorage が見える。
    *
    * アプリを増やしたら、ここに1行足す。
-   * （まなびクエスト側の STUDY_APPS にも足すこと。そちらは受信の許可リスト） */
+   * （まなびクエスト側の STUDY_APPS にも足すこと。そちらは受信の許可リスト。
+   *   ずれていないことは tools/check-portal-collect.js が確かめている） */
   const RECORD_SOURCES = [
     { appId: 'kuku-card',      origin: 'https://kake-master.giga-school.com' },
     { appId: 'kanji-town',     origin: 'https://kanji-town.giga-school.com' },
@@ -613,7 +625,8 @@
     { appId: 'keisan-card',    origin: 'https://keisan-card.giga-school.com' },
     { appId: 'square100',      origin: 'https://online-100square-calculation.giga-school.com' },
     { appId: 'reading-books',  origin: 'https://reading-books.giga-school.com' },
-    { appId: 'typa',           origin: 'https://typa.giga-school.com' }
+    { appId: 'typa',           origin: 'https://typa.giga-school.com' },
+    { appId: 'kana-master',    origin: 'https://kana-master.giga-school.com' }
   ];
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
   const RELAY_TIMEOUT_MS = 45000;              // 本体経由の送信で、返事を待つ上限
@@ -632,6 +645,9 @@
     remoteRecords: [],      // 各アプリから取り寄せた学習ログ（取り寄せるたびに入れ替える）
     collecting: null,       // 取り寄せ中の Promise（同時に何本も走らせない）
     collectFailed: [],      // 取り寄せに失敗したアプリ（画面に出して気づけるようにする）
+    collectSkipped: [],     // 写しが届いているので取り寄せを省いたアプリ
+    lastCollectAt: 0,       // 最後に取り寄せた時刻（自動更新の間引きに使う）
+    hubQuota: false,        // 記録ハブが保存領域不足になっているか
     canGoBack: false,       // iframe の中のアプリが「戻れる」かどうか
     navStateKnown: false,   // アプリから画面階層の状態を受け取れているか
     lastBackAt: 0,
@@ -691,10 +707,15 @@
    * 学習ログ（読み出し専用・仕様 §5.5）
    * ================================================================ */
 
-  /** このページ自身のオリジンにある学習ログ。
+  /** このページ自身のオリジンにある学習ログ ＝ 記録ハブに集まった写し。
    *
-   *  旧構成（アプリと同一オリジン）ではこれが全アプリぶんだった。
-   *  いまは基本的に空だが、同一オリジン配信に戻したときのために残してある。 */
+   *  学習アプリは記録を書いたときに、同一オリジンの記録ハブ（/records-hub.html）へ
+   *  写しを送っている。ポータルにとってハブは同一オリジンなので、iframe も
+   *  往復もいらず、ここを読むだけで全アプリぶんの記録がそろう。
+   *
+   *  送信できた記録は、このページが実体ごと消せる（下の removeRecords）。
+   *  記録の原本はアプリ側に残っているので、この写しが失われても
+   *  取り寄せ（RECORD_SOURCES）で作り直せる。 */
   function ownRecords() {
     try {
       const raw = localStorage.getItem(LOG_KEY);
@@ -704,18 +725,73 @@
     } catch (e) { return []; }
   }
 
+  /** localStorage から JSON を読む（壊れていたら fallback） */
+  function readJson_(key, fallback) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return fallback;
+      const value = JSON.parse(raw);
+      return (value === null || value === undefined) ? fallback : value;
+    } catch (e) { return fallback; }
+  }
+
+  /** 「appId → 時刻」の形の控えを読む（記録ハブの受信履歴・取り寄せの履歴） */
+  function readStamps_(key) {
+    const value = readJson_(key, {});
+    return (value && typeof value === 'object' && !Array.isArray(value)) ? value : {};
+  }
+
+  /**
+   * 記録ハブの写しが届いているアプリは、取り寄せを省いてよいか。
+   *
+   * 省いてよいのは、次の3つがそろったときだけ。
+   *  ① 写しが届いたことがある（first がある）
+   *  ② 写しが最近も届いている（last が HUB_TRUST_DAYS 以内）。
+   *     クライアントを外した・壊れたアプリは、日数が過ぎれば取り寄せに戻る
+   *  ③ 「はじめて写しが届いた時刻」より後に、1度は取り寄せに成功している。
+   *     クライアントを入れる前に書かれた古い記録を、拾い終えている保証になる
+   *
+   * ハブが保存領域不足のときは、写し自体が欠けているので省かない。
+   */
+  function isHubCovered(appId, seen, swept, now) {
+    if (state.hubQuota) return false;
+    const entry = seen[appId];
+    if (!entry || typeof entry !== 'object') return false;
+    const first = Number(entry.first) || 0;
+    const last = Number(entry.last) || 0;
+    if (!first || !last) return false;
+    if (now - last > HUB_TRUST_DAYS * 86400000) return false;
+    return (Number(swept[appId]) || 0) > first;
+  }
+
+  /** 省かずに全アプリを読み直す日か（写しが失われていても気づけるようにする点検） */
+  function needsFullSweep(now) {
+    const last = Number(readJson_(SWEEP_KEY, 0)) || 0;
+    return (now - last) > FULL_SWEEP_DAYS * 86400000;
+  }
+
+  function markSwept(appIds, now) {
+    if (!appIds.length) return;
+    const swept = readStamps_(SWEPT_KEY);
+    appIds.forEach(appId => { swept[appId] = now; });
+    try { localStorage.setItem(SWEPT_KEY, JSON.stringify(swept)); }
+    catch (e) { /* 控えが書けなくても、次回もう一度取り寄せるだけ */ }
+  }
+
   /* ----------------------------------------------------------------
    * 送信済みの控え
    *
-   * 旧構成では、送信できたレコードを localStorage から消していた。
-   * いまは記録が各アプリのオリジンにあり、受け渡し口は読み取り専用なので、
-   * このページから消すことはできない（消せる作りにすると、集計側の不具合で
-   * 児童の学習記録が消えうる。それは割に合わない）。
+   * 記録ハブに集まった写しは、このページと同一オリジンなので、送信できた分は
+   * 実体ごと消せる（removeRecords）。ふだんはこれで片づく。
    *
-   * かわりに、送れたレコードのIDをこのページ側で控えておき、次からは
-   * 送信対象に入れない。控えが無いと同じ記録を毎回送り直すことになり、
-   * サーバーが重複として弾くので実害は無いものの、「未送信 ○件」が
-   * いつまでも減らず、§9.3 の「たまっている」警告が鳴りっぱなしになる。
+   * それとは別に、送れたレコードのIDをここに控えておく。理由は2つ。
+   *  ① 取り寄せ（RECORD_SOURCES）で読むアプリの原本は、このページからは消せない。
+   *     控えが無いと、点検のたびに同じ記録を送り直すことになる
+   *  ② 記録ハブが、遅れて届いた写しで送信ずみの記録を復活させないための照合に使う
+   *     （records-hub.html はこのキーを読んでいる）
+   *
+   * 控えには上限があり、超えたら古いほうから捨てる。捨てられた記録が
+   * もう一度送られても、サーバーが重複として弾くので実害はない。
    * ---------------------------------------------------------------- */
 
   function loadSentIds() {
@@ -780,13 +856,52 @@
     });
   }
 
-  /** 全アプリから取り寄せて state に置く。同時に何本も走らせない。 */
-  function collectRemoteRecords() {
+  /**
+   * アプリ側の原本から記録を取り寄せて state に置く（取りこぼしの拾い直し）。
+   *
+   * ふだんの集計は記録ハブ（同一オリジン）だけで足りるので、ここは
+   *  ・写しが届いていないアプリ
+   *  ・写しのしくみを入れる前の古い記録が残っているアプリ
+   * を拾うために回す。写しが届いているアプリは省く（isHubCovered）。
+   *
+   * 省きっぱなしにはしない。FULL_SWEEP_DAYS に1度は省かずに全部読み直し、
+   * 端末の掃除などで写しが失われていても気づけるようにする。
+   *
+   * opts.force … 送信の直前など、間引かずに必ず取り寄せたいとき
+   */
+  function collectRemoteRecords(opts) {
     if (state.collecting) return state.collecting;
-    state.collecting = Promise.all(RECORD_SOURCES.map(collectFromApp))
+
+    const now = Date.now();
+    const force = !!(opts && opts.force);
+    // 画面に戻るたびに iframe を作り直さない。写しが主なので、急ぐ必要もない
+    if (!force && state.lastCollectAt && (now - state.lastCollectAt) < COLLECT_MIN_INTERVAL_MS) {
+      return Promise.resolve(state.remoteRecords);
+    }
+
+    state.hubQuota = readJson_(HUB_QUOTA_KEY, null) !== null;
+    const sweep = needsFullSweep(now);
+    const seen = readStamps_(HUB_SEEN_KEY);
+    const swept = readStamps_(SWEPT_KEY);
+    const sources = sweep
+      ? RECORD_SOURCES.slice()
+      : RECORD_SOURCES.filter(src => !isHubCovered(src.appId, seen, swept, now));
+    state.collectSkipped = RECORD_SOURCES
+      .filter(src => !sources.some(s => s.appId === src.appId))
+      .map(src => src.appId);
+
+    state.collecting = Promise.all(sources.map(collectFromApp))
       .then(results => {
         state.remoteRecords = results.flatMap(r => r.records);
         state.collectFailed = results.filter(r => !r.ok).map(r => r.appId);
+        state.lastCollectAt = Date.now();
+        markSwept(results.filter(r => r.ok).map(r => r.appId), state.lastCollectAt);
+        // 点検が最後まで通ったときだけ「読み直した」ことにする。
+        // 1つでも届かなかったら、次の機会にまた全部読み直す
+        if (sweep && state.collectFailed.length === 0) {
+          try { localStorage.setItem(SWEEP_KEY, JSON.stringify(state.lastCollectAt)); }
+          catch (e) { /* 控えが書けなくても、毎回点検するだけで害はない */ }
+        }
         return state.remoteRecords;
       })
       .catch(() => {
@@ -850,7 +965,9 @@
 
   /**
    * 送信済み（受理・重複・再送しても通らない恒久エラー）のレコードを
-   * 端末から削除します（仕様 §1.3 / §9.3）。
+   * 端末から片づけます（仕様 §1.3 / §9.3）。
+   * 記録ハブにある写しは実体を削除し、アプリ側にある原本には手を触れません
+   * （削除できる作りにすると、集計側の不具合で児童の学習記録が消えうるため）。
    * サーバーはレコードIDを小文字にそろえて返すため、大文字を含むIDでも
    * 消し残さないよう小文字にそろえて突き合わせます
    * （消し残すと、そのレコードが毎回「重複」として送られ続けてしまいます）。
@@ -861,14 +978,16 @@
     ids.forEach(id => { if (id) sent.add(String(id).toLowerCase()); });
     if (sent.size === 0) return;
 
-    // 各アプリのオリジンにある分は、このページからは消せない（受け渡し口は読み取り専用）。
-    // 送信済みとして控えておき、次からは送信対象に入れない。
+    // 送信済みとして控える。取り寄せで読むアプリの原本はこのページから消せないので、
+    // これが無いと点検のたびに同じ記録を送り直すことになる。
+    // 記録ハブも、遅れて届いた写しをこの控えと突き合わせて復活を防いでいる。
     const ledger = loadSentIds();
     sent.forEach(id => ledger.add(id));
     saveSentIds(ledger);
 
-    // 自分のオリジンにも記録がある構成（旧来の同一オリジン配信）では、
-    // これまでどおり実体も消す。
+    // 記録ハブに集まった写しは同一オリジンなので、実体ごと消す。
+    // 消す直前に読み直すので、別のタブで写しが増えていても巻きこまない。
+    // 原本はアプリ側に残っているため、ここで消しても記録そのものは失われない。
     try {
       const rest = ownRecords().filter(r =>
         !(r && typeof r.id === 'string' && sent.has(r.id.toLowerCase())));
@@ -971,21 +1090,45 @@
         ? `<br>⚠️ 記録を取り寄せられなかったアプリ: <b>${escapeHtml(state.collectFailed.join('、'))}</b>。`
           + '0件なのはそのためかもしれません。'
         : '';
-      box.innerHTML = `📨 未送信のきろく: <b>0件</b>${failed}`;
+      box.innerHTML = `📨 未送信のきろく: <b>0件</b>${failed}${hubStatusHtml()}`;
       return;
     }
     const oldest = info.oldest !== null ? `／いちばん古い学習日: <b>${formatDay(info.oldest)}</b>` : '';
     const unreachable = state.collectFailed.length
       ? `<br>⚠️ 記録を取り寄せられなかったアプリ: <b>${escapeHtml(state.collectFailed.join('、'))}</b>。`
         + 'そのアプリのアドレスが校内のフィルタで止められていないか、'
-        + 'アプリ側に受け渡し口（records-export.html）があるかを確かめてください。'
+        + 'アプリ側に受け渡し口（records-export.html）と記録の写し（records-hub-client.js）が'
+        + 'あるかを確かめてください。'
       : '';
     const stale = info.ageDays >= STALE_DAYS
       ? '<br>⚠️ 送信できていないきろくが残り続けています。'
         + '新しい学習アプリを追加した場合は、まなびクエスト側の <code>STUDY_APPS</code>（受信の許可リスト）に'
         + 'そのアプリを追加してからスクリプトを更新してください。'
       : '';
-    box.innerHTML = `📨 未送信のきろく: <b>${info.count}件</b>${oldest}${stale}${unreachable}`;
+    box.innerHTML = `📨 未送信のきろく: <b>${info.count}件</b>${oldest}${stale}${unreachable}${hubStatusHtml()}`;
+  }
+
+  /**
+   * 記録ハブ（学習アプリからの写しを集めておく場所）の様子を、先生に見せます。
+   *
+   * 写しが届いているアプリは取り寄せを省いているので、「省いた」ことも出します。
+   * 省いたのに記録が来ていない、という食いちがいに気づけるようにするためです。
+   */
+  function hubStatusHtml() {
+    const parts = [];
+    // 取り寄せを間引いている間も実態が出るよう、目印はそのつど読み直します
+    if (readJson_(HUB_QUOTA_KEY, null) !== null) {
+      parts.push('<br>⚠️ この端末の保存領域がいっぱいで、記録の写しを置けていません。'
+        + 'きろくを送って片づけると空きます（記録そのものは各アプリに残っています）。');
+    }
+    const seen = readStamps_(HUB_SEEN_KEY);
+    const known = RECORD_SOURCES.filter(src => seen[src.appId]).length;
+    if (known > 0) {
+      parts.push(`<br><span class="muted">写しが届いているアプリ: ${known}/${RECORD_SOURCES.length}`
+        + (state.collectSkipped.length ? `（うち ${state.collectSkipped.length} 本は取り寄せを省略中）` : '')
+        + '</span>');
+    }
+    return parts.join('');
   }
 
   /**
@@ -1382,9 +1525,10 @@
       return;
     }
 
-    // 送る前に、各アプリの受け渡し口から最新の記録を取り寄せる。
-    // これをしないと、別のアプリで学習したぶんが入らない。
-    await collectRemoteRecords();
+    // 送る前に、記録ハブに写しが届いていないアプリから取り寄せる。
+    // ここは間引かない。写しのしくみをまだ入れていないアプリで学習したぶんが、
+    // 「いま送るきろくはありません」で見送られてしまうため。
+    await collectRemoteRecords({ force: true });
     renderPending();
 
     const sendable = pendingRecords();
@@ -1476,7 +1620,7 @@
     if (!state.appRelay && !currentNumber()) return;
     // 件数を見る前に取り寄せる。取り寄せ前は remoteRecords が空なので、
     // ここを飛ばすと「おくるきろくは ありません」と判断して毎回見送ってしまう。
-    await collectRemoteRecords();
+    await collectRemoteRecords({ force: true });
     renderPending();
     // 取り寄せを待つあいだに、手で「おくる」が押されていることがある
     if (state.autoSendDone || state.sending) return;

@@ -4,6 +4,8 @@
   "requiredFiles": [
     "index.html",
     "offline.html",
+    "records-hub.html",
+    "records-hub-client.js",
     "sw.js",
     "manifest.json",
     "LICENSE",

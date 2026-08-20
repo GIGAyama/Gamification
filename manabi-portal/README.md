@@ -210,50 +210,90 @@ iframe を作り、その中でユーザーコードを動かします。ポー�
 
 ---
 
-## 学習ログの取り寄せ（独自ドメインへ移ってから）
+## 学習ログをどう集めるか
 
-旧構成では、学習アプリもこのポータルも `gigayama.github.io` という**ひとつのオリジン**に
-置かれていました。`localStorage` はオリジンごとに分かれるので、ポータルは自分の
-`localStorage` を読むだけで全アプリぶんの学習ログが手に入りました。
+`localStorage` はオリジンごとに分かれます。学習アプリは
+`qalc.giga-school.com` のように**サブドメインごとの別オリジン**なので、
+このページから見えるのは自分のオリジンの分だけです。
+キー名（`study.records.v1`）が同じままなので気づきにくいところです。
 
-独自ドメインに移り、アプリは `kake-master.giga-school.com` のように
-**サブドメインごとの別オリジン**になったため、それはできません。
-キー名（`study.records.v1`）が同じままなので気づきにくいのですが、
-このページから見えるのは自分のオリジンの分だけになります。
+そこで、集約点をこのページと**同じオリジン**に1つ置いています。それが
+**記録ハブ**（`/records-hub.html`）です。学習アプリは記録を書いたときに、
+見えない `iframe` 経由でハブへ**写し**を送ります。
 
-そこで、各アプリに置いた読み取り専用の受け渡し口から取り寄せます。
+```
+学習中
+  qalc.giga-school.com（学習アプリ）
+    ├ localStorage に書く ……………………………………… 原本。消しません
+    └ iframe → gamification.giga-school.com/records-hub.html
+                 └ postMessage で写す → ハブの localStorage に追記
+
+送信するとき
+  gamification.giga-school.com/manabi-portal/   ← このページ
+    └ 自分の localStorage を読むだけ ……………………… 全アプリぶんがそろう
+    └ 送れた分は写しを削除（同一オリジンなので消せる）
+```
+
+- サブドメイン同士は**同一サイト**（eTLD+1 が `giga-school.com`）なので、
+  ブラウザの third-party ストレージ分割の対象にならず、`iframe` の中でも
+  第一者と同じ `localStorage` が見えます
+- ハブは**書き込み専用**で、中身を返す口がありません。
+  ある学習アプリが別の学習アプリの記録を読むことはできません
+- ハブは**足すだけ**です。同じ id は二度入れず、既にある記録を書きかえず、
+  外からの削除も受け付けません
+- ポータルが送信して消した記録は、遅れて届いた写しでも復活しません
+  （`studySender.sent.v1` と突き合わせています）
+
+### 取りこぼしの拾い直し（`RECORD_SOURCES`）
+
+写しだけに頼ると、写しのしくみを入れる前の記録や、写しが届かないアプリの記録が
+落ちます。そこで、各アプリの読み取り専用の受け渡し口から取り寄せる経路も残しています。
 
 ```
 gamification.giga-school.com/manabi-portal/   ← このページ（親）
   ├ iframe → kake-master.giga-school.com/records-export.html   → postMessage で記録を返す
   ├ iframe → kanji-town.giga-school.com/records-export.html
   ├ iframe → keisan-block.giga-school.com/records-export.html
-  └ iframe → qalc.giga-school.com/records-export.html
+  ├ iframe → qalc.giga-school.com/records-export.html
+  ├ iframe → keisan-card.giga-school.com/records-export.html
+  ├ iframe → online-100square-calculation.giga-school.com/records-export.html
+  ├ iframe → reading-books.giga-school.com/records-export.html
+  ├ iframe → typa.giga-school.com/records-export.html
+  └ iframe → kana-master.giga-school.com/records-export.html
 ```
 
-- サブドメイン同士は**同一サイト**（eTLD+1 が `giga-school.com`）なので、
-  ブラウザの third-party ストレージ分割の対象にならず、`iframe` の中でも
-  第一者と同じ `localStorage` が見えます
 - 受け渡し口は**読むだけ**。書き込みも削除もしません
 - 返事のオリジンと `nonce` を突き合わせ、時間切れ（8秒）を設けています。
   返事の来ないアプリが1つあっても、ほかのアプリの集計は続きます。
   取り寄せられなかったアプリは「⚙️ せってい」の未送信欄に名前が出ます
+- 写しが届いているアプリは取り寄せを省きます。省いてよいのは
+  **「はじめて写しが届いた時刻」より後に1度は取り寄せている**アプリだけです
+  （それより前の古い記録を拾い終えている保証になります）
+- 省きっぱなしにはしません。**7日に1度**は省かずに全アプリを読み直し、
+  写しが失われていても気づけるようにしています。
+  写しが**30日**途絶えたアプリは、取り寄せに戻します
+- 画面に戻るたびの取り寄せは間引きます（最短60秒）。
+  ただし**送信の直前は必ず取り寄せます**
 
 ### アプリを増やすとき
 
-`manabi-portal/index.html` の `RECORD_SOURCES` に1行足してください。
-まなびクエスト側の `STUDY_APPS`（受信の許可リスト）にも足す必要があります。
-`tools/check-portal-collect.js` が、学習ログを書くアプリが
-`RECORD_SOURCES` に載っているかを確かめます。
+1. アプリ側に `records-hub-client.js`（リポジトリのルートにあります）をコピーし、
+   `<script src="./records-hub-client.js" defer></script>` を読み込む
+2. アプリ側に読み取り専用の受け渡し口 `records-export.html` を置く（拾い直し用）
+3. まなびクエスト側の `STUDY_APPS`（受信の許可リスト）と `STUDY_APP_LINKS` に足す
+4. このページの `RECORD_SOURCES` に1行足す
+
+3と4がずれていないことは `tools/check-portal-collect.js` が確かめます
+（`STUDY_APPS` を正本として突き合わせるので、片方だけ更新すると CI が落ちます）。
 
 ### 送信済みの控えについて
 
-以前は、送れた記録を `localStorage` から削除していました。いまは記録が
-各アプリのオリジンにあり、受け渡し口は読み取り専用なので、このページから
-消すことはできません（消せる作りにすると、集計側の不具合で児童の学習記録が
-消えうるため、そうしていません）。
+記録ハブの写しはこのページと同一オリジンなので、送れた分は実体ごと削除します。
+それとは別に、送れた記録の ID を `studySender.sent.v1` に控えています。理由は2つです。
 
-かわりに、送れた記録の ID を `studySender.sent.v1` に控えておき、次からは
-送信対象に入れません。控えが無いと同じ記録を毎回送り直すことになり、
-サーバーが重複として弾くので実害はないものの、「未送信 ○件」がいつまでも
-減らず、たまっている警告が鳴りっぱなしになります。
+- 取り寄せで読むアプリの**原本はこのページからは消せない**ので、控えが無いと
+  点検のたびに同じ記録を送り直すことになります
+- 記録ハブが、遅れて届いた写しで**送信ずみの記録を復活させない**ための照合に使います
+
+控えには上限があり、超えたら古いほうから捨てます。捨てられた記録がもう一度
+送られても、サーバーが重複として弾くので実害はありません。
