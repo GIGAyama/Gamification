@@ -119,10 +119,10 @@ CORS も匿名アクセスも必要ありません。
 
 ```
 # 本体経由だけで運用する場合（組織アカウントで「全員」を選べないときはこちら）
-https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>
+https://gamification.giga-school.com/manabi-portal/?app=<本体URL>
 
 # 受信用デプロイ（アクセス: 全員）も併用する場合
-https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=<受信用URL>&key=<学習ログ送信キー>
+https://gamification.giga-school.com/manabi-portal/?app=<本体URL>&endpoint=<受信用URL>&key=<学習ログ送信キー>
 ```
 
 ポータルはまなびクエストを iframe で表示しつつ、学習アプリの学習ログ送信も担当します
@@ -192,7 +192,7 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 
 #### ホーム: 「がくしゅうアプリ」から連携アプリをひらく
 
-学習アプリ（`gigayama.github.io` 配下）は、まなびクエストとは別のサイトにあり、
+学習アプリ（`*.giga-school.com` の各サブドメイン）は、まなびクエストとは別のサイトにあり、
 **この画面の中には入れられません**（同一オリジンでないと学習ログを読めないため）。
 そこでホームの「がくしゅうアプリ」に**アプリ自身のアイコン・教科ラベル・ひとこと説明つきのタイル**をならべ、
 タップすると **新しいタブ** でアプリがひらくようにしています
@@ -553,7 +553,7 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 ## 学習アプリ連携（study.v1 共通学習ログの収集）
 
 「学習ログ共通スキーマ仕様書 `study.v1`」（1.9）に基づき、GIGA山 学習アプリ群
-（gigayama.github.io 配下の Qalc / 漢字タウン / けいさんカード / さんすうブロック / 100マス計算 / 九九カード / どくしょ ちょきんばこ / Typa）の
+（giga-school.com の各サブドメインにある Qalc / 漢字タウン / けいさんカード / さんすうブロック / 100マス計算 / 九九カード / どくしょ ちょきんばこ / Typa）の
 学習データを収集・活用します。まなびクエストは仕様でいう**受信側（サーバー / GAS）**にあたります。
 
 児童はこれらのアプリを、まなびクエストのホームの **「がくしゅうアプリ」** から
@@ -580,9 +580,10 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 
 ### なぜポータルが親で、アプリが iframe なのか
 
-学習ログは学習アプリと同一オリジン（gigayama.github.io）の `localStorage` にあり、
-**ブラウザのストレージ分離により、サードパーティ iframe からは読めません**。
-そのため「まなびクエストの中に github.io を iframe で置く」構成は成立せず、
+学習ログは各学習アプリのオリジン（`*.giga-school.com`）の `localStorage` にあり、
+**ブラウザのストレージ分離により、別サイトの iframe からは読めません**。
+まなびクエストは script.google.com 側で動く＝別サイトなので、
+「まなびクエストの中にポータルを iframe で置く」構成は成立せず、
 **ポータル（github.io）を親ページ、まなびクエストを iframe** にしています。
 アプリ内のボタンは `postMessage` で親ページに送信を依頼するため、
 児童からは「まなびクエストの中に送信ボタンがある」ように見えます。
@@ -592,7 +593,7 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 
 1. スクリプト反映後、メニュー **「① 初期セットアップ」を再実行**（「学習ログ」シートと設定項目が追加されます）
 2. 「初期設定」の **`学習ポータルURL`** にポータルのURLを設定 → メニューの「🔄 設定キャッシュをクリア」
-3. 学習ポータルを `https://gigayama.github.io/Gamification/manabi-portal/` に公開し、**本体のWebアプリURL**を設定
+3. 学習ポータルを `https://gamification.giga-school.com/manabi-portal/` に公開し、**本体のWebアプリURL**を設定
    （手順の詳細は [`../manabi-portal/README.md`](../manabi-portal/README.md)）
 
 これだけで送信できます（本体経由）。次の 4・5 は、**アクセス「全員」のデプロイを作れる場合の任意設定**です。
@@ -673,7 +674,7 @@ https://gigayama.github.io/Gamification/manabi-portal/?app=<本体URL>&endpoint=
 | `typa` | `/Typa/icons/icon-192.png` |
 | `kana-master` | `/KANA_Master/icon-192.png` |
 
-（いずれも `https://gigayama.github.io` からの相対パス。Vite のアプリは `public/` の中身が
+（いずれも各アプリのオリジン `<アプリ名>.giga-school.com` からの相対パス。Vite のアプリは `public/` の中身が
 `vite.config.js` の `base` の直下に出るため、リポジトリ内の場所と公開パスが一致しません）
 
 画像は別サイトから読むので、学校のフィルタやオフラインで**読めないことがあります**。

@@ -80,13 +80,13 @@
 **これだけです。**
 
 ```
-https://gigayama.github.io/Gamification/manabi-portal/
+https://gamification.giga-school.com/manabi-portal/
 ```
 
 はじめて先生が設定するときだけ、うしろに設定を付けたURLを **先生の端末で1回開きます**。
 
 ```
-https://gigayama.github.io/Gamification/manabi-portal/?app=（まなびクエスト本体のURL）
+https://gamification.giga-school.com/manabi-portal/?app=（まなびクエスト本体のURL）
 ```
 
 一度開くと設定はその端末に保存されるので、次からは短いほうのURLでかまいません。

@@ -149,8 +149,8 @@ Web アプリ「まなびクエスト」のリポジトリです。
 
    | URL | 内容 |
    |---|---|
-   | `https://gigayama.github.io/Gamification/` | 入口ページ（ポータルへのリンク） |
-   | `https://gigayama.github.io/Gamification/manabi-portal/` | **学習ポータル（児童に配付するURL）** |
+   | `https://gamification.giga-school.com/` | 入口ページ（ポータルへのリンク） |
+   | `https://gamification.giga-school.com/manabi-portal/` | **学習ポータル（児童に配付するURL）** |
 
 `manabi-quest/` は Apps Script へ貼り付けるためのソースで静的サイトとしては動かないため、
 [`_config.yml`](./_config.yml) で配信対象から除外しています。
@@ -254,8 +254,10 @@ Apps Script エディタに貼り直さないかぎり本番は古いままで�
 
 学習ログ（`localStorage` の `study.records.v1`）を読めるのは、学習アプリと**同一オリジン**の
 ページだけです。オリジンは **スキーム＋ホスト＋ポート** で決まり、**パスは関係しません**。
-`https://gigayama.github.io/Gamification/manabi-portal/` も学習アプリ本体と同じ
-`https://gigayama.github.io` オリジンなので、サブパスでの公開で問題ありません。
+いまは各学習アプリが `<アプリ名>.giga-school.com` の別オリジンにあるため、
+ポータルが自分の `localStorage` を読むだけでは足りません。各アプリに置いた
+読み取り専用の受け渡し口（`records-export.html`）を**同一サイトの `iframe`**
+で開いて取り寄せます（サブドメイン同士は同一サイトなのでストレージ分離の対象外）。
 
 ## 🔐 セキュリティ設計
 
@@ -293,7 +295,7 @@ Apps Script エディタに貼り直さないかぎり本番は古いままで�
 
 ### 同一オリジン共有への配慮
 
-`gigayama.github.io` は数十個の学習アプリが同じオリジンを共有しています。
+旧配信元の `gigayama.github.io` は数十個の学習アプリが同じオリジンを共有していました。同居する配置に戻したときのため、
 [`sw.js`](./sw.js) は `caches.keys()` を全削除せず、**`manabi-` で始まるキャッシュだけ**を掃除します。
 全削除すると、他のアプリがオフラインで起動しなくなるためです。
 Service Worker は `localStorage` に一切触れません。

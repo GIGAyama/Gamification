@@ -1,4 +1,4 @@
-# GitHub Pages 設定（https://gigayama.github.io/Gamification/）
+# GitHub Pages 設定（https://gamification.giga-school.com/）
 #
 # 公開するのは学習ポータル（manabi-portal/index.html）、ルートの入口ページ（index.html）、
 # それに PWA のファイル（manifest.json / sw.js / offline.html / icons/）です。
