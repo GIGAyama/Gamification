@@ -1,10 +1,10 @@
 # 🎒 まなびクエスト 学習ポータル（manabi-portal）
 
 **「まなびクエスト」と「学習データの送信」をひとつの画面にまとめた入口ページ**です。
-gigayama.github.io（学習アプリと同一オリジン）で公開し、児童はここから毎日アプリを開きます。
+gamification.giga-school.com で公開し、児童はここから毎日アプリを開きます。
 
 ```
-┌─ https://gigayama.github.io/Gamification/manabi-portal/ ───┐
+┌─ https://gamification.giga-school.com/manabi-portal/ ───┐
 │                                                            │
 │                                                            │
 │        まなびクエスト（GAS Webアプリ）を全画面で表示          │ ← ホーム／きろく／クエスト／ひろば
@@ -26,7 +26,7 @@ gigayama.github.io（学習アプリと同一オリジン）で公開し、児�
 さらに近年のブラウザは第三者 iframe のストレージをトップレベルサイトごとに分離するため、
 **まなびクエスト（script.google.com）の中に github.io を iframe で置いても、学習ログは読めません**。
 
-読み出せるのは「gigayama.github.io がトップレベルのとき」だけなので、
+読み出せるのは「giga-school.com 側がトップレベルのとき」だけなので、
 
 - **親ページ（このポータル）** … 学習ログの読み出しと送信を担当
 - **iframe（まなびクエスト）** … 経験値・ミッション・ランキングの表示を担当
@@ -87,18 +87,19 @@ gigayama.github.io（学習アプリと同一オリジン）で公開し、児�
 オフライン対応は [`../sw.js`](../sw.js) にあります。インストール手順は
 [リポジトリの README](../README.md#-アプリとしてインストールするpwa) を参照してください。
 
-Service Worker のスコープは `/Gamification/` だけなので、同じ `gigayama.github.io` にある
+Service Worker のスコープはこのサイトの中だけなので、同じ `giga-school.com` の別サブドメインにある
 **他の学習アプリ（別リポジトリ＝別パス）には影響しません**。
 また、まなびクエスト本体（`script.google.com`）は別オリジンなのでキャッシュせず、毎回サーバーから取得します。
 
 ## 配置場所
 
-**学習アプリと同一オリジン**（`https://gigayama.github.io`）である必要があります。
+**学習アプリと同一サイト**（`giga-school.com` のサブドメイン）である必要があります。
+別サイトに置くと、ストレージ分離により各アプリの受け渡し口から学習ログを取り寄せられません。
 オリジンはスキーム＋ホスト＋ポートで決まり**パスは関係しない**ので、
 このリポジトリを GitHub Pages で公開するだけで条件を満たします。
 
 ```
-https://gigayama.github.io/Gamification/manabi-portal/
+https://gamification.giga-school.com/manabi-portal/
 ```
 
 公開手順はリポジトリの [README](../README.md#github-pages-で公開する) を参照してください。
@@ -109,7 +110,7 @@ https://gigayama.github.io/Gamification/manabi-portal/
 
 1. `manabi-quest/` の最新スクリプトを反映し、メニュー「① 初期セットアップ」を再実行
 2. 「初期設定」シートを設定し、メニューの「🔄 設定キャッシュをクリア」を実行
-   - `学習ポータルURL` … `https://gigayama.github.io/Gamification/manabi-portal/`
+   - `学習ポータルURL` … `https://gamification.giga-school.com/manabi-portal/`
      （Webアプリを直接開いた児童に、ポータルへの導線を出すために使います）
    - `学習ログ送信キー` … 合言葉（例: `sakura-3nen`）。**匿名POSTを使うときだけ必要**で、
      空欄のままでかまいません（本体経由の送信はキーなしで動きます）
@@ -140,10 +141,10 @@ https://gigayama.github.io/Gamification/manabi-portal/
 
 ```
 # 本体経由だけで運用する（組織アカウントで「全員」を選べないときはこちら）
-https://gigayama.github.io/Gamification/manabi-portal/?app=<本体のWebアプリURL>
+https://gamification.giga-school.com/manabi-portal/?app=<本体のWebアプリURL>
 
 # 匿名POSTも併用する
-https://gigayama.github.io/Gamification/manabi-portal/?app=<本体のWebアプリURL>&endpoint=<受信用のWebアプリURL>&key=<学習ログ送信キー>
+https://gamification.giga-school.com/manabi-portal/?app=<本体のWebアプリURL>&endpoint=<受信用のWebアプリURL>&key=<学習ログ送信キー>
 ```
 
 - 自動送信を止めたいときは `&auto=0` を付けます
@@ -173,7 +174,7 @@ GAS の Webアプリは、`script.google.com` のページの中でさらに `go
 iframe を作り、その中でユーザーコードを動かします。ポータルに埋め込むと **3階層** になります。
 
 ```
-ポータル（gigayama.github.io）… window.top
+ポータル（gamification.giga-school.com）… window.top
   └ script.google.com（GASのラッパー）… iframe.contentWindow
       └ googleusercontent.com（まなびクエストのコード）… postMessage の送り主
 ```
@@ -206,3 +207,53 @@ iframe を作り、その中でユーザーコードを動かします。ポー�
 - まなびクエスト側の `doGet` は iframe 表示のため `XFrameOptionsMode.ALLOWALL` を指定しています。
   他サイトからも枠に入れられる状態になるため、児童に配るURLはポータルに統一してください
 - 送信キーはクラス運用のいたずら防止が目的で、機密情報を守るためのものではありません
+
+---
+
+## 学習ログの取り寄せ（独自ドメインへ移ってから）
+
+旧構成では、学習アプリもこのポータルも `gigayama.github.io` という**ひとつのオリジン**に
+置かれていました。`localStorage` はオリジンごとに分かれるので、ポータルは自分の
+`localStorage` を読むだけで全アプリぶんの学習ログが手に入りました。
+
+独自ドメインに移り、アプリは `kake-master.giga-school.com` のように
+**サブドメインごとの別オリジン**になったため、それはできません。
+キー名（`study.records.v1`）が同じままなので気づきにくいのですが、
+このページから見えるのは自分のオリジンの分だけになります。
+
+そこで、各アプリに置いた読み取り専用の受け渡し口から取り寄せます。
+
+```
+gamification.giga-school.com/manabi-portal/   ← このページ（親）
+  ├ iframe → kake-master.giga-school.com/records-export.html   → postMessage で記録を返す
+  ├ iframe → kanji-town.giga-school.com/records-export.html
+  ├ iframe → keisan-block.giga-school.com/records-export.html
+  └ iframe → qalc.giga-school.com/records-export.html
+```
+
+- サブドメイン同士は**同一サイト**（eTLD+1 が `giga-school.com`）なので、
+  ブラウザの third-party ストレージ分割の対象にならず、`iframe` の中でも
+  第一者と同じ `localStorage` が見えます
+- 受け渡し口は**読むだけ**。書き込みも削除もしません
+- 返事のオリジンと `nonce` を突き合わせ、時間切れ（8秒）を設けています。
+  返事の来ないアプリが1つあっても、ほかのアプリの集計は続きます。
+  取り寄せられなかったアプリは「⚙️ せってい」の未送信欄に名前が出ます
+
+### アプリを増やすとき
+
+`manabi-portal/index.html` の `RECORD_SOURCES` に1行足してください。
+まなびクエスト側の `STUDY_APPS`（受信の許可リスト）にも足す必要があります。
+`tools/check-portal-collect.js` が、学習ログを書くアプリが
+`RECORD_SOURCES` に載っているかを確かめます。
+
+### 送信済みの控えについて
+
+以前は、送れた記録を `localStorage` から削除していました。いまは記録が
+各アプリのオリジンにあり、受け渡し口は読み取り専用なので、このページから
+消すことはできません（消せる作りにすると、集計側の不具合で児童の学習記録が
+消えうるため、そうしていません）。
+
+かわりに、送れた記録の ID を `studySender.sent.v1` に控えておき、次からは
+送信対象に入れません。控えが無いと同じ記録を毎回送り直すことになり、
+サーバーが重複として弾くので実害はないものの、「未送信 ○件」がいつまでも
+減らず、たまっている警告が鳴りっぱなしになります。

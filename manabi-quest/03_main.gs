@@ -44,13 +44,24 @@ function doGet(e) {
 
 /**
  * ポータルが名乗ってきたオリジンを検査します。
- * GitHub Pages（https://〇〇.github.io）の形だけを通し、それ以外は空文字にします。
+ * 次の2つの形だけを通し、それ以外は空文字にします。
+ *   - 独自ドメイン（https://giga-school.com と そのサブドメイン）… いまの配信先
+ *   - GitHub Pages（https://〇〇.github.io）                      … 旧配信先とフォーク用
+ *
+ * ⚠️ 独自ドメインへ移ったとき、ここが github.io だけのままだと
+ *    ポータル（https://gamification.giga-school.com/manabi-portal/）が名乗っても
+ *    通らず、本体経由の送信が成立しなくなる。実際にその状態だった。
+ *    どちらの regexp も ^ と $ で全体を縛ること。前方一致で書くと
+ *    https://giga-school.com.evil.com が通ってしまう。
+ *
  * @param {*} value - URLパラメータ portalOrigin の値（改ざんされている前提で扱う）
  * @returns {string} 通ったオリジン、または空文字
  */
 function sanitizePortalOrigin_(value) {
   const origin = String(value || '').trim();
-  return /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin) ? origin : '';
+  const allowed = /^https:\/\/([a-z0-9-]+\.)?giga-school\.com$/i.test(origin)
+    || /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin);
+  return allowed ? origin : '';
 }
 
 /** HTMLテンプレートに部分ファイルを差し込むためのヘルパー */

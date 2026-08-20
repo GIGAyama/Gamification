@@ -242,7 +242,11 @@ function initStandaloneHistoryGuard() {
 
 /** ポータルとして許可するオリジン（GitHub Pages のみ） */
 function isPortalOrigin_(origin) {
-  return typeof origin === 'string' && /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin);
+  // サーバー側の sanitizePortalOrigin_（03_main.gs）と必ずそろえること。
+  // ずれていないことは tools/check-portal-bridge.js が確かめている。
+  if (typeof origin !== 'string') return false;
+  return /^https:\/\/([a-z0-9-]+\.)?giga-school\.com$/i.test(origin)
+    || /^https:\/\/[a-z0-9-]+(\.[a-z0-9-]+)*\.github\.io$/i.test(origin);
 }
 
 /**
@@ -255,7 +259,7 @@ function isPortalOrigin_(origin) {
  * ★ このアプリを別のドメインの GitHub Pages に置いて使う場合は、ここを書きかえてください。
  *   （ポータル側が新しければ portalOrigin で自動的に上書きされるので、ふつうは不要です）
  */
-const PORTAL_ORIGIN_DEFAULT = 'https://gigayama.github.io';
+const PORTAL_ORIGIN_DEFAULT = 'https://gamification.giga-school.com';
 
 /**
  * ポータル（いちばん外側のページ）へメッセージを送ります。
