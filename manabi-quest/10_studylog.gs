@@ -2,7 +2,7 @@
  * =====================================================================
  * 10_studylog.gs — 学習アプリ連携（study.v1 共通学習ログの収集・活用）
  * =====================================================================
- * GIGA山 学習アプリ群（gigayama.github.io 配下）は、学習のたびに端末の
+ * GIGA山 学習アプリ群（giga-school.com のサブドメイン）は、学習のたびに端末の
  * localStorage（キー: study.records.v1）へ共通形式の学習ログを保存します。
  * このファイルは「学習ログ共通スキーマ仕様書 study.v1」でいう受信側
  * （送信ページの送信先・サーバー）を実装し、届いたレコードを検証・
@@ -102,37 +102,42 @@ const STUDY_APPS = {
  */
 const STUDY_APP_LINKS = [
   { id: 'qalc', name: 'Qalc', subject: 'さんすう', icon: 'gamepad', color: 'blue',
-    url: 'https://gigayama.github.io/Qalc/',
-    iconUrl: 'https://gigayama.github.io/Qalc/icon-192.png',
+    url: 'https://qalc.giga-school.com/',
+    iconUrl: 'https://qalc.giga-school.com/icon-192.png',
     note: 'けいさんの もんだいを ゲームみたいに たくさん とけるよ。' },
   { id: 'kanji-town', name: '漢字タウン', subject: 'こくご', icon: 'pencil', color: 'orange',
-    url: 'https://gigayama.github.io/KANJI_Town/',
-    iconUrl: 'https://gigayama.github.io/KANJI_Town/icons/icon-192.png',
+    url: 'https://kanji-town.giga-school.com/',
+    iconUrl: 'https://kanji-town.giga-school.com/icons/icon-192.png',
     note: 'かん字の よみ・いみ・書きじゅんを おぼえると、じぶんの町が大きくなるよ。' },
   { id: 'keisan-card', name: 'けいさんカード', subject: 'さんすう', icon: 'calc', color: 'green',
-    url: 'https://gigayama.github.io/Keisan-Card/',
-    iconUrl: 'https://gigayama.github.io/Keisan-Card/icons/icon-192.png',
+    url: 'https://keisan-card.giga-school.com/',
+    iconUrl: 'https://keisan-card.giga-school.com/icons/icon-192.png',
     note: 'たしざん・ひきざんの カードを めくって、はやく こたえる れんしゅう。' },
   { id: 'keisan-block', name: 'さんすうブロック', subject: 'さんすう', icon: 'box', color: 'cyan',
-    url: 'https://gigayama.github.io/KEISAN-BLOCK/',
-    iconUrl: 'https://gigayama.github.io/KEISAN-BLOCK/icons/icon-192.png',
+    url: 'https://keisan-block.giga-school.com/',
+    iconUrl: 'https://keisan-block.giga-school.com/icons/icon-192.png',
     note: 'ブロックを うごかして、くり上がり・くり下がりの しくみが 目で見て わかるよ。' },
   { id: 'square100', name: '100マス計算', subject: 'さんすう', icon: 'score', color: 'purple',
-    url: 'https://gigayama.github.io/online-100square-calculation/',
-    iconUrl: 'https://gigayama.github.io/online-100square-calculation/pwa-192x192.png',
+    url: 'https://online-100square-calculation.giga-school.com/',
+    iconUrl: 'https://online-100square-calculation.giga-school.com/pwa-192x192.png',
     note: '100この もんだいに ちょうせん。タイムと せいかいすうが きろくに のこるよ。' },
   { id: 'kuku-card', name: '九九カード', subject: 'さんすう', icon: 'target', color: 'gold',
-    url: 'https://gigayama.github.io/KAKE_Master/',
-    iconUrl: 'https://gigayama.github.io/KAKE_Master/icons/icon-192.png',
+    url: 'https://kake-master.giga-school.com/',
+    iconUrl: 'https://kake-master.giga-school.com/icons/icon-192.png',
     note: '九九を カードで れんしゅう。ふたりで きょうそうすることも できるよ。' },
   { id: 'reading-books', name: 'どくしょ ちょきんばこ', subject: 'どくしょ', icon: 'books', color: 'pink',
-    url: 'https://gigayama.github.io/Reading-Books/',
-    iconUrl: 'https://gigayama.github.io/Reading-Books/icons/icon-192.png',
+    url: 'https://reading-books.giga-school.com/',
+    iconUrl: 'https://reading-books.giga-school.com/icons/icon-192.png',
     note: 'よんだ本を きろくすると、さつ数と ページ数が どんどん たまっていくよ。' },
   { id: 'typa', name: 'Typa', subject: 'タイピング', icon: 'keyboard', color: 'blue',
-    url: 'https://gigayama.github.io/Typa/',
-    iconUrl: 'https://gigayama.github.io/Typa/icons/icon-192.png',
+    url: 'https://typa.giga-school.com/',
+    iconUrl: 'https://typa.giga-school.com/icons/icon-192.png',
     note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' },
+  // ⚠️ かきかたマスターだけ旧アドレスのまま。kana-master.giga-school.com の
+  //    DNS がまだ引けず、CNAME を入れると開けなくなるため。
+  //    DNS を用意して KANA_Master に CNAME を入れたら、ここも
+  //    https://kana-master.giga-school.com/ に直すこと。
+  //    旧アドレスは GitHub Pages が転送するので、いまはこのままでも開ける。
   { id: 'kana-master', name: 'かきかたマスター', subject: 'こくご', icon: 'note', color: 'orange',
     url: 'https://gigayama.github.io/KANA_Master/',
     iconUrl: 'https://gigayama.github.io/KANA_Master/icon-192.png',
