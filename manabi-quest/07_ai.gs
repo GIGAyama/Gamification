@@ -79,6 +79,71 @@ function callGeminiJson_(prompt) {
 }
 
 // ---------------------------------------------------------------------
+// AI に送る前のサニタイズ（個人情報を外に出さない）
+// ---------------------------------------------------------------------
+
+/** 連絡先を見つけるためのパターン（児童の自由記述に書かれていることがあります） */
+const AI_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const AI_PHONE_PATTERN = /(?:\+?81[-\s]?)?0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}/g;
+const AI_POSTAL_PATTERN = /〒?\s?\d{3}-\d{4}/g;
+
+/** 児童マスタの読み込みは1回の実行で1度だけにするための置き場 */
+let aiNameAliasCache_ = null;
+
+/** 正規表現で特別な意味を持つ記号を打ち消します（名前に記号が入っていても壊れないように） */
+function escapeRegExp_(value) {
+  return String(value === null || value === undefined ? '' : value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 児童マスタの「名前」→ 仮名（児童A・児童B…）の対応表を作ります。
+ * 1文字の名前は普通の言葉と衝突するため対象外にします。
+ */
+function getAiNameAliases_(ss) {
+  if (aiNameAliasCache_) return aiNameAliasCache_;
+  const aliases = {};
+  try {
+    const sheet = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName(SHEETS.USERS);
+    if (sheet && sheet.getLastRow() >= 2) {
+      let seq = 0;
+      sheet.getRange(2, USER_COLS.NAME, sheet.getLastRow() - 1, 1).getValues().forEach(row => {
+        const name = String(row[0] || '').trim();
+        if (name.length < 2 || aliases[name]) return;
+        aliases[name] = `児童${String.fromCharCode(65 + (seq % 26))}${seq >= 26 ? Math.floor(seq / 26) : ''}`;
+        seq++;
+      });
+    }
+  } catch (e) {
+    console.warn(`児童マスタを読めなかったため、氏名の仮名化はスキップします: ${e.message}`);
+  }
+  aiNameAliasCache_ = aliases;
+  return aliases;
+}
+
+/**
+ * AI に送る文章から個人情報を取り除きます（プロンプトを組み立てる所から必ず通します）。
+ * ・児童マスタにある名前 → 「児童A」などの仮名（空白を詰めた書き方も拾います）
+ * ・メールアドレス / 電話番号 / 郵便番号 → 伏せ字
+ * 所見もフィードバックも氏名を書かない前提なので、返ってきた文を実名に戻す処理はしません。
+ */
+function sanitizeForAi_(value, ss) {
+  let text = String(value === null || value === undefined ? '' : value);
+  const aliases = getAiNameAliases_(ss);
+  // 長い名前から先に置き換えます（「山田」が先に消えて「山田太郎」が崩れるのを防ぐため）
+  Object.keys(aliases).sort((a, b) => b.length - a.length).forEach(name => {
+    text = text.replace(new RegExp(escapeRegExp_(name), 'g'), aliases[name]);
+    const compact = name.replace(/[\s　]/g, '');
+    if (compact.length >= 2 && compact !== name) {
+      text = text.replace(new RegExp(escapeRegExp_(compact), 'g'), aliases[name]);
+    }
+  });
+  return text
+    .replace(AI_EMAIL_PATTERN, '[メールアドレス]')
+    .replace(AI_PHONE_PATTERN, '[電話番号]')
+    .replace(AI_POSTAL_PATTERN, '[郵便番号]');
+}
+
+// ---------------------------------------------------------------------
 // 指導事項（授業のねらい）との照合
 // ---------------------------------------------------------------------
 
@@ -265,24 +330,25 @@ function buildExtractionPrompt_(source, tp) {
   lines.push('');
   lines.push('# 授業の情報');
   lines.push(`- 教科: ${source.subject}`);
-  if (unitName) lines.push(`- 単元名: ${unitName}`);
-  if (tp && tp.points) lines.push(`- 指導事項・ねらい: ${tp.points}`);
-  if (tp && tp.evalPoints) lines.push(`- 評価のポイント: ${tp.evalPoints}`);
+  if (unitName) lines.push(`- 単元名: ${sanitizeForAi_(unitName)}`);
+  if (tp && tp.points) lines.push(`- 指導事項・ねらい: ${sanitizeForAi_(tp.points)}`);
+  if (tp && tp.evalPoints) lines.push(`- 評価のポイント: ${sanitizeForAi_(tp.evalPoints)}`);
   lines.push('');
   lines.push('# 児童の記録');
+  // 児童が書いた文章は sanitizeForAi_ を通してから載せる（氏名は仮名に、連絡先は伏せ字に）
   if (source.type === 'test') {
     const e = source.extra;
     if (e.expected1 !== '' || e.score1 !== '') lines.push(`- 知識・技能: 目標 ${e.expected1 || '-'}点 → 結果 ${e.score1 !== '' ? e.score1 : '-'}点`);
     if (e.expected2 !== '' || e.score2 !== '') lines.push(`- 思考・判断・表現: 目標 ${e.expected2 || '-'}点 → 結果 ${e.score2 !== '' ? e.score2 : '-'}点`);
-    lines.push(`- テストのふり返り: ${source.reflection}`);
+    lines.push(`- テストのふり返り: ${sanitizeForAi_(source.reflection)}`);
     lines.push('- 補足: 目標点を立てて結果と比べる活動なので、目標との差から自己調整の姿が読み取れる場合はエピソードに反映してください。');
   } else {
     const e = source.extra;
-    if (e.goal) lines.push(`- めあての達成: ${e.goal}`);
-    if (e.learned) lines.push(`- わかったこと: ${e.learned}`);
-    if (e.selfEval) lines.push(`- すすんで学べたか（自己評価）: ${e.selfEval}`);
+    if (e.goal) lines.push(`- めあての達成: ${sanitizeForAi_(e.goal)}`);
+    if (e.learned) lines.push(`- わかったこと: ${sanitizeForAi_(e.learned)}`);
+    if (e.selfEval) lines.push(`- すすんで学べたか（自己評価）: ${sanitizeForAi_(e.selfEval)}`);
     if (e.handRaises !== '' && e.handRaises !== null && !isNaN(Number(e.handRaises))) lines.push(`- 挙手・発表した回数: ${e.handRaises}回`);
-    lines.push(`- 授業のふり返り: ${source.reflection}`);
+    lines.push(`- 授業のふり返り: ${sanitizeForAi_(source.reflection)}`);
   }
   return lines.join('\n');
 }
@@ -766,7 +832,7 @@ function convertShokenToYouroku(text) {
 - 変換後の文章全体のみを提示してください。指示や元の文章は含めないでください。
 
 # 元の文章
-${text}
+${sanitizeForAi_(text)}
 
 # 変換後の文章
 `);
@@ -933,9 +999,10 @@ function generateGeneralShokenFor_(ss, studentNumber) {
   if (rows.length === 0) throw new Error('この児童の所見材料が見つかりません。');
 
   rows.sort((a, b) => (Number(b[7]) || 0) - (Number(a[7]) || 0));
+  // 材料に氏名や連絡先が紛れ込んでいることがあるので、送る前に必ず通す
   const materials = rows.slice(0, 20).map(row => {
     const tag = [row[2], row[5], row[6]].map(v => String(v || '').trim()).filter(v => v !== '').join('／');
-    return `・【${tag}】${row[3]}`;
+    return `・【${tag}】${sanitizeForAi_(row[3], ss)}`;
   }).join('\n');
 
   return callGeminiApi_(`あなたはプロの小学校教員です。以下の児童に関するエピソード（所見材料）を基に、その子の良さや成長が伝わるような、ポジティブで具体的な全体所見を作成してください。
@@ -1002,8 +1069,8 @@ function generateMoralShokenFor_(ss, studentNumber, materialName) {
 - 主題: ${material.theme}
 - 学習内容: ${material.content}
 # 児童の記録
-- 自分の考え: ${note[3]}
-- 授業のふり返り: ${note[4]}
+- 自分の考え: ${sanitizeForAi_(note[3], ss)}
+- 授業のふり返り: ${sanitizeForAi_(note[4], ss)}
 # 生成する所見
 `);
 }
@@ -1034,8 +1101,8 @@ function generateMoralFeedback_(ss, rowNum) {
 ${materialInfo}
 
 # 児童の記録
-- 自分の考え: ${myThought}
-- 授業のふり返り: ${reflection}
+- 自分の考え: ${sanitizeForAi_(myThought, ss)}
+- 授業のふり返り: ${sanitizeForAi_(reflection, ss)}
 
 # 指示
 - 優しい語りかけの口調で、3文程度で記述してください。
