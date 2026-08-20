@@ -65,7 +65,8 @@ ok('取り寄せ先が重複していない',
 
 // 学習ログを書いているアプリは、必ずここに載っていること。
 // 載せ忘れると、そのアプリの記録だけが静かに集計から落ちる。
-['kuku-card', 'kanji-town', 'keisan-block', 'qalc'].forEach(id =>
+['kuku-card', 'kanji-town', 'keisan-block', 'qalc',
+ 'keisan-card', 'square100', 'reading-books', 'typa'].forEach(id =>
   ok(`学習ログを書くアプリが載っている: ${id}`, sources.some(s => s.appId === id)));
 
 console.log('\n■ 受け渡し口の URL の組み立て');
