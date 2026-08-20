@@ -10,6 +10,11 @@
  * 旧配信元の gigayama.github.io に同居していた学習アプリ（別リポジトリ＝別パス）には
  * 一切影響しません。
  *
+ * 記録ハブ（records-hub.html）について
+ *   学習アプリの中で iframe として開かれます。iframe の読み込みは「ページ遷移」
+ *   として扱われるため、下の handleNavigate（ネットワーク優先）を通ります。
+ *   直したものはすぐ届き、オフラインのときはキャッシュから開きます。
+ *
  * キャッシュしないもの
  *   - GET 以外（学習ログの送信 POST など）
  *   - 別オリジン（script.google.com のまなびクエスト本体、CDN など）
@@ -24,7 +29,7 @@
 //   上げ忘れると、児童の端末では前のまま表示され続けます
 //   （「直したのに変わらない」の原因のほとんどがこれです）。
 //   手順は README の「公開するときの手順」を見てください。
-const VERSION = 'v6';
+const VERSION = 'v7';
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 
@@ -32,6 +37,9 @@ const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 const SHELL_ASSETS = [
   './',
   './manabi-portal/',
+  // 記録ハブ。学習アプリの中で iframe として開かれるので、
+  // オフラインのときも読めるようにしておきます（学習ログの写しが止まらないように）
+  './records-hub.html',
   './offline.html',
   './manifest.json',
   './icons/icon-192.png',

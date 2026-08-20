@@ -4,6 +4,8 @@
  * =====================================================================
  * GIGA山 学習アプリ群（giga-school.com のサブドメイン）は、学習のたびに端末の
  * localStorage（キー: study.records.v1）へ共通形式の学習ログを保存します。
+ * その記録は、アプリと同一サイトの「記録ハブ」（学習ポータルと同じオリジンにある
+ * records-hub.html）へ写され、学習ポータルがそこから一括して送ってきます。
  * このファイルは「学習ログ共通スキーマ仕様書 study.v1」でいう受信側
  * （送信ページの送信先・サーバー）を実装し、届いたレコードを検証・
  * 重複排除して「学習ログ」シートへ蓄積します。
@@ -133,14 +135,9 @@ const STUDY_APP_LINKS = [
     url: 'https://typa.giga-school.com/',
     iconUrl: 'https://typa.giga-school.com/icons/icon-192.png',
     note: 'ローマ字入力の れんしゅう。10びょうだけでも うった分は きろくに のこるよ。' },
-  // ⚠️ かきかたマスターだけ旧アドレスのまま。kana-master.giga-school.com の
-  //    DNS がまだ引けず、CNAME を入れると開けなくなるため。
-  //    DNS を用意して KANA_Master に CNAME を入れたら、ここも
-  //    https://kana-master.giga-school.com/ に直すこと。
-  //    旧アドレスは GitHub Pages が転送するので、いまはこのままでも開ける。
   { id: 'kana-master', name: 'かきかたマスター', subject: 'こくご', icon: 'note', color: 'orange',
-    url: 'https://gigayama.github.io/KANA_Master/',
-    iconUrl: 'https://gigayama.github.io/KANA_Master/icon-192.png',
+    url: 'https://kana-master.giga-school.com/',
+    iconUrl: 'https://kana-master.giga-school.com/icon-192.png',
     note: 'ひらがな・カタカナを かいて よんで おぼえるよ。「っ」や「ゃ」も れんしゅうできる。' }
 ];
 
