@@ -65,7 +65,7 @@
   <!--
     まなびクエスト 学習ポータル
     =====================================================================
-    gigayama.github.io（学習アプリと同一オリジン）で公開して使います。
+    gamification.giga-school.com で公開して使います。
 
     このページは 3 つの役割をひとつの画面にまとめます。
       ① まなびクエスト（GAS Webアプリ）を iframe で全画面表示する
@@ -75,10 +75,21 @@
          「戻る」操作（タップ／画面端からのスワイプ／ブラウザの戻る）を提供する
 
     なぜポータルが親で、まなびクエストが iframe なのか:
-      ブラウザのストレージ分離（Storage Partitioning）により、サードパーティ iframe から
-      学習アプリの localStorage を読むことはできません。学習ログを読めるのは
-      「gigayama.github.io がトップレベル（＝このページ）」のときだけです。
+      ブラウザのストレージ分離（Storage Partitioning）により、サードパーティ（別サイト）の
+      iframe から学習アプリの localStorage を読むことはできません。
+      まなびクエストは script.google.com 側で動く＝別サイトなので、
+      あちらを親にすると学習ログには一切さわれません。
       そのため、ポータルを親ページにして送信を担当し、まなびクエストを iframe で表示します。
+
+    学習ログの集め方（独自ドメインへ移ってから）:
+      旧構成では学習アプリもポータルも gigayama.github.io というひとつのオリジンに
+      置かれていたので、このページが自分の localStorage を読むだけで全アプリぶんが
+      手に入りました。いまはアプリが kake-master.giga-school.com のように
+      サブドメインごとの別オリジンになったため、それはできません。
+      各アプリに置いた読み取り専用の受け渡し口（records-export.html）を
+      同一サイトの iframe で開き、postMessage で取り寄せます（下の RECORD_SOURCES）。
+      サブドメイン同士は同一サイト（eTLD+1 が giga-school.com）なので、
+      ストレージ分離の対象にならず、iframe の中でも第一者と同じ localStorage が見えます。
 
     戻る操作について:
       画面の階層（タブ・フォーム・ダイアログ）は iframe の中のまなびクエストが持っています。
@@ -112,7 +123,7 @@
         ?app=<まなびクエスト本体のWebアプリURL>          ← 必須
         &endpoint=<受信用デプロイ（アクセス:全員）のURL>  ← 任意
         &key=<学習ログ送信キー>                          ← endpoint を使うときだけ
-      例) https://gigayama.github.io/Gamification/manabi-portal/?app=https://script.google.com/a/macros/…/exec
+      例) https://gamification.giga-school.com/manabi-portal/?app=https://script.google.com/a/macros/…/exec
   -->
   <style>
     /* =================================================================
@@ -571,10 +582,35 @@
   'use strict';
 
   const LOG_KEY = 'study.records.v1';          // 仕様 §1: 全アプリ共通の学習ログキー
+  const SENT_KEY = 'studySender.sent.v1';      // 送信済みレコードIDの控え（下の「送信済みの控え」参照）
   const CONF_KEY = 'studySender.config.v1';    // 送信先URL・送信キー（端末ごとに保存）
   const NUMBER_KEY = 'studySender.number.v1';  // 出席番号（端末ごとに保存）
   const INSTALL_HINT_KEY = 'studySender.installHint.v1';
   const CHUNK_SIZE = 100;                      // 1回のPOSTで送る最大件数
+  const COLLECT_TIMEOUT_MS = 8000;             // 1つのアプリから記録を取り寄せるのを待つ上限
+  const SENT_IDS_MAX = 5000;                   // 送信済みの控えの上限（古いものから捨てる）
+
+  /* 学習ログの取り寄せ先。
+   *
+   * 旧構成では全アプリが gigayama.github.io というひとつのオリジンに置かれていたので、
+   * このページが自分の localStorage を読むだけで全アプリぶんの記録が手に入った。
+   * 独自ドメインに移り、アプリは kake-master.giga-school.com のように
+   * サブドメインごとの別オリジンになったため、それはもうできない。
+   *
+   * 各アプリに置いた読み取り専用の受け渡し口（records-export.html）を
+   * 同一サイトの iframe で開き、postMessage で記録を取り寄せる。
+   * サブドメイン同士は同一サイト（eTLD+1 が giga-school.com）なので、
+   * ブラウザの third-party ストレージ分割の対象にならず、
+   * iframe の中でも第一者と同じ localStorage が見える。
+   *
+   * アプリを増やしたら、ここに1行足す。
+   * （まなびクエスト側の STUDY_APPS にも足すこと。そちらは受信の許可リスト） */
+  const RECORD_SOURCES = [
+    { appId: 'kuku-card',    origin: 'https://kake-master.giga-school.com' },
+    { appId: 'kanji-town',   origin: 'https://kanji-town.giga-school.com' },
+    { appId: 'keisan-block', origin: 'https://keisan-block.giga-school.com' },
+    { appId: 'qalc',         origin: 'https://qalc.giga-school.com' }
+  ];
   const FRAME_TIMEOUT_MS = 15000;              // これだけ待って応答がなければ「表示できない」と判断
   const RELAY_TIMEOUT_MS = 45000;              // 本体経由の送信で、返事を待つ上限
   const BACK_DEBOUNCE_MS = 600;                // 「1回の操作」が別々の入口から二重に届くのを無視する時間
@@ -589,6 +625,9 @@
     frameLoaded: false,     // iframe が何かを読み込めたか（ログイン画面も含む）
     sending: false,
     autoSendDone: false,
+    remoteRecords: [],      // 各アプリから取り寄せた学習ログ（取り寄せるたびに入れ替える）
+    collecting: null,       // 取り寄せ中の Promise（同時に何本も走らせない）
+    collectFailed: [],      // 取り寄せに失敗したアプリ（画面に出して気づけるようにする）
     canGoBack: false,       // iframe の中のアプリが「戻れる」かどうか
     navStateKnown: false,   // アプリから画面階層の状態を受け取れているか
     lastBackAt: 0,
@@ -648,13 +687,125 @@
    * 学習ログ（読み出し専用・仕様 §5.5）
    * ================================================================ */
 
-  function loadRecords() {
+  /** このページ自身のオリジンにある学習ログ。
+   *
+   *  旧構成（アプリと同一オリジン）ではこれが全アプリぶんだった。
+   *  いまは基本的に空だが、同一オリジン配信に戻したときのために残してある。 */
+  function ownRecords() {
     try {
       const raw = localStorage.getItem(LOG_KEY);
       if (!raw) return [];
       const log = JSON.parse(raw);
       return Array.isArray(log) ? log : [];
     } catch (e) { return []; }
+  }
+
+  /* ----------------------------------------------------------------
+   * 送信済みの控え
+   *
+   * 旧構成では、送信できたレコードを localStorage から消していた。
+   * いまは記録が各アプリのオリジンにあり、受け渡し口は読み取り専用なので、
+   * このページから消すことはできない（消せる作りにすると、集計側の不具合で
+   * 児童の学習記録が消えうる。それは割に合わない）。
+   *
+   * かわりに、送れたレコードのIDをこのページ側で控えておき、次からは
+   * 送信対象に入れない。控えが無いと同じ記録を毎回送り直すことになり、
+   * サーバーが重複として弾くので実害は無いものの、「未送信 ○件」が
+   * いつまでも減らず、§9.3 の「たまっている」警告が鳴りっぱなしになる。
+   * ---------------------------------------------------------------- */
+
+  function loadSentIds() {
+    try {
+      const raw = localStorage.getItem(SENT_KEY);
+      const list = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(list) ? list : []);
+    } catch (e) { return new Set(); }
+  }
+
+  function saveSentIds(set) {
+    // 上限を超えたら古いほうから捨てる。Set は挿入順を保つので、
+    // 先頭が古い。控えが消えても、そのぶん送り直すだけで壊れはしない。
+    let list = [...set];
+    if (list.length > SENT_IDS_MAX) list = list.slice(list.length - SENT_IDS_MAX);
+    try { localStorage.setItem(SENT_KEY, JSON.stringify(list)); }
+    catch (e) { /* 保存できなくても、サーバー側の重複排除が守る */ }
+  }
+
+  /** 各アプリの受け渡し口から、そのオリジンの学習ログを取り寄せる。 */
+  function collectFromApp(src) {
+    return new Promise(resolve => {
+      let done = false;
+      const nonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const frame = document.createElement('iframe');
+      // 画面には出さないが、display:none にはしない。
+      // 読み込まれない実装のブラウザがあると、load が来ず必ず時間切れになる。
+      frame.setAttribute('aria-hidden', 'true');
+      frame.setAttribute('tabindex', '-1');
+      frame.style.cssText = 'position:absolute;left:-9999px;top:0;width:1px;height:1px;border:0;';
+      // ⚠️ sandbox は付けない。付けるとこの iframe の origin が "null" になり、
+      //    受け渡し口が「同一サイトからの問い合わせ」と判断できなくなって何も返さない。
+      frame.src = `${src.origin}/records-export.html`;
+
+      const finish = (records) => {
+        if (done) return;
+        done = true;
+        window.removeEventListener('message', onMessage);
+        clearTimeout(timer);
+        frame.remove();
+        resolve({ appId: src.appId, ok: records !== null, records: records || [] });
+      };
+
+      const onMessage = (e) => {
+        if (e.origin !== src.origin) return;
+        const m = e.data;
+        if (!m || m.type !== 'giga.records.response' || m.nonce !== nonce) return;
+        finish(Array.isArray(m.records) ? m.records : []);
+      };
+
+      // 時間切れ。アプリがまだ受け渡し口を持っていない・校内フィルタで
+      // そのアドレスが止められている、などで返事が来ないことがある。
+      // その1本を諦めるだけで、ほかのアプリの集計は続ける。
+      const timer = setTimeout(() => finish(null), COLLECT_TIMEOUT_MS);
+      window.addEventListener('message', onMessage);
+      frame.addEventListener('load', () => {
+        try { frame.contentWindow.postMessage({ type: 'giga.records.request', nonce }, src.origin); }
+        catch (e) { finish(null); }
+      });
+      frame.addEventListener('error', () => finish(null));
+      document.body.appendChild(frame);
+    });
+  }
+
+  /** 全アプリから取り寄せて state に置く。同時に何本も走らせない。 */
+  function collectRemoteRecords() {
+    if (state.collecting) return state.collecting;
+    state.collecting = Promise.all(RECORD_SOURCES.map(collectFromApp))
+      .then(results => {
+        state.remoteRecords = results.flatMap(r => r.records);
+        state.collectFailed = results.filter(r => !r.ok).map(r => r.appId);
+        return state.remoteRecords;
+      })
+      .catch(() => {
+        // ここに来るのは Promise.all 自体が壊れたときだけ。
+        // 前回取り寄せた分をそのまま使い、画面は止めない。
+        return state.remoteRecords;
+      })
+      .finally(() => { state.collecting = null; });
+    return state.collecting;
+  }
+
+  /** 送信対象になりうる学習ログ（自分のオリジン＋各アプリから取り寄せた分）。
+   *  送信済みの控えに載っているものは除く。 */
+  function loadRecords() {
+    const sent = loadSentIds();
+    const seen = new Set();
+    return [...ownRecords(), ...state.remoteRecords].filter(r => {
+      const id = r && typeof r.id === 'string' ? r.id.toLowerCase() : null;
+      if (!id) return true;                 // ID が無いものは下の isSendable が落とす
+      if (sent.has(id) || seen.has(id)) return false;   // 送信済み・取り寄せの重複
+      seen.add(id);
+      return true;
+    });
   }
 
   /** 送信できる形か（最低限のローカル検査。本検査はサーバー側 §9 が行う） */
@@ -705,8 +856,17 @@
     const sent = new Set();
     ids.forEach(id => { if (id) sent.add(String(id).toLowerCase()); });
     if (sent.size === 0) return;
+
+    // 各アプリのオリジンにある分は、このページからは消せない（受け渡し口は読み取り専用）。
+    // 送信済みとして控えておき、次からは送信対象に入れない。
+    const ledger = loadSentIds();
+    sent.forEach(id => ledger.add(id));
+    saveSentIds(ledger);
+
+    // 自分のオリジンにも記録がある構成（旧来の同一オリジン配信）では、
+    // これまでどおり実体も消す。
     try {
-      const rest = loadRecords().filter(r =>
+      const rest = ownRecords().filter(r =>
         !(r && typeof r.id === 'string' && sent.has(r.id.toLowerCase())));
       localStorage.setItem(LOG_KEY, JSON.stringify(rest));
     } catch (e) { /* 削除に失敗しても、次回はサーバー側の重複排除が守る */ }
@@ -803,16 +963,25 @@
     if (!box) return;
     const info = pending || pendingSummary();
     if (info.count === 0) {
-      box.innerHTML = '📨 未送信のきろく: <b>0件</b>';
+      const failed = state.collectFailed.length
+        ? `<br>⚠️ 記録を取り寄せられなかったアプリ: <b>${escapeHtml(state.collectFailed.join('、'))}</b>。`
+          + '0件なのはそのためかもしれません。'
+        : '';
+      box.innerHTML = `📨 未送信のきろく: <b>0件</b>${failed}`;
       return;
     }
     const oldest = info.oldest !== null ? `／いちばん古い学習日: <b>${formatDay(info.oldest)}</b>` : '';
+    const unreachable = state.collectFailed.length
+      ? `<br>⚠️ 記録を取り寄せられなかったアプリ: <b>${escapeHtml(state.collectFailed.join('、'))}</b>。`
+        + 'そのアプリのアドレスが校内のフィルタで止められていないか、'
+        + 'アプリ側に受け渡し口（records-export.html）があるかを確かめてください。'
+      : '';
     const stale = info.ageDays >= STALE_DAYS
       ? '<br>⚠️ 送信できていないきろくが残り続けています。'
         + '新しい学習アプリを追加した場合は、まなびクエスト側の <code>STUDY_APPS</code>（受信の許可リスト）に'
         + 'そのアプリを追加してからスクリプトを更新してください。'
       : '';
-    box.innerHTML = `📨 未送信のきろく: <b>${info.count}件</b>${oldest}${stale}`;
+    box.innerHTML = `📨 未送信のきろく: <b>${info.count}件</b>${oldest}${stale}${unreachable}`;
   }
 
   /**
@@ -1209,6 +1378,11 @@
       return;
     }
 
+    // 送る前に、各アプリの受け渡し口から最新の記録を取り寄せる。
+    // これをしないと、別のアプリで学習したぶんが入らない。
+    await collectRemoteRecords();
+    renderPending();
+
     const sendable = pendingRecords();
     if (sendable.length === 0) {
       showToast('info', 'いま おくるきろくは ありません。学習アプリであそんでから、また おしてね。');
@@ -1289,13 +1463,19 @@
    * ページを開いたときの自動送信（設定でOFFにできます）。
    * まなびクエストが表示できない環境でも動くよう、iframe の接続とは切り離しています。
    */
-  function maybeAutoSend() {
+  async function maybeAutoSend() {
     const conf = loadConfig();
     if (state.autoSendDone || state.sending) return;
     if (!state.wantSendOnLoad && conf.autoSend === false) return;
     if (!canSend(conf)) return;
     // 匿名エンドポイントへ送るときだけ、出席番号がそろっている必要があります
     if (!state.appRelay && !currentNumber()) return;
+    // 件数を見る前に取り寄せる。取り寄せ前は remoteRecords が空なので、
+    // ここを飛ばすと「おくるきろくは ありません」と判断して毎回見送ってしまう。
+    await collectRemoteRecords();
+    renderPending();
+    // 取り寄せを待つあいだに、手で「おくる」が押されていることがある
+    if (state.autoSendDone || state.sending) return;
     if (pendingRecords().length === 0) return;
     state.autoSendDone = true;
     send();
@@ -1633,6 +1813,10 @@
   renderBackButton();
   loadApp();
 
+  // 各アプリから学習ログを取り寄せて、件数表示を実態に合わせる。
+  // 待たずに進めるので、取り寄せが遅くても画面は先に出る。
+  collectRemoteRecords().then(renderPending);
+
   // 先生の設定がまだ（＝どちらの送信経路も使えない）なら設定シートを開く。
   // 出席番号は本体（まなびクエスト）のログインから受け取るので、
   // 本体URLが無い＝匿名エンドポイントだけで運用する構成のときだけ入力をお願いします。
@@ -1687,12 +1871,16 @@
     if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goBack('key'); }
   });
 
-  // 別タブの学習アプリで学習ログが増えたら件数表示を更新する
+  // 別タブの学習アプリで学習ログが増えたら件数表示を更新する。
+  // ただし storage イベントは同じオリジンのぶんしか飛んでこない。
+  // 別サブドメインのアプリで学習しても届かないので、画面に戻ってきたときに
+  // 取り寄せ直すほうを主な経路にしている。
   window.addEventListener('storage', e => { if (e.key === LOG_KEY) renderPending(); });
-  window.addEventListener('focus', renderPending);
+  const refreshOnReturn = () => { collectRemoteRecords().then(renderPending); };
+  window.addEventListener('focus', refreshOnReturn);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) commitBeforeHide();   // 裏に回った時点でもう捨てられる可能性がある
-    else renderPending();
+    else refreshOnReturn();
   });
 
   // Chromebook でタブが捨てられるとき・アプリを閉じるときに、入力途中を確定させる。

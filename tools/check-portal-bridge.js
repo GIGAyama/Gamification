@@ -50,6 +50,13 @@ console.log('■ サーバー側の入口検査（03_main.gs / sanitizePortalOri
 const server = loadFunctions(read('03_main.gs'), ['sanitizePortalOrigin_']);
 const sanitize = server.sanitizePortalOrigin_;
 
+ok('独自ドメインのポータルは通る（いまの配信先）',
+  sanitize('https://gamification.giga-school.com') === 'https://gamification.giga-school.com');
+ok('独自ドメインの apex も通る', sanitize('https://giga-school.com') === 'https://giga-school.com');
+ok('giga-school.com に見せかけたドメインは通さない', sanitize('https://giga-school.com.evil.com') === '');
+ok('giga-school に似ているだけの別ドメインは通さない',
+  sanitize('https://evil-giga-school.com') === '' && sanitize('https://giga-school.net') === '');
+ok('独自ドメインでも http:// は通さない', sanitize('http://giga-school.com') === '');
 ok('GitHub Pages のオリジンは通る', sanitize('https://gigayama.github.io') === 'https://gigayama.github.io');
 ok('別のユーザーの GitHub Pages も通る（フォークで使えるように）',
   sanitize('https://another-school.github.io') === 'https://another-school.github.io');
@@ -66,6 +73,9 @@ const core = read('js_core.html');
 const client = loadFunctions(core, ['isPortalOrigin_']);
 const isPortal = client.isPortalOrigin_;
 
+ok('独自ドメインのポータルは通る', isPortal('https://gamification.giga-school.com') === true);
+ok('独自ドメインの apex も通る', isPortal('https://giga-school.com') === true);
+ok('giga-school.com に見せかけたドメインは通さない', isPortal('https://giga-school.com.evil.com') === false);
 ok('GitHub Pages のオリジンは通る', isPortal('https://gigayama.github.io') === true);
 ok('http:// は通さない', isPortal('http://gigayama.github.io') === false);
 ok('よそのドメインは通さない', isPortal('https://evil.example.com') === false);
@@ -73,7 +83,10 @@ ok('github.io に見せかけたドメインは通さない', isPortal('https://
 ok('文字列でないものは通さない', isPortal(null) === false && isPortal(123) === false);
 ok('サーバー側と画面側で判定がそろっている',
   ['https://gigayama.github.io', 'http://gigayama.github.io', 'https://evil.example.com',
-   'https://gigayama.github.io.evil.com', 'https://a.b.github.io']
+   'https://gigayama.github.io.evil.com', 'https://a.b.github.io',
+   'https://giga-school.com', 'https://gamification.giga-school.com',
+   'http://giga-school.com', 'https://giga-school.com.evil.com',
+   'https://evil-giga-school.com', 'https://giga-school.net']
     .every(o => (sanitize(o) !== '') === isPortal(o)));
 
 console.log('\n■ 宛先の決め方（js_core.html / postToPortal）');
@@ -106,8 +119,10 @@ const greetingUnknown = callPostToPortal({ isTop: false, portalOrigin: null, isG
 ok('最初のあいさつは、相手が名乗る前でも既定のオリジンへ送れる',
   greetingUnknown.result === true && greetingUnknown.sent.length === 1
   && greetingUnknown.sent[0].target === greetingUnknown.fallback, greetingUnknown.sent);
-ok('既定のオリジンが https の GitHub Pages である',
+ok('既定のオリジンが、許可された形のオリジンである',
   isPortal(greetingUnknown.fallback), greetingUnknown.fallback);
+ok('既定のオリジンが、いまポータルを置いている独自ドメインを指している',
+  greetingUnknown.fallback === 'https://gamification.giga-school.com', greetingUnknown.fallback);
 
 const normalUnknown = callPostToPortal({ isTop: false, portalOrigin: null, isGreeting: false });
 ok('あいさつ以外は、相手のオリジンが分からなければ送らない',
