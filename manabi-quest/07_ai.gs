@@ -33,10 +33,12 @@ function callGeminiApi_(prompt) {
 
   const config = getConfig_();
   const model = config['Geminiモデル'] || 'gemini-2.0-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  // API キーは URL クエリに入れない（アクセスログやプロキシに残る）。ヘッダで渡す。
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
   const options = {
     method: 'post',
     contentType: 'application/json',
+    headers: { 'x-goog-api-key': apiKey },
     payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     muteHttpExceptions: true
   };
