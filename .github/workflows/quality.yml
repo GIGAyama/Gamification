@@ -37,3 +37,17 @@ jobs:
 
       - name: テスト（npm test）
         run: npm test
+
+  # 取り寄せ先アプリ（RECORD_SOURCES）の本番サイトに受け渡し口が実在するか。
+  # これだけは本番への通信を伴うので、check/test とはジョブを分ける。
+  # 落ちたら「コードの誤り」ではなく「該当アプリの配備漏れ」なので、
+  # そのアプリのリポジトリへ standards/records/ からブリッジを配備して直す。
+  bridges:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: 受け渡し口の実在点検（npm run check:bridges）
+        run: npm run check:bridges
