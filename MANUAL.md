@@ -494,6 +494,6 @@ Apps Script のエディタに、自分で貼り直す必要があります。
 
 ## こまったときの連絡先
 
-このアプリの作者のページ： <https://note.com/cute_borage86>
+このアプリの作者のページ： <https://giga-school.com>
 
 リポジトリ： <https://github.com/GIGAyama/Gamification>
