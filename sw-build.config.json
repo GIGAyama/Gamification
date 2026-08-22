@@ -1,0 +1,7 @@
+{
+  "//": "配信物はリポジトリ直下。先読み一覧の定数名は SHELL_ASSETS、版の定数名は VERSION。",
+  "swPath": "sw.js",
+  "baseDir": ".",
+  "versionConst": "VERSION",
+  "shellConst": "SHELL_ASSETS"
+}
