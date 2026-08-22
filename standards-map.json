@@ -11,6 +11,10 @@
     {
       "canonical": "gas/deploy.yml",
       "local": ".github/workflows/deploy.yml"
+    },
+    {
+      "canonical": "sw/build-sw-static.mjs",
+      "local": "tools/build-sw.mjs"
     }
   ]
 }
