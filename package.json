@@ -14,7 +14,13 @@
     "test": "node tools/check-syntax.js && node tools/check-portal-bridge.js && node tools/check-portal-collect.js && node tools/check-records-hub.js && node tools/check-studylog.js && node tools/check-assignment.js && node tools/check-exp.js && node tools/check-insights.js",
     "quality": "npm run check && npm test",
     "test:e2e": "node tools/e2e-records-hub.mjs",
-    "check:bridges": "node tools/check-bridges.mjs"
+    "check:bridges": "node tools/check-bridges.mjs",
+    "gas:install": "npm install --no-save --no-package-lock --no-audit --no-fund @google/clasp@3.3.0",
+    "gas:login": "node scripts/gas-deploy.mjs login",
+    "gas:status": "node scripts/gas-deploy.mjs status",
+    "gas:backup": "node scripts/gas-deploy.mjs backup",
+    "gas:push": "node scripts/gas-deploy.mjs push",
+    "deploy": "node scripts/gas-deploy.mjs deploy"
   },
   "repository": {
     "type": "git",
