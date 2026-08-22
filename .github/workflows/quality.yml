@@ -38,6 +38,19 @@ jobs:
       - name: テスト（npm test）
         run: npm test
 
+  # 正本コピー（standards-map.json に載るファイル）が
+  # GIGAyama.github.io/standards/ とずれていないか
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: GIGAyama/GIGAyama.github.io
+          path: .standards-src
+      - name: 正本とのずれ検知
+        run: node .standards-src/standards/check-drift.mjs --standards .standards-src/standards
+
   # 取り寄せ先アプリ（RECORD_SOURCES）の本番サイトに受け渡し口が実在するか。
   # これだけは本番への通信を伴うので、check/test とはジョブを分ける。
   # 落ちたら「コードの誤り」ではなく「該当アプリの配備漏れ」なので、

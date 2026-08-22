@@ -30,54 +30,19 @@ function isAiEnabled_() {
 function callGeminiApi_(prompt) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Gemini APIキーがスクリプトプロパティ（GEMINI_API_KEY）に設定されていません。');
-
   const config = getConfig_();
-  const model = config['Geminiモデル'] || 'gemini-2.0-flash';
-  // API キーは URL クエリに入れない（アクセスログやプロキシに残る）。ヘッダで渡す。
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-  const options = {
-    method: 'post',
-    contentType: 'application/json',
-    headers: { 'x-goog-api-key': apiKey },
-    payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-    muteHttpExceptions: true
-  };
-
-  const RETRIABLE = [429, 500, 503];
-  const maxAttempts = 3;
-  let lastCode = 0, lastBody = '';
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    if (attempt > 0) Utilities.sleep(1000 * Math.pow(2, attempt - 1)); // 1s, 2s
-    const response = UrlFetchApp.fetch(url, options);
-    const code = response.getResponseCode();
-    lastCode = code;
-    lastBody = response.getContentText();
-
-    if (code === 200) {
-      const json = JSON.parse(lastBody);
-      const text = json.candidates && json.candidates[0] && json.candidates[0].content &&
-        json.candidates[0].content.parts && json.candidates[0].content.parts[0] &&
-        json.candidates[0].content.parts[0].text;
-      if (!text) throw new Error('AIからの応答がありませんでした。');
-      return text.trim();
-    }
-    if (!RETRIABLE.includes(code)) break; // 400/403 などは再試行しても無駄
-    console.warn(`Gemini API 一時エラー(${code})。再試行します（${attempt + 1}/${maxAttempts}）`);
-  }
-
-  console.error(`Gemini APIエラー: ${lastCode} ${lastBody}`);
-  if (lastCode === 429) throw new Error('AIが混み合っています。少し時間をおいて再実行してください。');
-  throw new Error('AIとの通信に失敗しました。しばらくして再実行してください。');
+  // 呼び出しの作法（ヘッダでキーを渡す・429/5xx の再試行・空応答を成功にしない）は
+  // 正本 Gemini.gs（GigaGemini）に集約した。ここはこのアプリ固有の値を渡すだけ。
+  return GigaGemini.call({
+    apiKey: apiKey,
+    prompt: prompt,
+    model: config['Geminiモデル'] || 'gemini-2.0-flash',
+  });
 }
 
 /** Gemini にJSONで回答させ、コードフェンス等を取り除いてパースします */
 function callGeminiJson_(prompt) {
-  const text = callGeminiApi_(prompt);
-  const cleaned = text.replace(/```json|```/g, '').trim();
-  const start = cleaned.indexOf('{');
-  const end = cleaned.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('AIの応答をJSONとして解釈できませんでした。');
-  return JSON.parse(cleaned.slice(start, end + 1));
+  return GigaGemini.parseJsonText(callGeminiApi_(prompt));
 }
 
 // ---------------------------------------------------------------------
