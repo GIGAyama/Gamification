@@ -34,11 +34,28 @@ var GigaGemini = (function () {
     baseDelayMs: 1000,     // 1s → 2s → 4s
     apiVersion: 'v1beta',
     chunkSize: 8,          // callAll が一度に投げる本数
+    maxRetryAfterMs: 16000, // Retry-After が長すぎるときの頭打ち（GAS の6分上限を守るため）
   };
 
   // 一時的なエラーだけ再試行する。400（プロンプト不正）や 403（キー不正）は
   // 何度投げても同じなので、待たせるだけ無駄。
   var RETRIABLE = [429, 500, 502, 503, 504];
+
+  /**
+   * 次の再試行までの待ち時間。
+   * Gemini が Retry-After を返してきたらそれに従う（こちらの決め打ちより正確なため）。
+   * ただし長すぎる指示は頭打ちにする。GAS の実行は6分で切られるので、
+   * 素直に待つと処理そのものが落ちて、待った意味が無くなる。
+   */
+  function waitMsFor(attempt, headers, opts) {
+    var base = (opts && opts.baseDelayMs) || DEFAULTS.baseDelayMs;
+    var cap = (opts && opts.maxRetryAfterMs) || DEFAULTS.maxRetryAfterMs;
+    var h = headers || {};
+    var raw = h['Retry-After'] || h['retry-after'];
+    var sec = parseInt(raw, 10);
+    if (!isNaN(sec) && sec > 0) return Math.min(sec * 1000, cap);
+    return base * Math.pow(2, attempt);
+  }
 
   function endpoint(model, apiVersion) {
     return 'https://generativelanguage.googleapis.com/' + (apiVersion || DEFAULTS.apiVersion) +
@@ -88,38 +105,59 @@ var GigaGemini = (function () {
   }
 
   /**
-   * 1件呼ぶ。一時エラーは指数バックオフで再試行する。
+   * 1件呼び、応答 JSON をそのまま返す。組み立て済みの payload を渡したいとき用。
+   * 一時エラー（429/5xx）は指数バックオフで再試行する。
+   *
+   * @param {{apiKey: string, payload?: Object, url?: string, model?: string,
+   *          apiVersion?: string, maxAttempts?: number, baseDelayMs?: number,
+   *          maxRetryAfterMs?: number, log?: function(string), logLabel?: string}} req
+   *        payload を渡さない場合は prompt などから組み立てる。
+   * @return {Object} Gemini の応答 JSON
+   */
+  function callRaw(req) {
+    if (!req.apiKey) throw new Error('BAD_INPUT: Gemini APIキーが設定されていません。設定画面から保存してください');
+    var url = req.url || endpoint(req.model, req.apiVersion);
+    var options = {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': req.apiKey },
+      payload: JSON.stringify(req.payload || buildBody(req)),
+      muteHttpExceptions: true,
+    };
+    var maxAttempts = req.maxAttempts || DEFAULTS.maxAttempts;
+    var label = req.logLabel || 'Gemini';
+
+    var lastCode = 0;
+    var lastBody = '';
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      var res = UrlFetchApp.fetch(url, options);
+      lastCode = res.getResponseCode();
+      lastBody = res.getContentText();
+      if (lastCode === 200) return JSON.parse(lastBody);
+      if (RETRIABLE.indexOf(lastCode) === -1) break;
+      if (attempt === maxAttempts - 1) break;   // 最後の失敗のあとは待たない
+      var wait = waitMsFor(attempt, (res.getHeaders && res.getHeaders()) || {}, req);
+      if (req.log) req.log(label + ': HTTP ' + lastCode + ' のため ' + wait + 'ms 後に再試行します（' + (attempt + 1) + '/' + (maxAttempts - 1) + '）');
+      Utilities.sleep(wait);
+    }
+    throw failure(lastCode, lastBody);
+  }
+
+  /**
+   * 1件呼んで本文テキストを返す。
    * @param {{apiKey: string, prompt: string, model?: string, systemInstruction?: string,
    *          generationConfig?: Object, parts?: Array, maxAttempts?: number,
    *          baseDelayMs?: number, apiVersion?: string}} req
    * @return {string} 生成された本文
    */
   function call(req) {
-    var url = endpoint(req.model, req.apiVersion);
-    var options = buildOptions(req);
-    var maxAttempts = req.maxAttempts || DEFAULTS.maxAttempts;
-    var baseDelayMs = req.baseDelayMs || DEFAULTS.baseDelayMs;
-
-    var lastCode = 0;
-    var lastBody = '';
-    for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      if (attempt > 0) Utilities.sleep(baseDelayMs * Math.pow(2, attempt - 1));
-      var res = UrlFetchApp.fetch(url, options);
-      lastCode = res.getResponseCode();
-      lastBody = res.getContentText();
-
-      if (lastCode === 200) {
-        var text = extractText(JSON.parse(lastBody));
-        // 200 でも本文が空のことがある（安全フィルタで止められたとき等）。
-        // 空文字を「成功」として返すと、画面に空欄が保存されて原因が分からなくなる。
-        if (text === null || text === '') {
-          throw new Error('AI_EMPTY: AIから答えが返りませんでした。書いた内容を少し変えてお試しください');
-        }
-        return text.trim();
-      }
-      if (RETRIABLE.indexOf(lastCode) === -1) break;
+    var text = extractText(callRaw(req));
+    // 200 でも本文が空のことがある（安全フィルタで止められたとき等）。
+    // 空文字を「成功」として返すと、画面に空欄が保存されて原因が分からなくなる。
+    if (text === null || text === '') {
+      throw new Error('AI_EMPTY: AIから答えが返りませんでした。書いた内容を少し変えてお試しください');
     }
-    throw failure(lastCode, lastBody);
+    return text.trim();
   }
 
   /**
@@ -208,6 +246,8 @@ var GigaGemini = (function () {
 
   return {
     call: call,
+    callRaw: callRaw,
+    waitMsFor: waitMsFor,
     callJson: callJson,
     callAll: callAll,
     parseJsonText: parseJsonText,
