@@ -15,6 +15,10 @@
     {
       "canonical": "sw/build-sw-static.mjs",
       "local": "tools/build-sw.mjs"
+    },
+    {
+      "canonical": "records/records-hub-client.js",
+      "local": "records-hub-client.js"
     }
   ]
 }
