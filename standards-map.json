@@ -20,5 +20,15 @@
       "canonical": "records/records-hub-client.js",
       "local": "records-hub-client.js"
     }
+  ],
+  "dirs": [
+    {
+      "canonical": "skills/devlog-article",
+      "local": ".claude/skills/devlog-article"
+    },
+    {
+      "canonical": "skills/note-article",
+      "local": ".claude/skills/note-article"
+    }
   ]
 }
