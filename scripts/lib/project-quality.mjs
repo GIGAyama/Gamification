@@ -26,10 +26,16 @@ function mergeConfig(base, override) {
     ...base,
     ...override,
     manifest: { ...base.manifest, ...(override.manifest || {}) },
-    securityExceptions: {
-      ...base.securityExceptions,
-      ...(override.securityExceptions || {})
-    },
+    // securityExceptions は 2 つの形がある。
+    //   ・配列 … giga-reviewer が読む形（{rule, value, reason, reviewedAt} を並べる）。
+    //            艦隊ではこちらが多数派（KANJI_Town ほか）。
+    //   ・辞書 … この検査だけが読む形（{wildcardPostMessage: [...], xFrameAllowAll: [...]}）。
+    // 配列を素で spread すると {0: {...}} になり、下の wildcardPostMessage が
+    // **黙って base の空配列に落ちる**。通ってしまうので気づけない。
+    // どちらの形で書かれていても正しく読めるようにしておく。
+    securityExceptions: Array.isArray(override.securityExceptions)
+      ? { ...base.securityExceptions, entries: override.securityExceptions }
+      : { ...base.securityExceptions, ...(override.securityExceptions || {}) },
     maintainability: {
       ...base.maintainability,
       ...(override.maintainability || {})
