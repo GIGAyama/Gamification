@@ -1038,13 +1038,9 @@ async function initFurigana() {
   try {
     if (Furigana.ready) return;
 
-    // ふりがなの本体（111KB）は、児童画面を開いたこの時点ではじめて取りにいきます。
-    // 先生の画面では initFurigana() を呼ばないので、まったく読み込まれません。
-    // 取りに行けなかったときは下の catch に入り、ルビなしでそのまま動きます。
-    await Promise.all([
-      loadScriptOnce_('https://cdn.jsdelivr.net/npm/kuroshiro@1.2.0/dist/kuroshiro.min.js'),
-      loadScriptOnce_('https://cdn.jsdelivr.net/npm/kuroshiro-analyzer-kuromoji@1.1.0/dist/kuroshiro-analyzer-kuromoji.min.js')
-    ]);
+    // ふりがなの本体は index.html が vendor_furigana.html で一緒に配っています
+    // （以前は CDN から必要になった時点で取っていました）。
+    // 念のためここでも有無を見て、無ければルビなしで続けます。
     if (typeof Kuroshiro === 'undefined' || typeof KuromojiAnalyzer === 'undefined') return;
 
     const KuroshiroCtor = Kuroshiro.default || Kuroshiro;

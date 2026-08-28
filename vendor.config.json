@@ -1,0 +1,37 @@
+{
+  "//": "ライブラリの取りこみ方。版は package.json で固定する。作り直すには npm run build",
+  "generator": "tools/vendor/build-vendor.mjs",
+  "scan": [
+    "manabi-quest",
+    "manabi-portal",
+    "index.html",
+    "records-hub.html"
+  ],
+  "targets": [
+    {
+      "out": "manabi-quest/vendor_css.html",
+      "css": [
+        "bootstrap/dist/css/bootstrap.min.css"
+      ]
+    },
+    {
+      "out": "manabi-quest/vendor_icons.html",
+      "icons": "bootstrap-icons"
+    },
+    {
+      "out": "manabi-quest/vendor_js.html",
+      "js": [
+        "bootstrap/dist/js/bootstrap.bundle.min.js",
+        "sweetalert2/dist/sweetalert2.all.min.js"
+      ]
+    },
+    {
+      "//": "ふりがな。児童画面を開いたときにだけ使う。辞書は別（下の例外を見ること）",
+      "out": "manabi-quest/vendor_furigana.html",
+      "js": [
+        "kuroshiro/dist/kuroshiro.min.js",
+        "kuroshiro-analyzer-kuromoji/dist/kuroshiro-analyzer-kuromoji.min.js"
+      ]
+    }
+  ]
+}

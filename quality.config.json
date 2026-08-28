@@ -25,13 +25,18 @@
     "_note": "この側に appsscript.json は無いので、この設定は使われません。",
     "forbiddenOauthScopes": []
   },
-  "securityExceptions": {
-    "_note": "いまは例外ゼロです。postMessage の宛先は必ず相手のオリジンを指定しています。",
-    "wildcardPostMessage": [],
-    "xFrameAllowAll": []
-  },
+  "securityExceptions": [
+    {
+      "rule": "external-runtime-host",
+      "value": "cdn.jsdelivr.net",
+      "check": "zero-cdn（ふりがなの辞書 kuromoji の dict/ だけ）",
+      "reason": "kuroshiro 本体は vendor_furigana.html に取りこんだが、形態素解析の辞書は npm の kuromoji を展開すると約39MB あり、リポジトリに入らない（配信するのは約6MB）。辞書が読めないときは js_core.html の initFurigana が畳み、ルビ無しでそのまま動く。ふりがなは児童画面の読みやすさを助けるもので、無くても学習は進む。ネットが無い環境ではふりがなが付かない、と案内ページに明記する。",
+      "reviewedAt": "2026-08-28"
+    }
+  ],
   "maintainability": {
     "warningLineCount": 5000,
     "warningByteCount": 400000
-  }
+  },
+  "_note_securityExceptions": "以前は {wildcardPostMessage: [], xFrameAllowAll: []} という形で、どちらも空だった。giga-reviewer が読める配列の形に移した（2026-08-28）。"
 }

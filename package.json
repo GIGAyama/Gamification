@@ -12,7 +12,7 @@
     "check": "node scripts/check-project.mjs",
     "check:json": "node scripts/check-project.mjs --json",
     "test": "node tools/check-syntax.js && node tools/check-portal-bridge.js && node tools/check-portal-collect.js && node tools/check-records-hub.js && node tools/check-studylog.js && node tools/check-assignment.js && node tools/check-exp.js && node tools/check-insights.js",
-    "quality": "node tools/build-sw.mjs --check && npm run check && npm test",
+    "quality": "npm run build && npm run verify && node tools/build-sw.mjs --check && npm run check && npm test",
     "test:e2e": "node tools/e2e-records-hub.mjs",
     "check:bridges": "node tools/check-bridges.mjs",
     "gas:install": "npm install --no-save --no-package-lock --no-audit --no-fund @google/clasp@3.3.0",
@@ -21,10 +21,20 @@
     "gas:backup": "node scripts/gas-deploy.mjs backup",
     "gas:push": "node scripts/gas-deploy.mjs push",
     "deploy": "node scripts/gas-deploy.mjs deploy",
-    "build:sw": "node tools/build-sw.mjs"
+    "build:sw": "node tools/build-sw.mjs",
+    "build": "node tools/vendor/build-vendor.mjs",
+    "build:fonts": "node tools/fonts/build-fonts.mjs",
+    "verify": "node tools/vendor/verify-generated.mjs"
   },
   "repository": {
     "type": "git",
     "url": "https://github.com/GIGAyama/Gamification.git"
+  },
+  "dependencies": {
+    "bootstrap": "5.3.3",
+    "bootstrap-icons": "1.11.3",
+    "sweetalert2": "11.26.25",
+    "kuroshiro": "1.2.0",
+    "kuroshiro-analyzer-kuromoji": "1.1.0"
   }
 }
