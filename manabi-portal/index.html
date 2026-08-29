@@ -2036,5 +2036,18 @@
   window.addEventListener('pagehide', commitBeforeHide);
 })();
 </script>
+
+<!-- 利用規約・プライバシーへの行き先。中身は正本の部品
+     standards/web/giga-app-links.js（配布物 web/giga-app-links.js）が出す。
+     文言も並びも行き先も、あちらで決まっている。手で書かないこと。
+
+     ⚠️ 児童に配るのはこの画面（./manabi-portal/）なので、入口の index.html
+        だけに入れると、実際に使う人には届かない。両方に置く。
+     ⚠️ 相対パスは 1 つ上（../web/）。この画面はリポジトリ直下ではない。
+
+     ⚠️ data-links で「つかいかた」を外してある。このアプリにはまだ
+        docs/manual/ が無く、既定のまま出すと行き止まりのリンクになる。
+        マニュアルを書いたら、この属性ごと消すこと。 -->
+<script src="../web/giga-app-links.js" data-links="terms,privacy" defer></script>
 </body>
 </html>
