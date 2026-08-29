@@ -29,7 +29,7 @@
 //   手で上げる決まりだったころは、上げ忘れると児童の端末に前のまま表示され続けた
 //   （「直したのに変わらない」の原因のほとんどがこれ）。2026-08-21 に12リポジトリで
 //   同時に上げ忘れる事故が実際に起きている。
-const VERSION = 'v2c6cc3d6'; /* __APP_VERSION__ */
+const VERSION = 'v8dd330b3'; /* __APP_VERSION__ */
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 
