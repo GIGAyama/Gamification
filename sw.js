@@ -29,7 +29,7 @@
 //   手で上げる決まりだったころは、上げ忘れると児童の端末に前のまま表示され続けた
 //   （「直したのに変わらない」の原因のほとんどがこれ）。2026-08-21 に12リポジトリで
 //   同時に上げ忘れる事故が実際に起きている。
-const VERSION = 'va81bd895'; /* __APP_VERSION__ */
+const VERSION = 'v8dd330b3'; /* __APP_VERSION__ */
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 
@@ -37,6 +37,10 @@ const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 const SHELL_ASSETS = [
   './',
   './manabi-portal/',
+  // 利用規約・プライバシーの行き先を出す部品。並べておかないと、圏外で開いた
+  // ときだけリンクが 1 本も出ない（行き先そのものは開けなくても、どこにあるかは
+  // 見えているほうがいい）。入口とポータルの両方がこの 1 本を読む。
+  './web/giga-app-links.js',
   // 記録ハブ。学習アプリの中で iframe として開かれるので、
   // オフラインのときも読めるようにしておきます（学習ログの写しが止まらないように）
   './records-hub.html',
