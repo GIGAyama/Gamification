@@ -20,3 +20,11 @@
 !js_core.html
 !js_student.html
 !js_teacher.html
+# 外部CDNをやめて同梱にした分（index.html が include() で読みこむ）。
+# ⚠️ ここに無いと送られず、本番で include('vendor_css') が「ファイルが無い」で
+#    落ちて画面が 1 つも開かなくなる。index.html に include() を足したら、ここにも足す。
+!fonts.html
+!vendor_css.html
+!vendor_furigana.html
+!vendor_icons.html
+!vendor_js.html
