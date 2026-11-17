@@ -11,17 +11,18 @@
 
     /* -- パレット（児童画面のカードやボタンの色わけに使います） -- */
     --mq-blue:   #4a90e2;  --mq-blue-d:   #2f6fbf;  --mq-blue-s:   #eaf3ff;
-    --mq-green:  #2fb673;  --mq-green-d:  #1f8f57;  --mq-green-s:  #e6f8ef;
-    --mq-orange: #f5942a;  --mq-orange-d: #d0770f;  --mq-orange-s: #fff2e0;
-    --mq-pink:   #ef5f92;  --mq-pink-d:   #cc3b71;  --mq-pink-s:   #ffedf3;
+    --mq-green:  #2fb673;  --mq-green-d:  #177a49;  --mq-green-s:  #e6f8ef;
+    --mq-orange: #f5942a;  --mq-orange-d: #a35400;  --mq-orange-s: #fff2e0;
+    --mq-pink:   #ef5f92;  --mq-pink-d:   #b02a5e;  --mq-pink-s:   #ffedf3;
     --mq-purple: #8b7cf6;  --mq-purple-d: #6a57e0;  --mq-purple-s: #f0edff;
-    --mq-cyan:   #21b6c8;  --mq-cyan-d:   #128e9d;  --mq-cyan-s:   #e2f8fb;
-    --mq-gold:   #f0b429;  --mq-gold-d:   #c98f0d;  --mq-gold-s:   #fff6dd;
+    --mq-cyan:   #21b6c8;  --mq-cyan-d:   #0b7280;  --mq-cyan-s:   #e2f8fb;
+    --mq-gold:   #f0b429;  --mq-gold-d:   #8a5d00;  --mq-gold-s:   #fff6dd;
 
     /* -- 文字・線・面 -- */
     --mq-ink:    #2f3d4f;
     --mq-ink-2:  #5b6b80;
-    --mq-muted:  #8a99a8;
+    /* うすい文字。#8a99a8 だと白地で 2.9:1 しかなく、読みにくかったので濃くしました（白地で 5.7:1） */
+    --mq-muted:  #5c6874;
     --mq-line:   #dbe6f3;
     --mq-surface:#ffffff;
     --mq-canvas: #eef4fb;
@@ -131,14 +132,16 @@
     display: inline-flex;
     align-items: center;
     gap: .15rem;
-    background: rgba(255, 255, 255, .18);
+    /* 白い字が読める濃さの地（6.2:1）。明るい半とうめいの地だと 3.4:1 でした */
+    background: #1f5fb5;
     border-radius: 999px;
     padding: .1rem;
   }
   .mq-sizer button {
     border: 0; background: transparent; color: #fff;
     font-family: inherit; font-weight: 700; line-height: 1;
-    border-radius: 999px; padding: .25rem .5rem; min-width: 2rem; min-height: 2rem;
+    /* 指で押す場所は 44px 以上。rem で決めると小さい端末で下限を割るので px で置きます */
+    border-radius: 999px; padding: .25rem .5rem; min-width: 44px; min-height: 44px;
   }
   .mq-sizer button.on { background: #fff; color: var(--mq-blue-d); }
   .mq-sizer button:nth-child(1) { font-size: .78rem; }
@@ -194,8 +197,9 @@
     transition: color .15s, border-color .15s, background-color .15s;
   }
   .nav-tab.active-tab {
-    color: var(--bs-primary) !important;
-    border-bottom-color: var(--bs-primary) !important;
+    /* --bs-primary（#0d6efd）だとうすい青の地で 4.2:1。文字が小さいので濃い青にします */
+    color: #0a58ca !important;
+    border-bottom-color: #0a58ca !important;
     background-color: rgba(74, 144, 226, .06);
   }
   .nav-tab:hover { background-color: rgba(74, 144, 226, .08); }
@@ -400,7 +404,7 @@
     flex: 0 0 auto;
     min-width: 1.9rem; height: 1.9rem; padding: 0 .45rem;
     display: inline-flex; align-items: center; justify-content: center;
-    border-radius: 999px; background: #e8467a; color: #fff;
+    border-radius: 999px; background: #c2185b; color: #fff;
     font-size: .95rem; font-weight: 700;
   }
   .mq-door.door-blue   { --door: var(--mq-blue);   --door-soft: var(--mq-blue-s); }
@@ -803,20 +807,23 @@
   }
   .item-slot:hover { transform: scale(1.05); }
   .item-slot.equipped { border-color: var(--bs-success); box-shadow: 0 0 0 2px rgba(25,135,84,.25); }
-  .item-slot.locked { opacity: .45; cursor: default; }
+  /* もっていないアイテムは絵だけをうすくします。札（レア度・ポイント）まで
+   * うすくすると、値段が読めなくなっていました */
+  .item-slot.locked { cursor: default; }
+  .item-slot.locked img { opacity: .45; filter: grayscale(.4); }
   .item-slot img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .item-slot .rarity-tag {
     position: absolute; top: 2px; left: 2px;
-    font-size: .55rem; padding: 1px 4px; border-radius: 4px;
+    font-size: .72rem; padding: 1px 5px; border-radius: 4px;
     color: #fff; font-weight: bold;
   }
-  .rarity-N { background: #8a99a8; }
-  .rarity-R { background: #4a90e2; }
+  .rarity-N { background: #5c6874; }
+  .rarity-R { background: #1d64b8; }
   .rarity-SR { background: linear-gradient(45deg, #f5a623, #e94e77); }
   .item-slot .cost-tag {
     position: absolute; bottom: 0; left: 0; right: 0;
-    background: rgba(255,193,7,.9); color: #212529;
-    font-size: .6rem; font-weight: bold; text-align: center;
+    background: #ffc107; color: #212529;
+    font-size: .72rem; font-weight: bold; text-align: center;
   }
 
   /* ---- ミッション ---- */
@@ -829,7 +836,7 @@
   /* うけとりずみは「もう用のない行」。うすくしすぎると読めないので、
    * 色みだけを落として、文字は読める濃さのまま残します。 */
   .mission-item.claimed { background: #f7f9fb; border-color: #e7edf3; opacity: .72; }
-  .mission-type-badge { font-size: .7rem; }
+  .mission-type-badge { font-size: .78rem; }
   .mission-item .mission-text { font-size: 1rem; font-weight: 700; }
   .mission-side { min-width: 104px; }
   .mission-side .mission-reward {
@@ -837,7 +844,7 @@
   }
   .mission-item.claimed .mission-reward { color: var(--mq-muted); }
   .mission-side .claim-btn {
-    min-height: 2.5rem; padding: .4rem 1rem; font-size: .95rem;
+    min-height: 44px; padding: .4rem 1rem; font-size: .95rem;
   }
   .mission-side .mission-progress-text { font-weight: 700; color: var(--mq-ink-2); }
   /* うけとりずみの目じるし。チェックを付けて、ボタンとは形からちがえます */
@@ -874,10 +881,10 @@
     display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .6rem;
   }
   .assign-item .assign-cta .mq-btn {
-    flex: 1 1 auto; min-height: 2.6rem; padding: .45rem 1rem; font-size: .95rem;
+    flex: 1 1 auto; min-height: 44px; padding: .45rem 1rem; font-size: .95rem;
     text-decoration: none;
   }
-  .assign-item .assign-action .mq-btn { min-height: 2.5rem; padding: .4rem 1rem; font-size: .95rem; }
+  .assign-item .assign-action .mq-btn { min-height: 44px; padding: .4rem 1rem; font-size: .95rem; }
   .assign-item.claimed .mission-reward { color: var(--mq-muted); }
 
   /* ---- バッジ ---- */
@@ -1016,7 +1023,7 @@
   @media (max-width: 767.98px) {
     /* 高さを詰めてコンテンツ領域を広げつつ、指で押しやすい大きさは確保する */
     .nav-tab { font-size: .82rem; padding: .6rem .25rem !important; min-height: 44px; }
-    #student-tabs .nav-tab .tab-label { font-size: .7rem; }
+    #student-tabs .nav-tab .tab-label { font-size: .76rem; }
   }
   @media (max-width: 991.98px) {
     /* せまい画面では、カードの中でさらにスクロールさせません。
@@ -1081,9 +1088,9 @@
   .growth-row:last-child { border-bottom: none; }
   .growth-row .growth-label { flex: 1 1 auto; }
   .growth-row .growth-value { font-weight: 700; }
-  .growth-diff.up { color: #2b8a3e; }
-  .growth-diff.down { color: #adb5bd; }
-  .growth-diff.same { color: #adb5bd; }
+  .growth-diff.up { color: #237032; }
+  .growth-diff.down { color: var(--mq-muted); }
+  .growth-diff.same { color: var(--mq-muted); }
 
   /* ---- 学びの総量メーター ---- */
   .total-item { display: flex; align-items: center; gap: .6rem; padding: .4rem 0; }
@@ -1273,4 +1280,41 @@
   .furigana-on .mq-choice-item,
   .furigana-on .mq-door,
   .furigana-on .mq-back-btn { line-height: 1.7; }
+
+  /* =================================================================
+   * 読みやすさ・押しやすさのそろえ（2026-11）
+   * 実ブラウザで測って、文字と地の明るさの比が 4.5:1 に届かなかったもの、
+   * 指で押す場所が 44px に届かなかったものを直しています。
+   * ================================================================= */
+  :root {
+    /* Bootstrap の「info」（水色）は白い字・白地のどちらでも 2:1 しかないので、濃い青緑にします */
+    --bs-info: #087990;
+    --bs-info-rgb: 8, 121, 144;
+  }
+  .btn-outline-secondary { --bs-btn-color: #5c636a; }
+  /* Bootstrap の文字色は、うすい灰色の地（#f8f9fa）で 4.3:1 前後しかないので少し濃くします */
+  .text-primary { color: #0a58ca !important; }
+  .text-success { color: #146c43 !important; }
+  .text-danger { color: #b02a37 !important; }
+  .text-secondary { color: #5c636a !important; }
+  .btn-info {
+    --bs-btn-color: #fff; --bs-btn-bg: #087990; --bs-btn-border-color: #087990;
+    --bs-btn-hover-color: #fff; --bs-btn-hover-bg: #066577; --bs-btn-hover-border-color: #066577;
+    --bs-btn-active-color: #fff; --bs-btn-active-bg: #055160; --bs-btn-active-border-color: #055160;
+    --bs-btn-disabled-color: #fff; --bs-btn-disabled-bg: #087990; --bs-btn-disabled-border-color: #087990;
+  }
+  .btn-outline-danger { --bs-btn-color: #b02a37; }
+  /* ヘッダーのレベル表示 */
+  #nav-level-badge .badge { font-size: .8rem; }
+  /* 小さいボタンでも、指で押す場所は 44px 以上にします */
+  .mq-tap { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  /* せまい画面では、ヘッダーの「まなびクエスト」の文字をはずして、文字サイズのボタンの場所をあけます */
+  @media (max-width: 420px) {
+    #main-nav .navbar-brand > span { display: none; }
+  }
+
+  /* ---- 自前のグラフ（js_student の drawLineChart_） ---- */
+  .mq-chart { display: block; overflow: visible; }
+  .mq-chart-legend { display: flex; flex-wrap: wrap; gap: .25rem 1rem; justify-content: center; margin-top: .25rem; font-size: .85rem; color: var(--mq-ink-2); }
+  .mq-chart-key { display: inline-flex; align-items: center; gap: .35rem; }
 </style>

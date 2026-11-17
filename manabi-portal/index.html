@@ -662,10 +662,35 @@
    * 設定
    * ================================================================ */
 
+  /**
+   * まなびクエスト本体（Apps Script の Webアプリ）の URL だけを通します。形がちがえば空文字。
+   *
+   * ⚠️ 以前は URL パラメータ app / endpoint を形を見ずに保存し、そのまま iframe の src と
+   *   「新しいタブでひらく」のリンクに入れていました。?app=javascript:… のリンクを1回
+   *   開くだけで、このページ（記録ハブと同じオリジン）でよそのスクリプトが動き、
+   *   設定に保存されるので以後も開くたびに動きました。?app=https://（別のサイト）なら、
+   *   ポータルの枠の中に偽のログイン画面を出しつづけられました。
+   *   通すのは https://script.google.com/…/s/<ID>/exec（または /dev）の形だけです。
+   */
+  function normalizeAppUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    let url;
+    try { url = new URL(raw); } catch (e) { return ''; }
+    if (url.protocol !== 'https:' || url.hostname !== 'script.google.com') return '';
+    if (url.username || url.password || url.port) return '';
+    if (!/^\/(?:a\/macros\/[A-Za-z0-9.-]+\/|a\/[A-Za-z0-9.-]+\/macros\/|macros\/)s\/[A-Za-z0-9_-]+\/(?:exec|dev)$/.test(url.pathname)) return '';
+    return url.origin + url.pathname + url.search;
+  }
+
   function loadConfig() {
     try {
       const conf = JSON.parse(localStorage.getItem(CONF_KEY) || '{}');
-      return (conf && typeof conf === 'object') ? conf : {};
+      if (!conf || typeof conf !== 'object') return {};
+      // 保存ずみの値も、使うたびに形を確かめます（前の版で保存された悪い値を無効にするため）
+      if (conf.appUrl) conf.appUrl = normalizeAppUrl(conf.appUrl);
+      if (conf.endpoint) conf.endpoint = normalizeAppUrl(conf.endpoint);
+      return conf;
     } catch (e) { return {}; }
   }
   function saveConfig(conf) {
@@ -690,10 +715,20 @@
     const map = { app: 'appUrl', endpoint: 'endpoint', key: 'key' };
     const conf = loadConfig();
     let changed = false;
+    let rejected = false;
     Object.keys(map).forEach(param => {
-      const value = params.get(param);
-      if (value) { conf[map[param]] = value.trim(); changed = true; }
+      const raw = params.get(param);
+      if (!raw) return;
+      // 本体URL・受信用URLは Apps Script の Webアプリの形だけを受けとります
+      const value = param === 'key' ? raw.trim() : normalizeAppUrl(raw);
+      if (!value) { rejected = true; return; }
+      conf[map[param]] = value;
+      changed = true;
     });
+    if (rejected) {
+      // このあとの画面が出てから知らせます（まだトーストの置き場が無いことがあるため）
+      setTimeout(() => showToast('bad', 'リンクに入っていたURLの形がちがうため、せっていに入れませんでした。先生にリンクを確かめてもらってください。', 0), 0);
+    }
     if (params.get('auto') !== null) {
       conf.autoSend = params.get('auto') !== '0' && params.get('auto') !== 'off';
       changed = true;
@@ -1244,7 +1279,7 @@
         // （古い本体に送っても返事が来ず、待たされるだけになるため）
         state.appRelay = !!msg.relay;
         $('frame-fallback').hidden = true;
-        notifyApp({ type: 'PORTAL_READY', pending: pendingRecords().length, studentNumber: currentNumber() });
+        notifyApp({ type: 'PORTAL_READY', pending: pendingRecords().length, studentNumber: currentNumber(), drafts: true });
         renderPending();   // 本体経由で送れるようになったので「おくる」を使える状態にする
         maybeAutoSend();
         break;
@@ -1268,8 +1303,77 @@
       case 'STUDENT_IDENTITY':        // ログイン中の児童の出席番号
         adoptStudentNumber(msg.studentNumber);
         break;
+      case 'DRAFT_SAVE':              // きろくの書きかけを預かる（本体の iframe では保存できないことがあるため）
+        writeDrafts(draftStoreSave(readDrafts(), msg.key, msg.value, msg.savedAt, Date.now()));
+        break;
+      case 'DRAFT_LOAD':              // 預かっている書きかけを返す
+        notifyApp({ type: 'DRAFT_DATA', reqId: String(msg.reqId || ''), entry: draftStoreGet(readDrafts(), msg.key, Date.now()) });
+        break;
+      case 'DRAFT_CLEAR':             // きろくできたので書きかけを消す
+        writeDrafts(draftStoreClear(readDrafts(), msg.key));
+        break;
     }
   });
+
+  /* ================================================================
+   * きろくの書きかけの保管（まなびクエスト本体から預かる）
+   * ------------------------------------------------------------
+   * 本体は Apps Script の iframe の中で動くので、端末に保存できないことがあります。
+   * 書きかけはこのページ（親）が預かります。サーバーへは送りません。
+   * 鍵は「出席番号:きろくの種類」。端末をかわりばんこに使っても、前の子の書きかけは
+   * 本体が名乗った番号の分しか返しません。14日たったもの・多すぎる分は捨てます。
+   * ================================================================ */
+  const DRAFTS_KEY = 'studySender.drafts.v1';
+  const DRAFT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+  const DRAFT_MAX_ENTRIES = 30;
+  const DRAFT_MAX_CHARS = 20000;
+
+  function readDrafts() {
+    const all = readJson_(DRAFTS_KEY, {});
+    return (all && typeof all === 'object' && !Array.isArray(all)) ? all : {};
+  }
+  function writeDrafts(all) {
+    try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(all)); return true; }
+    catch (e) { return false; }   // 保存領域が足りないときは、預かれないだけ
+  }
+
+  /** 預かってよい鍵か（出席番号:種類） */
+  function isDraftKey(key) {
+    return typeof key === 'string' && /^\d{1,4}:[a-z0-9:_-]{1,40}$/.test(key);
+  }
+
+  /** 書きかけを1つ足した新しい控えを返します（古いもの・多すぎる分は捨てます） */
+  function draftStoreSave(all, key, value, savedAt, now) {
+    const out = {};
+    Object.keys(all || {}).forEach(k => {
+      const e = all[k];
+      if (isDraftKey(k) && e && typeof e === 'object' && now - Number(e.savedAt) < DRAFT_MAX_AGE_MS) out[k] = e;
+    });
+    if (!isDraftKey(key)) return out;
+    let json;
+    try { json = JSON.stringify(value); } catch (e) { return out; }
+    if (!json || json.length > DRAFT_MAX_CHARS) return out;
+    const at = Number(savedAt);
+    out[key] = { value: JSON.parse(json), savedAt: (at > 0 && at <= now + 60000) ? at : now };
+    const keys = Object.keys(out).sort((a, b) => out[b].savedAt - out[a].savedAt);
+    keys.slice(DRAFT_MAX_ENTRIES).forEach(k => { delete out[k]; });
+    return out;
+  }
+
+  /** 預かっている書きかけ（古すぎるものは無いことにします） */
+  function draftStoreGet(all, key, now) {
+    if (!isDraftKey(key) || !all) return null;
+    const e = all[key];
+    if (!e || typeof e !== 'object' || !(now - Number(e.savedAt) < DRAFT_MAX_AGE_MS)) return null;
+    return { value: e.value, savedAt: Number(e.savedAt) };
+  }
+
+  /** 書きかけを1つ消した新しい控えを返します */
+  function draftStoreClear(all, key) {
+    const out = Object.assign({}, all || {});
+    if (isDraftKey(key)) delete out[key];
+    return out;
+  }
 
   /* ================================================================
    * 「戻る」ナビゲーション
@@ -1989,12 +2093,18 @@
   $('conf-close-btn').addEventListener('click', closeConfigSheet);
   $('conf-test-btn').addEventListener('click', testConnection);
   $('conf-save-btn').addEventListener('click', () => {
+    const appRaw = $('conf-app').value.trim();
+    const endpointRaw = $('conf-endpoint').value.trim();
     const next = {
-      appUrl: $('conf-app').value.trim(),
-      endpoint: $('conf-endpoint').value.trim(),
+      appUrl: normalizeAppUrl(appRaw),
+      endpoint: normalizeAppUrl(endpointRaw),
       key: $('conf-key').value.trim(),
       autoSend: $('conf-auto').checked
     };
+    if ((appRaw && !next.appUrl) || (endpointRaw && !next.endpoint)) {
+      $('conf-status').textContent = 'URLの形がちがいます。Apps Script の「ウェブアプリ」のURL（https://script.google.com/…/exec）を入れてください。';
+      return;
+    }
     saveConfig(next);
     $('conf-status').textContent = '保存しました。読み込み直します…';
     setTimeout(() => location.reload(), 600);

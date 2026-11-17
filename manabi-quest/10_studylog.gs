@@ -295,6 +295,112 @@ const SQUARE100_MODE_LABELS = {
 };
 
 const STUDY_SCHEMA = 'study.v1';
+
+/*
+ * 人の手では出ない値の線引き。学習ログは児童の端末で作られるので、そのまま信じると
+ * ランキングと経験値がいくらでも動きます。この線をこえた記録は学習ログには残しますが、
+ * ランキング・自己ベストのもとになるシートへは写さず、先生の画面に「見なおしたい記録」として出します。
+ */
+const STUDY_MAX_COUNTED_MS = 2 * 60 * 60 * 1000;   // 1件で数える学習時間の上限（2時間）
+const TYPING_MAX_KPS = 20;                         // タイピングの速さの上限（打/秒。おとなの速い人で10前後）
+const CALC_MIN_MS_PER_QUESTION = 300;              // 100マス計算で1問にかかる時間の下限（ミリ秒）
+const READING_MAX_PAGES = 1000;                    // 1さつのページ数の上限
+
+/** 1件のきろくで、学習時間として数えるミリ秒（2時間まで） */
+function studyCountedMs_(r) {
+  const raw = (r.activeMs !== null && r.activeMs !== undefined && !isNaN(r.activeMs)) ? Number(r.activeMs) : Number(r.elapsedMs) || 0;
+  return Math.min(Math.max(0, raw), STUDY_MAX_COUNTED_MS);
+}
+
+/**
+ * 人の手では出ない値なら、その理由を返します（ふつうの記録なら空文字）。
+ * @param {{rec: Object}} v - validateStudyRecord_ の結果、または readStudyLog_ の1件を rec に入れたもの
+ */
+function studySuspectReason_(v) {
+  const r = v.rec;
+  const ext = r.extJson ? safeParseJson_(r.extJson) : null;
+  if (r.appId === TYPING_APP_ID) {
+    let speed = Number(ext && ext.kps);
+    const keys = typingKeyCounts_(ext);
+    if ((!isFinite(speed) || speed <= 0) && keys && r.elapsedMs > 0) speed = keys.correct / (r.elapsedMs / 1000);
+    if (isFinite(speed) && speed > TYPING_MAX_KPS) return `タイピングの速さが ${Math.round(speed * 10) / 10}打/秒`;
+  }
+  if (r.appId === SQUARE100_APP_ID && r.count > 0 && r.elapsedMs > 0 && r.elapsedMs < r.count * CALC_MIN_MS_PER_QUESTION) {
+    return `${r.count}問を ${Math.round(r.elapsedMs / 100) / 10}秒`;
+  }
+  if (r.appId === READING_APP_ID) {
+    const pages = Number(ext && ext.pages);
+    if (isFinite(pages) && pages > READING_MAX_PAGES) return `1さつ ${Math.round(pages)}ページ`;
+  }
+  if (r.activeMs !== null && r.activeMs !== undefined && Number(r.activeMs) > STUDY_MAX_COUNTED_MS) {
+    return `学習時間が ${Math.round(Number(r.activeMs) / 60000)}分`;
+  }
+  return '';
+}
+
+/** 経験値の計算に使う「初期設定」の値（受信のときと、上限の判定のときで同じものを使います） */
+function studyExpCoeffs_(config) {
+  return {
+    app: getConfigNumber_(config, '学習アプリ経験値係数', 1),
+    cap: getConfigNumber_(config, '学習アプリ経験値上限', 30),
+    calc: getConfigNumber_(config, '100マス計算アプリ経験値係数', 0.5),
+    reading: getConfigNumber_(config, '読書記録経験値係数', 1),
+    typing: getConfigNumber_(config, 'タイピング経験値係数', 1)
+  };
+}
+
+/** 学習ログ1件ぶんの経験値（すでに送ってある記録の分を数えなおすときに使います） */
+function studyRecordExpFromLog_(r, c) {
+  const v = { rec: r, started: r.day };
+  const who = { email: '', number: '' };
+  let exp = 0;
+  if (c.app > 0 && !STUDY_NO_TIME_APPS[r.appId]) exp += Math.min(c.cap, Math.floor(studyCountedMs_(r) / 60000 * c.app));
+  if (studySuspectReason_(v)) return exp;
+  const calc = buildCalcRecordRow_(v, who);
+  if (calc && c.calc > 0) exp += Math.floor(calc.score * c.calc);
+  const book = buildReadingRecordRow_(v, who);
+  if (book && c.reading > 0) exp += Math.floor(book.pages * c.reading);
+  const typing = buildTypingRecordRow_(v, who);
+  if (typing && c.typing > 0) exp += Math.floor(typing.speed * (typing.accuracy / 100) * c.typing);
+  return exp;
+}
+
+/**
+ * 学習アプリのきろくでもらえる経験値に、「学習した日1日あたりの上限」をかけて合計します。
+ * その日にすでに送ってある記録の分も数えるので、何回に分けて送っても上限は同じです。
+ * @param {Array<{day:string, app:number, calc:number, reading:number, typing:number}>} items
+ * @param {number} dailyCap - 0 以下なら上限なし
+ * @returns {{app:number, calc:number, reading:number, typing:number}}
+ */
+function capStudyExpByDay_(ss, email, items, dailyCap) {
+  const total = { app: 0, calc: 0, reading: 0, typing: 0 };
+  const keys = ['app', 'calc', 'reading', 'typing'];
+  if (!items || items.length === 0) return total;
+  if (!(Number(dailyCap) > 0)) {
+    items.forEach(it => keys.forEach(k => { total[k] += it[k]; }));
+    return total;
+  }
+  const days = new Set(items.map(it => it.day));
+  const earliest = [...days].sort()[0];
+  const since = new Date(`${earliest.replace(/-/g, '/')} 00:00:00`);
+  const coeffs = studyExpCoeffs_(getConfig_());
+  const earned = {};
+  readStudyLog_(ss, { email, since }).forEach(r => {
+    if (!r.day) return;
+    const day = Utilities.formatDate(r.day, 'JST', 'yyyy-MM-dd');
+    if (days.has(day)) earned[day] = (earned[day] || 0) + studyRecordExpFromLog_(r, coeffs);
+  });
+  items.forEach(it => {
+    let left = Math.max(0, dailyCap - (earned[it.day] || 0));
+    keys.forEach(k => {
+      const take = Math.min(Math.max(0, it[k]), left);
+      total[k] += take;
+      left -= take;
+      earned[it.day] = (earned[it.day] || 0) + take;
+    });
+  });
+  return total;
+}
 const STUDY_LOG_NUM_COLS = 28;
 const STUDY_LOG_ID_COL = 27;              // 「レコードID」列（1始まり）
 const STUDY_MAX_RECORDS_PER_POST = 200;   // 1回のPOSTで受け付ける最大レコード数
@@ -401,8 +507,12 @@ function receiveStudyRecords_(payload, options) {
   //  ・本体経由（経路①）… ログイン中のアカウントが最も確かなので最優先。
   //    出席番号の手入力は要らず、入力ミスや前の児童の番号が残っていても取りちがえません
   //  ・匿名POST（経路②）… ログイン情報が届かないため、送信ページが付けた出席番号で識別します
+  //  ⚠️ 本体経由で出席番号を使ってよいのは、ログイン中のアカウントが担任のときだけです
+  //    （先生がポータルの接続テストや代わりの送信をするため）。以前は名簿に無い同じ組織の
+  //    アカウントでも、出席番号を付ければ「その番号の児童」として記録を足せました。
   let student = trusted ? findStudentBySignedInUser_(ss) : null;
-  if (!student && payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '') {
+  const numberAllowed = !trusted || isSignedInTeacher_();
+  if (!student && numberAllowed && payload.studentNumber !== undefined && String(payload.studentNumber).trim() !== '') {
     student = findStudentByNumber_(ss, payload.studentNumber);
   }
 
@@ -439,7 +549,11 @@ function receiveStudyRecords_(payload, options) {
 
     const saved = [], duplicate = [], rejected = [], rows = [], logMessages = [];
     const calcRows = [], readingRows = [], typingRows = [];
-    let appExp = 0, calcExp = 0, readingExp = 0, typingExp = 0;
+    // 記録ごとの経験値（あとで「学習した日1日あたりの上限」をかけてから足します）
+    const expItems = [];
+    const suspects = [];
+    const windowDays = Math.max(1, getConfigNumber_(config, '学習アプリ経験値の対象日数', 14));
+    const expFrom = new Date(now.getFullYear(), now.getMonth(), now.getDate() - windowDays + 1);
 
     records.forEach(rec => {
       const v = validateStudyRecord_(rec, now);
@@ -460,35 +574,48 @@ function receiveStudyRecords_(payload, options) {
       existingIds.add(v.rec.id);
       rows.push(buildStudyLogRow_(v, student, now, precision));
       logMessages.push(`${v.rec.appLabel}で「${v.rec.unitTitle}」にとりくんだ`);
+      // 人の手では出ない値（タイピング 20打/秒こえ・100マスを1問0.3秒未満・1さつ1000ページこえ）は、
+      // 学習ログには残しますが、ランキングや自己ベストのもとになるシートへは写さず、
+      // 先生の「学習アプリ」画面で見直せるように「ログ」へ控えます
+      const suspect = studySuspectReason_(v);
+      if (suspect) suspects.push(`${v.rec.appLabel}「${v.rec.unitTitle}」: ${suspect}`);
+      const exp = { day: Utilities.formatDate(v.started, 'JST', 'yyyy-MM-dd'), app: 0, calc: 0, reading: 0, typing: 0 };
       // 時間あたりの経験値は、学習時間を計測しているアプリだけに付けます。
       // 読書アプリの経過時間は「記録する操作」の時間なので（§3.8.2）、
       // 代わりに下の読書記録転記でページ数ぶんの経験値を付けます。
       if (coeff > 0 && !STUDY_NO_TIME_APPS[v.rec.appId]) {
-        const minutes = (v.rec.activeMs !== null ? v.rec.activeMs : v.rec.elapsedMs) / 60000;
-        appExp += Math.min(expCap, Math.floor(minutes * coeff));
+        exp.app = Math.min(expCap, Math.floor(studyCountedMs_(v.rec) / 60000 * coeff));
       }
       // 100マス計算アプリのレコードは「100マス計算記録」シートへも転記し、点数ぶんの経験値を追加
-      const calc = buildCalcRecordRow_(v, student);
+      const calc = suspect ? null : buildCalcRecordRow_(v, student);
       if (calc) {
         calcRows.push(calc);
-        if (calcCoeff > 0) calcExp += Math.floor(calc.score * calcCoeff);
+        if (calcCoeff > 0) exp.calc = Math.floor(calc.score * calcCoeff);
       }
       // どくしょ ちょきんばこのレコードは「読書記録」シートへも転記し、ページ数ぶんの経験値を追加
-      // （手入力フォームだったころと同じ計算式・同じ設定項目です）
-      const book = buildReadingRecordRow_(v, student);
+      // （手入力フォームだったころと同じ計算式・同じ設定項目です。ページ数は1さつ1000までに丸めます）
+      const book = suspect ? null : buildReadingRecordRow_(v, student);
       if (book) {
         readingRows.push(book);
-        if (readingCoeff > 0) readingExp += Math.floor(book.pages * readingCoeff);
+        if (readingCoeff > 0) exp.reading = Math.floor(book.pages * readingCoeff);
       }
       // Typa のレコードは「タイピング記録」シートへも転記し、速さ×正答率ぶんの経験値を追加
       // （手入力フォームだったころと同じ計算式・同じ設定項目です）
-      const typing = buildTypingRecordRow_(v, student);
+      const typing = suspect ? null : buildTypingRecordRow_(v, student);
       if (typing) {
         typingRows.push(typing);
-        if (typingCoeff > 0) typingExp += Math.floor(typing.speed * (typing.accuracy / 100) * typingCoeff);
+        if (typingCoeff > 0) exp.typing = Math.floor(typing.speed * (typing.accuracy / 100) * typingCoeff);
       }
+      // ずっと前に学習したきろくは、記録には残しますが経験値は付けません
+      if (v.started.getTime() >= expFrom.getTime()) expItems.push(exp);
       saved.push(v.rec.id);
     });
+
+    // 学習した日1日あたりの上限をかけて、経験値を足し合わせます。
+    // きろくは児童の端末で作れるため、上限が無いと作り話のきろくで経験値をいくらでも増やせました
+    // （以前は 1回の送信で +6,000、読書1さつ・1兆ページで +1兆）。
+    const capped = capStudyExpByDay_(ss, student.email, expItems, getConfigNumber_(config, '学習アプリ経験値_1日の上限', 600));
+    const appExp = capped.app, calcExp = capped.calc, readingExp = capped.reading, typingExp = capped.typing;
 
     if (rows.length === 0) {
       return { success: true, saved, duplicate, rejected, gainedExp: 0, reward: emptyStudyReward_() };
@@ -503,7 +630,8 @@ function receiveStudyRecords_(payload, options) {
     // 受け取ったレコードのぶんだけログを書きます。1行ずつ書くと最大
     // STUDY_MAX_RECORDS_PER_POST 回の往復になり、その間ずっとロックを握ったままになります
     writeLogs_(ss, logMessages.map(msg =>
-      [new Date(), student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg]));
+      [new Date(), student.email, LOG_ACTIONS.RECORD_STUDY_APP, msg])
+      .concat(suspects.map(msg => [new Date(), student.email, LOG_ACTIONS.STUDY_LOG_SUSPECT, msg])));
     appendCalcRecords_(ss, student, calcRows);
     appendReadingRecords_(ss, student, readingRows);
     appendTypingRecords_(ss, student, typingRows);
@@ -518,7 +646,7 @@ function receiveStudyRecords_(payload, options) {
 
     // レベルアップの判定は、この受信でEXPを足しはじめる前のレベルと最後に比べます
     // （じこベスト・めあて達成のぶんも addExp_ を通るため、最後にまとめて見ます）
-    const levelBefore = calculateLevel(getUserTotalExp_(ss, student.email), config).level;
+    const levelBefore = calculateLevel_(getUserTotalExp_(ss, student.email), config).level;
     // 6つの獲得元をまとめて1回で足します（児童マスタの読み書きも「ログ」も1回ずつ）
     addExpBatch_(ss, student.email, [
       { amount: appExp, label: '学習アプリ' },
@@ -576,7 +704,7 @@ function receiveStudyRecords_(payload, options) {
 
     const gainedExp = appExp + calcExp + readingExp + typingExp + reward.sendExp + reward.streakExp
       + (reward.personalBestExp || 0) + (reward.recordStreakExp || 0) + goalExp;
-    const levelInfo = calculateLevel(getUserTotalExp_(ss, student.email), config);
+    const levelInfo = calculateLevel_(getUserTotalExp_(ss, student.email), config);
     return {
       success: true, saved, duplicate, rejected, gainedExp, reward,
       level: levelInfo.level,
@@ -700,6 +828,8 @@ function buildCalcRecordRow_(v, student) {
   if (r.status !== 'completed' || r.multiplayer) return null;
   if (r.source !== 'course' || r.grading !== 'objective') return null;
   if (!r.count || r.count <= 0 || !r.elapsedMs || r.elapsedMs <= 0) return null;
+  // 1問 0.3秒より速いタイムは、人の手では出ません（ランキング・自己ベストに入れない）
+  if (r.elapsedMs < r.count * CALC_MIN_MS_PER_QUESTION) return null;
 
   const mode = SQUARE100_MODE_LABELS[r.mode] || (r.unitTitle ? r.unitTitle.slice(0, 20) : r.mode);
   const score = Math.round(100 * r.firstTryCorrect / r.count);
@@ -744,7 +874,8 @@ function buildReadingRecordRow_(v, student) {
   if (r.status !== 'completed' || r.multiplayer) return null;
 
   const ext = r.extJson ? safeParseJson_(r.extJson) : null;
-  const pages = Number(ext && ext.pages);
+  // 1さつのページ数は READING_MAX_PAGES までに丸めます（経験値はページ数で決まるため）
+  const pages = Math.min(READING_MAX_PAGES, Number(ext && ext.pages));
   const rating = Number(ext && ext.rating);
   const day = new Date(Utilities.formatDate(v.started, 'JST', 'yyyy/MM/dd') + ' 00:00:00');
   return {
@@ -833,7 +964,7 @@ function buildTypingRecordRow_(v, student) {
     if (!r.elapsedMs || r.elapsedMs <= 0) return null;
     speed = correct / (r.elapsedMs / 1000);
   }
-  if (speed > 100) return null;                                     // 人の手では出ない値は受け取りません
+  if (speed > TYPING_MAX_KPS) return null;                          // 人の手では出ない値は受け取りません
 
   const day = new Date(Utilities.formatDate(v.started, 'JST', 'yyyy/MM/dd') + ' 00:00:00');
   const round2 = n => Math.round(n * 100) / 100;
@@ -928,6 +1059,8 @@ function ensureStudyLogSheet_(ss) {
   if (!sheet) {
     sheet = ss.insertSheet(SHEETS.STUDY_LOG);
     const headers = getSheetDefinitions_()[SHEETS.STUDY_LOG];
+    // 新しいシートは 26 列。見出しは 28 列あるので先に広げます（広げないと例外になります）
+    ensureCapacity_(sheet, 1, 1, headers.length);
     sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
     sheet.setFrozenRows(1);
   }
@@ -1156,6 +1289,45 @@ function hasAnyStudyLog_(ss) {
   return !!sheet && sheet.getLastRow() >= 2;
 }
 
+/** 実行中だけ使う「学習ログ」の読みこみ置き場（同じ実行の中で何度も読まないため） */
+let STUDY_LOG_RAW_CACHE_ = null;
+
+/**
+ * 「学習ログ」の startRow〜lastRow を読みます。同じ実行の中では使い回します。
+ *
+ * アプリを開くたびに、バッジの判定・ランキング・めあて・課題がそれぞれ学習ログを
+ * 丸ごと読んでいました（1回の起動で5回）。学習ログはいちばん大きくなるシートなので、
+ * 年度の後半ほど起動が遅くなります。いまは、すでに読んだ範囲に収まるなら読み直しません。
+ * 行が足されると最後の行の番号が変わるので、そのときは読み直します。
+ */
+function readStudyLogRaw_(sheet, startRow, lastRow, withItems) {
+  const c = STUDY_LOG_RAW_CACHE_;
+  if (c && c.lastRow === lastRow && c.startRow <= startRow && (!withItems || c.items)) {
+    const off = startRow - c.startRow;
+    return {
+      head: off ? c.head.slice(off) : c.head,
+      tail: c.tail ? (off ? c.tail.slice(off) : c.tail) : null,
+      items: withItems ? (off ? c.items.slice(off) : c.items) : null
+    };
+  }
+  const numRows = lastRow - startRow + 1;
+  // 列が足りない古いシートでも落ちないように、読む幅は実際の列数までに丸めます
+  // （読み出し側の作法は getUserRows_ に合わせています）
+  const maxCols = sheet.getMaxColumns();
+  const head = sheet.getRange(startRow, 1, numRows, Math.min(STUDY_LOG_HEAD_COLS, maxCols)).getValues();
+  const tail = maxCols >= STUDY_LOG_TAIL_COL
+    ? sheet.getRange(startRow, STUDY_LOG_TAIL_COL, numRows, Math.min(2, maxCols - STUDY_LOG_TAIL_COL + 1)).getValues()
+    : null;
+  const items = (withItems && maxCols >= STUDY_LOG_ITEMS_COL)
+    ? sheet.getRange(startRow, STUDY_LOG_ITEMS_COL, numRows, 1).getValues()
+    : null;
+  // 広い範囲を読んだときだけ置き場を入れかえます（狭い範囲で上書きして、次に読み直しにならないように）
+  if (!c || c.lastRow !== lastRow || startRow <= c.startRow) {
+    STUDY_LOG_RAW_CACHE_ = { lastRow, startRow, head, tail, items };
+  }
+  return { head, tail, items };
+}
+
 /**
  * 「学習ログ」シートのレコードをオブジェクト配列で読み出します。
  *
@@ -1180,17 +1352,10 @@ function readStudyLog_(ss, opts) {
   const startRow = o.since ? studyLogStartRow_(sheet, lastRow, o.since) : 2;
   if (startRow > lastRow) return [];
   const numRows = lastRow - startRow + 1;
-
-  // 列が足りない古いシートでも落ちないように、読む幅は実際の列数までに丸めます
-  // （読み出し側の作法は getUserRows_ に合わせています）
-  const maxCols = sheet.getMaxColumns();
-  const head = sheet.getRange(startRow, 1, numRows, Math.min(STUDY_LOG_HEAD_COLS, maxCols)).getValues();
-  const tail = maxCols >= STUDY_LOG_TAIL_COL
-    ? sheet.getRange(startRow, STUDY_LOG_TAIL_COL, numRows, Math.min(2, maxCols - STUDY_LOG_TAIL_COL + 1)).getValues()
-    : null;
-  const items = (o.withItems && maxCols >= STUDY_LOG_ITEMS_COL)
-    ? sheet.getRange(startRow, STUDY_LOG_ITEMS_COL, numRows, 1).getValues()
-    : null;
+  const raw = readStudyLogRaw_(sheet, startRow, lastRow, !!o.withItems);
+  const head = raw.head;
+  const tail = raw.tail;
+  const items = raw.items;
 
   const email = o.email ? String(o.email).toLowerCase().trim() : null;
   const out = [];
@@ -1287,7 +1452,7 @@ function studyFirstTry_(r) {
  */
 function studyLearnMs_(r) {
   if (STUDY_NO_TIME_APPS[r.appId]) return 0;
-  return (r.activeMs !== null && !isNaN(r.activeMs)) ? r.activeMs : r.elapsedMs;
+  return studyCountedMs_(r);   // 1件 2時間まで（開いたままのタブで時間がふくらまないように）
 }
 
 /**
@@ -2077,7 +2242,9 @@ function getStudyLogDashboard(period) {
       stumbles,
       // 拡張層（ext）から取り出した指導のてがかり。§4.2 の基準を満たす値だけを載せています
       hints: buildStudyTeachingHints_(records),
-      recent
+      recent,
+      // 人の手では出ない値の記録（直近30日）。だまって捨てず、先生が見直せるように出します
+      suspects: getStudySuspects_(ss, nameByEmail)
     };
   } catch (e) {
     console.error(`getStudyLogDashboard Error: ${e.message}`);
@@ -2208,20 +2375,11 @@ function getStudyAppPanelData_(ss, email, config) {
  */
 function getStudyAppBadgeStats_(ss, email, userLogs) {
   const stats = { records: 0, minutes: 0, sendStreak: 0 };
-  const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
-  if (sheet && sheet.getLastRow() >= 2) {
-    // B〜S列（メールアドレス〜activeMs）だけを読む
-    let ms = 0;
-    sheet.getRange(2, 2, sheet.getLastRow() - 1, 18).getValues().forEach(row => {
-      if (String(row[0]).toLowerCase().trim() !== email) return;
-      stats.records++;
-      // 記録操作の時間しか持たないアプリ（読書）は学習時間に足しません（§3.8.2）
-      if (STUDY_NO_TIME_APPS[String(row[5] || '')]) return;   // row[5] = G列 appId
-      const active = (row[17] === '' || row[17] === null) ? null : Number(row[17]);
-      ms += (active !== null && !isNaN(active)) ? active : (Number(row[16]) || 0);
-    });
-    stats.minutes = Math.round(ms / 60000);
-  }
+  // 学習ログは readStudyLog_ の読みこみ置き場を使います（起動のたびに丸ごと読み直さないため）
+  const rows = readStudyLog_(ss, { email });
+  stats.records = rows.length;
+  // 記録操作の時間しか持たないアプリ（読書）は学習時間に足しません（§3.8.2）
+  stats.minutes = Math.round(rows.reduce((sum, r) => sum + studyLearnMs_(r), 0) / 60000);
 
   const days = new Set(
     (userLogs || [])
@@ -2243,25 +2401,16 @@ function getStudyAppBadgeStats_(ss, email, userLogs) {
  * @returns {Array<{rank, name, value}>} value は分
  */
 function getStudyAppRanking_(ss, nicknameMap) {
-  const sheet = ss.getSheetByName(SHEETS.STUDY_LOG);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  const numRows = sheet.getLastRow() - 1;
-  const heads = sheet.getRange(2, 2, numRows, 6).getValues();     // メールアドレス〜appId（B〜G列）
-  const times = sheet.getRange(2, 18, numRows, 2).getValues();    // elapsedMs / activeMs
   const { startOfWeek } = getWeekRange_();
-
+  // 今週の学習日の記録は、今週以降に届いています。読む範囲は「今週届いた行」からで足ります
   const msByEmail = {};
-  heads.forEach((row, i) => {
-    const email = String(row[0]).toLowerCase().trim();
-    if (!nicknameMap[email]) return;
-    const day = parseTimestamp_(row[2]);
-    if (!day || day < startOfWeek) return;
+  readStudyLog_(ss, { since: startOfWeek }).forEach(r => {
+    if (!nicknameMap[r.email]) return;
+    if (!r.day || r.day < startOfWeek) return;
     // 記録操作の時間しか持たないアプリ（読書）は学習時間ランキングに入れません（§3.8.2）。
     // 読書は「どくしょ王」（ページ数のランキング）で別に見ます
-    if (STUDY_NO_TIME_APPS[String(row[5] || '')]) return;
-    const active = (times[i][1] === '' || times[i][1] === null) ? null : Number(times[i][1]);
-    const ms = (active !== null && !isNaN(active)) ? active : (Number(times[i][0]) || 0);
-    msByEmail[email] = (msByEmail[email] || 0) + ms;
+    const ms = studyLearnMs_(r);
+    if (ms > 0) msByEmail[r.email] = (msByEmail[r.email] || 0) + ms;
   });
 
   return formatRanking_(
@@ -2271,6 +2420,28 @@ function getStudyAppRanking_(ss, nicknameMap) {
       .sort((a, b) => b.value - a.value),
     0
   );
+}
+
+/**
+ * 人の手では出ない値として控えた学習ログ（直近30日・新しい順に最大50件）。
+ * @param {Object} nameByEmail - メールアドレス → { number, name }
+ */
+function getStudySuspects_(ss, nameByEmail) {
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  return readLogRowsSince_(ss, since)
+    .filter(row => row[2] === LOG_ACTIONS.STUDY_LOG_SUSPECT)
+    .reverse()
+    .slice(0, 50)
+    .map(row => {
+      const who = nameByEmail[String(row[1]).toLowerCase().trim()] || {};
+      return {
+        date: formatDate_(row[0], 'M/d'),
+        number: who.number || '',
+        name: who.name || '',
+        detail: String(row[3] || '')
+      };
+    });
 }
 
 /** 週次サマリーメール用: 期間内の学習アプリログの件数・人数・分数 */

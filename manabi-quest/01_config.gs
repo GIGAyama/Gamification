@@ -179,6 +179,7 @@ const LOG_ACTIONS = {
   SET_GOAL: 'SET_GOAL',                       // めあてを立てた
   NEW_RECORD: 'NEW_RECORD',                   // 自己ベストを更新した
   RECORD_STREAK: 'RECORD_STREAK',             // 連続きろくボーナスを受け取った
+  STUDY_LOG_SUSPECT: 'STUDY_LOG_SUSPECT',     // 人の手では出ない値の学習ログ（先生の画面で見直せるように）
   WEEKLY_REFLECTION: 'WEEKLY_REFLECTION',     // 週次ふり返りを書いた
   SEND_CHEER: 'SEND_CHEER',                   // 友だちに応援スタンプを送った
   RECEIVE_CHEER: 'RECEIVE_CHEER',             // 応援スタンプをもらった
@@ -355,8 +356,44 @@ function getConfigNumber_(config, key, defaultValue) {
   return isNaN(v) ? defaultValue : v;
 }
 
+/**
+ * 「初期設定」の数の欄の下限。これより小さい値・数でない値は、先生のダッシュボードに出します。
+ * アプリの中では、打ちまちがいで動きが壊れないよう既定値や下限に丸めて使います
+ * （例: レベル計算の係数が 0 やマイナスだと、計算が終わらなくなっていました）。
+ */
+const CONFIG_NUMBER_RULES = [
+  ['レベルアップ基本経験値', 1],
+  ['レベルアップ加算経験値', 0],
+  ['ログインボーナス経験値', 0],
+  ['ガチャコスト', 1],
+  ['10連ガチャコスト', 1],
+  ['ガチャ排出率_N', 0],
+  ['ガチャ排出率_R', 0],
+  ['ガチャ排出率_SR', 0],
+  ['学習アプリ経験値係数', 0],
+  ['学習アプリ経験値上限', 0],
+  ['学習アプリ経験値_1日の上限', 0],
+  ['学習アプリ経験値の対象日数', 1]
+];
+
+/** 「初期設定」の数の欄で、ありえない値になっているものを先生向けの文で返します */
+function getConfigWarnings_(config) {
+  const warnings = [];
+  CONFIG_NUMBER_RULES.forEach(([key, min]) => {
+    if (!config || !(key in config) || config[key] === '' || config[key] === null) return;
+    const v = Number(config[key]);
+    if (isNaN(v)) {
+      warnings.push(`「${key}」が数ではありません（いまの値: ${config[key]}）。既定の値で動かしています。`);
+    } else if (v < min) {
+      warnings.push(`「${key}」は ${min} 以上にしてください（いまの値: ${v}）。`);
+    }
+  });
+  return warnings;
+}
+
 /** 設定キャッシュを明示的にクリアします（設定変更後に実行） */
 function clearConfigCache() {
+  assertOperator_();
   CacheService.getScriptCache().remove('config_v1');
   SpreadsheetApp.getActiveSpreadsheet().toast('設定キャッシュをクリアしました。');
 }

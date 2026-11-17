@@ -203,7 +203,7 @@ function sendCheer(payload) {
       }
 
       const def = CHEER_STAMPS[stamp];
-      ss.getSheetByName(SHEETS.CHEERS).appendRow([new Date(), email, toEmail, stamp]);
+      appendRow_(ss.getSheetByName(SHEETS.CHEERS), [new Date(), email, toEmail, stamp]);
 
       // 送った側・もらった側の両方にログとごほうび（もらう側のほうを厚くしています）
       const myNickname = nicknameMap[email] || 'ともだち';
@@ -320,7 +320,7 @@ function sendTeacherPraise(payload) {
       const body = [stamp ? `🌟 ${stamp}` : '', message].filter(Boolean).join(' ');
       const author = teacher['ニックネーム'] || teacher['名前'] || '先生';
       // 表示期限は空（ずっと表示）。5列目が宛先で、本人だけに見えます
-      ss.getSheetByName(SHEETS.ANNOUNCEMENTS).appendRow([new Date(), body, author, '', toEmail]);
+      appendRow_(ss.getSheetByName(SHEETS.ANNOUNCEMENTS), [new Date(), body, author, '', toEmail]);
       writeLog_(ss, toEmail, LOG_ACTIONS.TEACHER_PRAISE, `先生からひとこと: ${body.slice(0, 40)}`);
       clearInsightsCache_(toEmail);
 

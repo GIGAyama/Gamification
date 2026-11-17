@@ -23,7 +23,9 @@ function getTeacherEmails_(ss) {
  * 先週1週間のクラスの様子を担任にメール配信します。
  * 時間主導トリガー（毎週月曜朝など）の実行対象にしてください。
  */
-function sendWeeklyClassSummary() {
+function sendWeeklyClassSummary(e) {
+  // 自動送信のトリガーから呼ばれたとき以外は、先生（メニュー・スクリプトの持ち主）だけ
+  if (!isFromOwnTrigger_(e, WEEKLY_SUMMARY_HANDLER)) assertOperator_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const teacherEmails = getTeacherEmails_(ss);
   if (teacherEmails.length === 0) {
@@ -147,6 +149,7 @@ const WEEKLY_SUMMARY_HANDLER = 'sendWeeklyClassSummary';
  * 既存の同名トリガーがあれば作り直します。
  */
 function setupWeeklySummaryTrigger() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   removeTriggersByHandler_(WEEKLY_SUMMARY_HANDLER);
   ScriptApp.newTrigger(WEEKLY_SUMMARY_HANDLER)
@@ -162,17 +165,39 @@ function setupWeeklySummaryTrigger() {
 
 /** 週次サマリーメールの自動送信を停止します */
 function removeWeeklySummaryTrigger() {
+  // 以前はここで確かめず、最後の getUi() で失敗する前にトリガーを消していました
+  // （児童が呼ぶと、先生の週次メールがだまって止まりました）
+  assertOperator_();
   const removed = removeTriggersByHandler_(WEEKLY_SUMMARY_HANDLER);
   SpreadsheetApp.getUi().alert(removed > 0 ? '週次サマリーの自動送信を停止しました。' : '週次サマリーのトリガーは設定されていません。');
 }
 
 /** 今すぐ週次サマリーメールを送信します（動作確認用） */
 function sendWeeklySummaryNow() {
+  assertOperator_();
   try {
     sendWeeklyClassSummary();
     SpreadsheetApp.getActiveSpreadsheet().toast('週次サマリーメールを送信しました。');
   } catch (e) {
     SpreadsheetApp.getUi().alert('送信に失敗しました', e.message, SpreadsheetApp.getUi().ButtonSet.OK);
+  }
+}
+
+/**
+ * 時間主導トリガーから呼ばれたかを、トリガーの番号で確かめます。
+ *
+ * トリガーは呼び出しのときに { triggerUid, … } を渡してきます。ただし引数は
+ * google.script.run からも好きな形で渡せるので、番号がこのスクリプトに実在し、
+ * 呼ばれた関数のトリガーであることまで確かめます（番号は児童の画面には出ません）。
+ */
+function isFromOwnTrigger_(e, handlerName) {
+  const uid = (e && typeof e === 'object' && e.triggerUid) ? String(e.triggerUid) : '';
+  if (!uid) return false;
+  try {
+    return ScriptApp.getProjectTriggers().some(t =>
+      String(t.getUniqueId()) === uid && t.getHandlerFunction() === handlerName);
+  } catch (err) {
+    return false;
   }
 }
 
@@ -227,8 +252,10 @@ function copySheetInChunks_(sheet, dest, lastRow, lastCol) {
   }
   for (let row = 1; row <= lastRow; row += ARCHIVE_CHUNK_ROWS) {
     const numRows = Math.min(ARCHIVE_CHUNK_ROWS, lastRow - row + 1);
+    // getValues は計算後の値を返すので、元のシートで「ただの文字」だった `=…` も
+    // そのまま書くと送り先で数式になります。書く前に文字のままにします
     dest.getRange(row, 1, numRows, lastCol)
-      .setValues(sheet.getRange(row, 1, numRows, lastCol).getValues());
+      .setValues(sheet.getRange(row, 1, numRows, lastCol).getValues().map(sheetRow_));
   }
 }
 
@@ -243,6 +270,7 @@ function copySheetInChunks_(sheet, dest, lastRow, lastCol) {
  * **空セルも数に入ります**）を占有したままになるためです。
  */
 function archiveYearEndData() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   const confirm = ui.alert('年度末アーカイブ',
     '記録・ログ・所見などのデータを新しいスプレッドシートに退避し、このシートのデータ行を削除します。\n' +
@@ -404,6 +432,7 @@ function capacityWarningText_(stats) {
  * データベースの容量をメニューから確認します。
  */
 function reportDatabaseCapacity() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   try {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -478,6 +507,7 @@ function trimSheetGrid_(sheet, headers, rowBuffer) {
  * 範囲が変わることがあるので、確認をはさむ独立したメニューにしています。
  */
 function trimAllSheetGrids() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   const confirm = ui.alert('使っていない行・列を詰める',
     'それぞれのシートで、使っていない右側の列と下側の行を削除します。\n' +

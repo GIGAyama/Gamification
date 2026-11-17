@@ -24,7 +24,7 @@
     （読み込み先は CDN ではなく、自己ホストした vendor_furigana.html です。
       辞書だけは外に残っています。理由は js_core.html の initFurigana を見ること。）
 
-      ・Google Charts のローダー      … グラフを実際に描くときだけ
+      ・（グラフは自前の SVG になり、Google Charts は使っていません）
       ・kuroshiro                     … ふりがなを付けるときだけ（児童画面のみ）
       ・kuroshiro-analyzer-kuromoji   … 同上
 
@@ -596,6 +596,7 @@
     <!-- ============ 教員: ダッシュボード ============ -->
     <div id="view-t-dashboard" class="spa-view d-none">
       <h4 class="fw-bold text-primary mb-3"><i class="bi bi-clipboard-data"></i> クラスのようす</h4>
+      <div id="t-config-warnings"></div>
       <div class="row g-3 mb-4" id="t-stats-cards"></div>
       <div id="t-alerts-area" class="mb-4"></div>
       <div class="row g-4">
@@ -803,6 +804,20 @@
         <h5 class="fw-bold text-secondary mb-1"><i class="bi bi-lightbulb"></i> 指導のてがかり</h5>
         <p class="small text-muted mb-3">回数と正答率だけでは「次に何をすればいいか」までは決まりません。各アプリが固有に記録している値のうち、<b>明日の指導の判断を変えられるもの</b>だけを出しています。アプリごとに意味がちがうため、ここの数字はアプリをまたいで比べないでください（仕様 §2.11 / §4.2）。</p>
         <div class="row g-4" id="tl-hints"></div>
+      </div>
+
+      <!-- 見なおしたい記録（人の手では出ない値。経験値・ランキングには数えていません） -->
+      <div id="tl-suspects-section" class="card shadow-sm border-0 rounded-4 mb-4 d-none">
+        <div class="card-header bg-transparent fw-bold"><i class="bi bi-exclamation-diamond"></i> 見なおしたい記録（30日）</div>
+        <div class="card-body pb-0">
+          <p class="small text-muted mb-2">タイピングが速すぎる、100マス計算が速すぎる、1さつのページ数が多すぎる、など人の手では出ない値の記録です。学習ログには残していますが、<b>経験値・ランキング・自己ベストには数えていません</b>。端末の時計のずれや、アプリの不具合のこともあります。</p>
+        </div>
+        <div class="card-body p-0 custom-scrollbar" style="max-height:240px;overflow-y:auto;">
+          <table class="table table-sm mb-0 align-middle">
+            <thead class="table-light sticky-top"><tr><th>日付</th><th>児童</th><th>内容</th></tr></thead>
+            <tbody id="tl-suspects"></tbody>
+          </table>
+        </div>
       </div>
 
       <div class="card shadow-sm border-0 rounded-4">
