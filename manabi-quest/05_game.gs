@@ -38,7 +38,7 @@ function getInventory_(ss, email) {
 /** インベントリにアイテムを追加（重複は無視） */
 function addItemToInventory_(ss, email, itemId) {
   if (getInventory_(ss, email).includes(itemId)) return;
-  ss.getSheetByName(SHEETS.INVENTORY).appendRow([new Date(), email, itemId, `${email}-${itemId}`]);
+  appendRow_(ss.getSheetByName(SHEETS.INVENTORY), [new Date(), email, itemId, `${email}-${itemId}`]);
 }
 
 /** 指定ユーザーのアバター構成を取得します */
@@ -53,6 +53,11 @@ function getAvatarComposition_(ss, email) {
 
 /**
  * アバター構成を保存します。
+ *
+ * 画面では「持っているアイテム」しかえらべませんが、サーバーは以前、届いた値をそのまま
+ * 書いていました。開発者ツールから呼べば、持っていないSRを身につけたり、
+ * どんな文字でも書きこめたりしました。いまは「アイテムマスタにあり・その分類で・
+ * 持っている」アイテムだけを受けつけます。
  * @param {Object} composition - { カテゴリ名: アイテムID } の形式
  */
 function saveAvatar(composition) {
@@ -61,17 +66,28 @@ function saveAvatar(composition) {
       const email = getCurrentEmail_();
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const sheet = ss.getSheetByName(SHEETS.AVATAR);
+      const wanted = (composition && typeof composition === 'object') ? composition : {};
+      const owned = new Set(getInventory_(ss, email).map(id => String(id)));
+      const itemsById = {};
+      getAllItems_(ss).items.forEach(item => { itemsById[String(item['アイテムID'])] = item; });
+
       const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
       const newRow = headers.map(header => {
-        if (header === 'メールアドレス') return email;
-        const value = composition[String(header).trim()];
-        return (value !== null && value !== undefined && value !== '') ? value : null;
+        const category = String(header).trim();
+        if (category === 'メールアドレス') return email;
+        const value = wanted[category];
+        if (value === null || value === undefined || value === '') return null;
+        const item = itemsById[String(value)];
+        if (!item || String(item['カテゴリ']).trim() !== category || !owned.has(String(value))) {
+          throw new Error('もっていない アイテムは つけられません。');
+        }
+        return item['アイテムID'];
       });
       const found = findRowData_(ss, SHEETS.AVATAR, 1, email);
       if (found.row) {
-        sheet.getRange(found.row, 1, 1, newRow.length).setValues([newRow]);
+        sheet.getRange(found.row, 1, 1, newRow.length).setValues([sheetRow_(newRow)]);
       } else {
-        sheet.appendRow(newRow);
+        appendRow_(sheet, newRow);
       }
       writeLog_(ss, email, LOG_ACTIONS.SAVE_AVATAR, '見た目の変更');
       return { success: true, message: 'アバターをほぞんしました。' };
@@ -90,12 +106,20 @@ function saveProfile(profileData) {
       const email = getCurrentEmail_();
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const sheet = ss.getSheetByName(SHEETS.PROFILE);
-      const newRow = [email, profileData.motto || '', profileData.favorite || '', profileData.goal || ''];
+      // プロフィールは「みんな」の画面でクラス全員に配られます。長さに上限が無いと、
+      // 1人が長い文を書くだけで全員の起動が重くなります（画面の maxlength と同じ 30 文字）
+      const p = profileData || {};
+      const newRow = [
+        email,
+        cleanText_(p.motto, TEXT_LIMITS.PROFILE, 'ひとこと'),
+        cleanText_(p.favorite, TEXT_LIMITS.PROFILE, 'すきなもの'),
+        cleanText_(p.goal, TEXT_LIMITS.PROFILE, 'がんばりたいこと')
+      ];
       const found = findRowData_(ss, SHEETS.PROFILE, 1, email);
       if (found.row) {
-        sheet.getRange(found.row, 1, 1, 4).setValues([newRow]);
+        sheet.getRange(found.row, 1, 1, 4).setValues([sheetRow_(newRow)]);
       } else {
-        sheet.appendRow(newRow);
+        appendRow_(sheet, newRow);
       }
       writeLog_(ss, email, LOG_ACTIONS.SAVE_PROFILE, 'プロフィールの更新');
       return { success: true, message: 'プロフィールをほぞんしました。' };
@@ -153,9 +177,10 @@ function playGacha(count) {
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const config = getConfig_();
 
-      const cost = times === 10
+      // マイナスにすると「回すと経験値が増える」ので、0 より小さくはしません
+      const cost = Math.max(0, times === 10
         ? getConfigNumber_(config, '10連ガチャコスト', 1800)
-        : getConfigNumber_(config, 'ガチャコスト', 200);
+        : getConfigNumber_(config, 'ガチャコスト', 200));
 
       const found = findUserRow_(ss, email);
       const currentExp = Number(found.data['経験値'] || 0);
@@ -236,7 +261,12 @@ function exchangeItem(itemId) {
       if (!itemData.data) return { success: false, message: 'アイテムが見つかりません。' };
       const cost = Number(itemData.data['必要交換ポイント']);
       if (isNaN(cost) || cost <= 0) return { success: false, message: 'このアイテムは交換できません。' };
-      if (getInventory_(ss, email).includes(itemId)) return { success: false, message: 'すでに持っているアイテムです。' };
+      // 画面から届く ID は文字のこともあるので、シートの値にそろえてから比べます
+      // （そろえないと「もう持っている」を見のがして、同じアイテムにポイントを払えました）
+      itemId = itemData.data['アイテムID'];
+      if (getInventory_(ss, email).some(id => String(id) === String(itemId))) {
+        return { success: false, message: 'すでに持っているアイテムです。' };
+      }
 
       const user = findUserRow_(ss, email);
       const points = Number(user.data['交換ポイント'] || 0);
@@ -398,7 +428,7 @@ function claimMissionReward(missionId) {
         newExchangePoints += status.rewardAmount;
         userSheet.getRange(user.row, USER_COLS.POINTS).setValue(newExchangePoints);
       }
-      const levelInfo = calculateLevel(newTotalExp, config);
+      const levelInfo = calculateLevel_(newTotalExp, config);
       return {
         success: true, message: 'ほうしゅうを受け取りました！',
         missionId: cleanedId,
@@ -575,17 +605,22 @@ function checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadge
     }
 
     if (achieved) {
-      ss.getSheetByName(SHEETS.EARNED_BADGES).appendRow([new Date(), email, badge.id]);
+      appendRow_(ss.getSheetByName(SHEETS.EARNED_BADGES), [new Date(), email, badge.id]);
       writeLog_(ss, email, LOG_ACTIONS.AWARD_BADGE, `バッジ獲得: ${badge.name} (ID: ${badge.id})`);
       newlyAwarded.push(badge);
       earnedIds.add(badge.id);
     }
   }
 
-  const updatedEarnedBadges = badgesMaster
+  return { updatedEarnedBadges: earnedBadgeList_(badgesMaster, [...earnedIds].map(id => ({ id }))), newlyAwarded };
+}
+
+/** 獲得ずみのバッジを、マスタの順に「獲得ずみ」の印つきで並べます */
+function earnedBadgeList_(badgesMaster, earnedBadges) {
+  const earnedIds = new Set((earnedBadges || []).map(b => b.id));
+  return (badgesMaster || [])
     .filter(b => earnedIds.has(b.id))
     .map(b => ({ ...b, isEarned: true }));
-  return { updatedEarnedBadges, newlyAwarded };
 }
 
 /** 連続ログイン日数を計算します */
@@ -648,7 +683,7 @@ function getRankings_(ss, config) {
     .map(row => ({
       nickname: row[2] || row[1],
       totalExp: Number(row[4] || 0),
-      level: calculateLevel(Number(row[4] || 0), config).level
+      level: calculateLevel_(Number(row[4] || 0), config).level
     }));
 
   // 今日のMVP（獲得EXP合計）
@@ -863,7 +898,7 @@ function getPlazaData_(ss, config) {
       const email = String(row[3]).toLowerCase().trim();
       return {
         nickname: row[2] || row[1],
-        level: calculateLevel(Number(row[4] || 0), config).level,
+        level: calculateLevel_(Number(row[4] || 0), config).level,
         avatar: avatarMap[email] || {},
         profile: profileMap[email] || { motto: '', favorite: '', goal: '' }
       };

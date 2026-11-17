@@ -29,7 +29,7 @@
     "_note_postmessage": "いまは例外ゼロです。postToPortal() は宛先のオリジンを必ず1つに決めており、'*' は使いません。",
     "wildcardPostMessage": [],
 
-    "_note_xframe": "03_main.gs の XFrameOptionsMode.ALLOWALL は、学習ポータル（gigayama.github.io）の iframe にこのアプリを表示するために必要です。これが無いと C+型の構成そのものが成り立ちません（ポータルが親でないと児童の端末の学習ログを読めない）。埋め込み元は js_core.html の isPortalOrigin_() で *.github.io に限っており、postMessage の宛先も固定しています。",
+    "_note_xframe": "03_main.gs の XFrameOptionsMode.ALLOWALL は、学習ポータル（gamification.giga-school.com）の iframe にこのアプリを表示するために必要です。これが無いと C+型の構成そのものが成り立ちません（ポータルが親でないと児童の端末の学習ログを読めない）。ポータルとして認めるオリジンは js_core.html の isPortalOrigin_()（giga-school.com とそのサブドメイン、または *.github.io）で限っており、postMessage の宛先も固定しています。",
     "xFrameAllowAll": [
       "03_main.gs"
     ]

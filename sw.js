@@ -29,7 +29,7 @@
 //   手で上げる決まりだったころは、上げ忘れると児童の端末に前のまま表示され続けた
 //   （「直したのに変わらない」の原因のほとんどがこれ）。2026-08-21 に12リポジトリで
 //   同時に上げ忘れる事故が実際に起きている。
-const VERSION = 'v2eef53aa'; /* __APP_VERSION__ */
+const VERSION = 'v73da3139'; /* __APP_VERSION__ */
 const SHELL_CACHE = `manabi-shell-${VERSION}`;
 const RUNTIME_CACHE = `manabi-runtime-${VERSION}`;
 
@@ -111,10 +111,17 @@ async function handleNavigate(event) {
   }
 }
 
-/** 静的ファイル: キャッシュ優先 + 裏で更新（stale-while-revalidate） */
+/**
+ * 静的ファイル: キャッシュ優先 + 裏で更新（stale-while-revalidate）
+ *
+ * 以前は RUNTIME_CACHE しか見ていなかったので、install で SHELL_CACHE に先読みした
+ * アイコンや manifest を使わず、一度もオンラインで表示していないものは圏外で欠けていました。
+ * いまは先に RUNTIME（裏で新しくしたもの）、なければ SHELL（先読みしたもの）を返します。
+ */
 async function handleAsset(request) {
   const cache = await caches.open(RUNTIME_CACHE);
-  const cached = await cache.match(request);
+  const cached = await cache.match(request)
+    || await (await caches.open(SHELL_CACHE)).match(request, { ignoreSearch: true });
   const network = fetch(request).then(response => {
     if (response && response.ok) cache.put(request, response.clone());
     return response;

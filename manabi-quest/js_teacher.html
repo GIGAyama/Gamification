@@ -18,6 +18,44 @@ function initTeacherApp(data) {
 
 /* ---------------- ダッシュボード ---------------- */
 
+/** 「2026-11-17T01:23:00Z」を「11/17 10:23」に */
+function shortDateTime_(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/**
+ * 「AI所見機能」の表示。以前は API キーがあるだけで「利用可能」と出ていたため、
+ * 使っているモデルの提供が終わっていても先生には分かりませんでした。
+ * 最後に動いた日時と、失敗したときの理由を出します。
+ */
+function aiStatusHtml_(st, enabled) {
+  const s = st || { enabled: !!enabled, ok: enabled ? null : false };
+  if (!s.enabled) return `<div class="fs-5 fw-bold text-secondary">未設定</div>`;
+  const note = s.note ? `<div class="small text-warning-emphasis mt-1">${esc(s.note)}</div>` : '';
+  if (s.ok === false) {
+    return `<div class="fs-5 fw-bold text-danger">うまく動いていません</div>
+      <div class="small text-muted mt-1">${esc(shortDateTime_(s.lastErrorAt))} ${esc(s.lastError || '')}</div>${note}`;
+  }
+  const when = s.lastOkAt ? `最後に動いた: ${esc(shortDateTime_(s.lastOkAt))}` : 'まだ使っていません';
+  return `<div class="fs-5 fw-bold text-success">利用可能</div>
+    <div class="small text-muted mt-1">${when}<br>モデル: ${esc(s.model || '')}</div>${note}`;
+}
+
+/** 「初期設定」の値の打ちまちがい（範囲の外・数でない）を、ダッシュボードの上に出します */
+function renderConfigWarnings_(warnings) {
+  const area = document.getElementById('t-config-warnings');
+  if (!area) return;
+  area.innerHTML = warnings.length === 0 ? '' : `
+    <div class="alert alert-warning border-0 shadow-sm rounded-4 mb-4" role="status">
+      <div class="fw-bold mb-1"><i class="bi bi-exclamation-triangle"></i> 「初期設定」シートの値を確かめてください</div>
+      <ul class="small mb-0">${warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul>
+    </div>`;
+}
+
 function renderTeacherDashboard(data) {
   const stats = data.classStats || {};
   document.getElementById('t-stats-cards').innerHTML = `
@@ -42,10 +80,11 @@ function renderTeacherDashboard(data) {
     <div class="col-6 col-md-3">
       <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
         <div class="text-muted small fw-bold">AI所見機能</div>
-        <div class="fs-5 fw-bold ${data.aiEnabled ? 'text-success' : 'text-secondary'}">${data.aiEnabled ? '利用可能' : '未設定'}</div>
+        ${aiStatusHtml_(data.aiStatus, data.aiEnabled)}
       </div></div>
     </div>
     ${assignmentSummaryCardHtml_(data.assignmentSummary)}`;
+  renderConfigWarnings_(data.configWarnings || []);
 
   renderStudentAlerts(data.alerts || []);
 
@@ -444,7 +483,12 @@ function renderShokenStudio(d) {
       </div></div>
     </div>`;
   document.getElementById('ts-status-cards').innerHTML =
-    statusCard('AI機能', d.aiEnabled ? '利用可能' : '未設定', d.aiEnabled ? 'text-success' : 'text-secondary') +
+    `<div class="col-6 col-md-3">
+      <div class="card shadow-sm border-0 rounded-4 text-center"><div class="card-body">
+        <div class="text-muted small fw-bold">AI機能</div>
+        ${aiStatusHtml_(d.aiStatus, d.aiEnabled)}
+      </div></div>
+    </div>` +
     statusCard('保存時の自動抽出', d.autoExtract ? 'ON' : 'OFF', d.autoExtract ? 'text-success' : 'text-secondary') +
     statusCard('未処理のふり返り', `${pendingTotal}件`, pendingTotal > 0 ? 'text-danger' : 'text-success') +
     statusCard('所見材料ストック', `${d.totalMaterials ?? 0}件`, 'text-info');
@@ -877,6 +921,20 @@ function renderStudyLog(d) {
   }).join('') || emptyMessage('つまずきの多い問題はまだ検出されていません');
 
   renderStudyHints(d.hints || {});
+
+  // 人の手では出ない値の記録（タイピングが速すぎる・100マスが速すぎる・ページ数が多すぎる など）。
+  // 学習ログには残っていますが、ランキング・自己ベスト・経験値には数えていません
+  const suspectBox = document.getElementById('tl-suspects');
+  if (suspectBox) {
+    const list = d.suspects || [];
+    document.getElementById('tl-suspects-section').classList.toggle('d-none', list.length === 0);
+    suspectBox.innerHTML = list.map(x => `
+      <tr>
+        <td class="small">${esc(x.date)}</td>
+        <td class="small fw-bold">${esc(String(x.number))} ${esc(x.name)}</td>
+        <td class="small">${esc(x.detail)}</td>
+      </tr>`).join('');
+  }
 
   // 最近の学習
   document.getElementById('tl-recent-rows').innerHTML = (d.recent || []).map(r => `

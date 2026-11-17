@@ -99,7 +99,10 @@ const DEFAULT_CONFIG = [
   ['がんばりカレンダー週数', 12, 'ホームのがんばりカレンダーに表示する週の数'],
   ['アイテム画像フォルダID', '', 'アバターアイテム画像を置くGoogleドライブフォルダのID'],
   ['学年', 6, '在籍学年（PDFや道徳ノートに使用）'],
-  ['Geminiモデル', 'gemini-2.0-flash', 'AI所見・フィードバック生成に使うモデル名'],
+  // ⚠️ ここは文字のまま書く（07_ai.gs の AI_DEFAULT_MODEL を参照しない）。Apps Script はファイルの順に
+  //   読みこむので、後ろのファイルの定数をここで使うと「初期化の前に参照」でアプリ全体が起動しません。
+  //   値がそろっていることは tools/check-server-guards.js が確かめます。
+  ['Geminiモデル', 'gemini-flash-latest', 'AI所見・フィードバック生成に使うモデル名。gemini-flash-latest は「いちばん新しい Flash」を指す別名で、提供終了で使えなくなりません。特定の版を書いて、その版が使えなくなったときは自動でこの別名に切りかえます'],
   ['Google Classroom コースID', '', '道徳AIフィードバックの投稿先（空欄なら投稿しない）'],
   ['道徳AIフィードバック', 'OFF', 'ONにすると道徳ノート保存時にAIフィードバックを生成'],
   ['AI所見材料の自動抽出', 'ON', 'ONにすると授業・テストのふり返り保存時にAIが指導事項と照合して所見材料を自動ストック（GEMINI_API_KEY設定時のみ動作）'],
@@ -120,6 +123,8 @@ const DEFAULT_CONFIG = [
   ['学習ログ時刻精度', '時間帯', '学習ログに残す開始時刻の細かさ（時間帯 / 分）。プライバシー保護のため標準は「時間帯」まで'],
   ['学習アプリ経験値係数', 1, '学習アプリのログ1分（活動時間）あたりの獲得経験値（0で付与しない）'],
   ['学習アプリ経験値上限', 30, '学習ログ1件あたりの獲得経験値の上限'],
+  ['学習アプリ経験値_1日の上限', 600, '学習アプリのきろくでもらえる経験値（時間・100マス・読書・タイピング）の、学習した日1日あたりの上限（0で上限なし）。きろくは端末で作れるため、上限が無いと作り話のきろくで経験値をいくらでも増やせます'],
+  ['学習アプリ経験値の対象日数', 14, 'この日数より前に学習したきろくは、送っても経験値をつけません（きろく自体は残り、課題やグラフには数えます）'],
   ['100マス計算アプリ経験値係数', 0.5, '100マス計算アプリの記録1件の追加経験値 = floor(点数 × 係数)。点数は「はじめの1回で解けた割合」の100点満点換算'],
   ['学習ログ送信ボーナス経験値', 50, 'その日はじめて学習アプリのきろくを送ったときのボーナス経験値'],
   ['学習ログ連続ボーナス係数', 10, '連続そうしんボーナス = min(連続日数, 上限日数) × 係数（0で無効）'],
@@ -188,6 +193,7 @@ const DEFAULT_BADGES = [
  * 既存のシート・データには影響を与えず、不足分のみ作成します。
  */
 function setupDatabase() {
+  assertOperator_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const created = [];
   const definitions = getSheetDefinitions_();
@@ -200,6 +206,10 @@ function setupDatabase() {
     }
     // 不足しているヘッダーだけを補完（既存の列名・データには触れない）
     const headers = definitions[name];
+    // ⚠️ 新しく足したシートは 26 列しかありません。「学習ログ」の見出しは 28 列あり、
+    //   グリッドの外を指す範囲は例外になるため、以前は新しいスプレッドシートで
+    //   この行が失敗し、学習ログより後ろのシートが1枚も作られませんでした。先に広げます。
+    ensureCapacity_(sheet, 1, 1, headers.length);
     const firstRow = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
     const merged = headers.map((h, i) => (firstRow[i] === '' || firstRow[i] === null) ? h : firstRow[i]);
     if (merged.some((v, i) => v !== firstRow[i])) {
@@ -276,6 +286,7 @@ function appendMissingRowsById_(ss, sheetName, rows) {
  * （メニューから実行。すでにある行・先生が独自に追加した行には触れません）。
  */
 function addNewMissionsAndBadges() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const missions = appendMissingRowsById_(ss, SHEETS.MISSIONS, DEFAULT_MISSIONS);
@@ -321,6 +332,7 @@ function onOpen() {
  * ファイルから自動で補完します。
  */
 function updateItemImageIds() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   try {
     const config = getConfig_();

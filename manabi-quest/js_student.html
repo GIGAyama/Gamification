@@ -3,45 +3,12 @@
  * js_student.html — 児童用ビュー
  * ===================================================================== */
 
-/* ---- グラフのライブラリ（必要になってから読み込む） ----------------------
- * 以前は <head> で Google Charts のローダーを読み、ここですぐ
- * google.charts.load() を呼んでいました。そのため、記録タブを一度も開かない
- * 児童の端末でもグラフ用のコードを丸ごとダウンロードしていました。
- *
- * いまは drawTypingChart / drawCalcChart / drawTestChart が呼ばれた時点で
- * はじめて取りにいきます。取りに行けなかったときはグラフの場所が空になるだけで、
- * ほかの記録は今までどおり表で読めます。
+/* ---- グラフ（自前の SVG） ---------------------------------------------------
+ * 以前は Google Charts のローダーを www.gstatic.com から実行時に読んでいました。
+ * 学校のフィルタで止まるとグラフの場所が空になり、外部CDNを使わない決まり
+ * （Zero-CDN）にも反していて、フィルタの申請一覧にも載っていませんでした。
+ * いまは drawLineChart_() が画面の中で SVG を組み立てます。外へは何も取りにいきません。
  * ---------------------------------------------------------------------- */
-let chartsReady = false;
-let chartsLoading = null;
-
-/** グラフのライブラリを用意します。使えるようになったら true */
-function ensureCharts() {
-  if (chartsReady) return Promise.resolve(true);
-  if (chartsLoading) return chartsLoading;
-  chartsLoading = loadScriptOnce_('https://www.gstatic.com/charts/loader.js')
-    .then(() => new Promise(resolve => {
-      google.charts.load('current', { packages: ['corechart'], language: 'ja' });
-      google.charts.setOnLoadCallback(() => { chartsReady = true; resolve(true); });
-    }))
-    .catch(e => {
-      console.warn('グラフのライブラリを読み込めませんでした（表だけで表示します）:', e && e.message);
-      chartsLoading = null;   // つながったときに、もう一度ためせるようにする
-      return false;
-    });
-  return chartsLoading;
-}
-
-/**
- * グラフを描く関数の先頭で使います。
- * まだ用意できていなければ読み込みを始め、そろってから同じ関数をもう一度呼びます。
- * @returns {boolean} いま描いてよければ true
- */
-function chartsReadyOrLoad_(retry) {
-  if (chartsReady) return true;
-  ensureCharts().then(ok => { if (ok) retry(); });
-  return false;
-}
 
 /**
  * 奥の画面につける「もどる」つき見出しの一覧。
@@ -552,7 +519,7 @@ function renderGoals() {
               <div class="mq-hint">${esc(goal.period)}のめあて</div>
               <div class="mission-text">${esc(goal.memo || goal.kindLabel)}</div>
             </div>
-            <button type="button" class="mq-btn mq-btn-pink" style="min-height:2.4rem;padding:.35rem .9rem;font-size:.9rem;" data-goal-done="${goal.row}">できた！</button>
+            <button type="button" class="mq-btn mq-btn-pink" style="min-height:44px;padding:.35rem .9rem;font-size:.95rem;" data-goal-done="${goal.row}">できた！</button>
           </div>
         </div>`;
     }
@@ -744,6 +711,7 @@ function openWeeklyReflectionDialog() {
           ／ 学習アプリ <b>${s.appMinutes || 0}分</b>
           ${s.streak > 0 ? `<br>${icon('fire')} いま <b>${s.streak}日</b> れんぞくきろく中！` : ''}
         </div>
+        <div id="weekly-draft-note" class="small text-success fw-bold mb-2" hidden>${icon('note')} かきかけを もどしました</div>
         <label class="form-label small fw-bold">① 今週できるようになったことは？</label>
         <textarea id="weekly-learned" class="form-control mb-2" rows="2" maxlength="300"></textarea>
         <label class="form-label small fw-bold">② むずかしかったことは？</label>
@@ -752,6 +720,32 @@ function openWeeklyReflectionDialog() {
         <input type="text" id="weekly-next" class="form-control" maxlength="100">
       </div>`,
     showCancelButton: true, confirmButtonText: 'かきおわった', cancelButtonText: 'あとで',
+    // 書きかけの自動保存。「あとで」でとじても、保存できなかったときも、次にひらくと もどります
+    didOpen: popup => {
+      let timer = null;
+      weeklyDraftFlush_ = () => {
+        clearTimeout(timer);
+        const value = readWeeklyDraft_();
+        if (value) Drafts.save(WEEKLY_DRAFT_NAME, value);
+      };
+      popup.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(weeklyDraftFlush_, DRAFT_SAVE_DELAY_MS);
+      });
+      Drafts.load(WEEKLY_DRAFT_NAME).then(entry => {
+        if (!entry || !entry.value || readWeeklyDraft_()) return;
+        WEEKLY_DRAFT_FIELDS.forEach(id => {
+          const el = document.getElementById(id);
+          if (el && typeof entry.value[id] === 'string') el.value = entry.value[id];
+        });
+        const note = document.getElementById('weekly-draft-note');
+        if (note) note.hidden = false;
+      });
+    },
+    willClose: () => {
+      if (weeklyDraftFlush_) weeklyDraftFlush_();
+      weeklyDraftFlush_ = null;
+    },
     preConfirm: () => ({
       learned: document.getElementById('weekly-learned').value,
       hard: document.getElementById('weekly-hard').value,
@@ -760,7 +754,8 @@ function openWeeklyReflectionDialog() {
   }).then(async result => {
     if (!result.isConfirmed) return;
     const res = await apiWithLoading('ほぞん中...', 'saveWeeklyReflection', result.value);
-    if (!res.success) { Swal.fire('ほぞんできません', esc(res.message), 'warning'); return; }
+    if (!res.success) { Swal.fire('ほぞんできません', `${esc(res.message)}<br><span class="small">書いた文は のこしてあります。もういちど ひらいてね。</span>`, 'warning'); return; }
+    Drafts.clear(WEEKLY_DRAFT_NAME);
 
     App.data.insights = App.data.insights || {};
     App.data.insights.weekly = res.weekly;
@@ -781,6 +776,24 @@ function openWeeklyReflectionDialog() {
       if (res.leveledUp) showLevelUp(res.newLevel);
     });
   });
+}
+
+/** 週のふり返りの書きかけの名前と、残す入力欄 */
+const WEEKLY_DRAFT_NAME = 'weekly';
+const WEEKLY_DRAFT_FIELDS = ['weekly-learned', 'weekly-hard', 'weekly-next'];
+/** 開いている週のふり返りの書きかけを、すぐ残す関数（とじるとき用） */
+let weeklyDraftFlush_ = null;
+
+/** 週のふり返りに書いてある中身。何も書いていなければ null */
+function readWeeklyDraft_() {
+  const value = {};
+  let has = false;
+  WEEKLY_DRAFT_FIELDS.forEach(id => {
+    const el = document.getElementById(id);
+    value[id] = el ? el.value : '';
+    if (String(value[id]).trim()) has = true;
+  });
+  return has ? value : null;
 }
 
 /** これまでの週次ふり返りを一覧で見せます */
@@ -1295,7 +1308,7 @@ function renderMissions(missions) {
   container.classList.toggle('mq-stagger', idsBefore !== idsAfter);
   missionListSignature = signature;
 
-  const typeBadge = { 'デイリー': 'bg-info', 'ウィークリー': 'bg-primary', '協力': 'bg-danger' };
+  const typeBadge = { 'デイリー': 'bg-info', 'ウィークリー': 'bg-primary', '協力': 'bg-danger' };   // 色は css.html で白い字が読める濃さにしています
   container.innerHTML = list.map(m => {
     const pct = m.target > 0 ? Math.min(100, Math.floor((m.progress / m.target) * 100)) : 0;
     return `<div class="mission-item ${m.isComplete ? 'complete' : ''} ${m.isClaimed ? 'claimed' : ''}" data-mission-id="${esc(m.id)}">
@@ -1486,7 +1499,7 @@ function renderBadges(earnedBadges, allBadges) {
         : icon(earned ? 'medal' : 'lock');
       return `<div class="text-center badge-tip" title="${esc(b.name)}: ${esc(b.description)}" style="width:64px;">
         <div class="badge-icon ${earned ? '' : 'locked'}">${inner}</div>
-        <div class="small text-truncate ${earned ? 'fw-bold' : 'text-muted'}" style="font-size:.65rem;">${esc(b.name)}</div>
+        <div class="small text-truncate ${earned ? 'fw-bold' : 'text-muted'}" style="font-size:.75rem;">${esc(b.name)}</div>
       </div>`;
     }).join('') + `</div>`;
 }
@@ -1900,20 +1913,20 @@ function recordSteps(type) {
 
     case 'growth': return [
       { icon: 'sprout', question: 'どんなことが できるように なった？',
-        html: `<input type="text" class="mq-input" id="f-content" placeholder="れい: なわとびの二重とびができた">`, require: 'f-content' },
+        html: `<input type="text" class="mq-input" id="f-content" maxlength="100" placeholder="れい: なわとびの二重とびができた">`, require: 'f-content' },
       { icon: 'comment', question: 'どうやって できるように なった？',
-        html: `<textarea class="mq-textarea" id="f-gcomment" placeholder="がんばったこと・コツ"></textarea>
+        html: `<textarea class="mq-textarea" id="f-gcomment" maxlength="1000" placeholder="がんばったこと・コツ"></textarea>
           ${starterChips('f-gcomment', ['まいにち', 'コツは', 'つぎは'])}` }
     ];
 
     case 'study': return [
       { icon: 'bulb', question: 'なにを しらべた？',
-        html: `<input type="text" class="mq-input" id="f-theme" placeholder="テーマ・ふしぎに思ったこと">`, require: 'f-theme' },
+        html: `<input type="text" class="mq-input" id="f-theme" maxlength="100" placeholder="テーマ・ふしぎに思ったこと">`, require: 'f-theme' },
       { icon: 'bulb', question: 'なにが わかった？',
-        html: `<textarea class="mq-textarea" id="f-summary" placeholder="しらべて分かったこと"></textarea>
+        html: `<textarea class="mq-textarea" id="f-summary" maxlength="1000" placeholder="しらべて分かったこと"></textarea>
           ${starterChips('f-summary', ['しらべてみると', 'おどろいたのは', 'まとめると'])}` },
       { icon: 'arrow-right', question: 'つぎは なにを やってみたい？',
-        html: `<input type="text" class="mq-input" id="f-next" placeholder="つぎに知りたいこと">` }
+        html: `<input type="text" class="mq-input" id="f-next" maxlength="100" placeholder="つぎに知りたいこと">` }
     ];
 
     case 'lesson': return [
@@ -1930,11 +1943,11 @@ function recordSteps(type) {
         ]) },
       { icon: 'hand', question: '手を あげたのは 何回？', html: stepper('f-hands', { min: 0, step: 1, value: 0 }) },
       { icon: 'bulb', question: '今日 わかったことは？',
-        html: `<input type="text" class="mq-input" id="f-q2" placeholder="今日いちばん分かったこと">` },
+        html: `<input type="text" class="mq-input" id="f-q2" maxlength="100" placeholder="今日いちばん分かったこと">` },
       { icon: 'note', question: 'くわしく ふり返ってみよう',
-        html: `<textarea class="mq-textarea" id="f-reflection" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
+        html: `<textarea class="mq-textarea" id="f-reflection" maxlength="1000" placeholder="なにをどう学んだか、つぎにいかしたいことなど"></textarea>
           ${starterChips('f-reflection', ['今日わかったのは', 'まえとくらべて', 'むずかしかったのは', 'つぎにがんばりたいのは'])}`,
-        hint: 'くわしく書くと、ふり返りボーナスの けいけんちが もらえます' }
+        hint: reflectionHints_(true) }
     ];
 
     case 'test': {
@@ -1955,8 +1968,9 @@ function recordSteps(type) {
             <div class="col-6">${subField('思考', stepper('f-score2', { min: 0, max: 100, step: 5 }))}</div>
           </div>` },
         { icon: 'note', question: 'ふり返ってみよう',
-          html: `<textarea class="mq-textarea" id="f-treflection" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
-            ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}` }
+          html: `<textarea class="mq-textarea" id="f-treflection" maxlength="1000" placeholder="よくできたところ、つぎにがんばりたいところ"></textarea>
+            ${starterChips('f-treflection', ['よくできたのは', 'まちがえたのは', '目標とくらべて', 'つぎのテストでは'])}`,
+          hint: reflectionHints_(true) }
       ];
     }
 
@@ -1968,15 +1982,32 @@ function recordSteps(type) {
       return [
         { icon: 'book', question: 'どの おはなし？', html: materialField },
         { icon: 'comment', question: 'じぶんは どう思った？',
-          html: `<textarea class="mq-textarea" id="f-thought" placeholder="どう思った？ どうしてそう思った？"></textarea>
-            ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}` },
+          html: `<textarea class="mq-textarea" id="f-thought" maxlength="1000" placeholder="どう思った？ どうしてそう思った？"></textarea>
+            ${starterChips('f-thought', ['わたしは〜だと思う。なぜなら', 'もし自分だったら', '大切だと思ったのは'])}`,
+          hint: reflectionHints_(false) },
         { icon: 'heart', question: '学習して 気づいたことは？',
-          html: `<textarea class="mq-textarea" id="f-mreflection" placeholder="これから大切にしたいこと"></textarea>
-            ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}` }
+          html: `<textarea class="mq-textarea" id="f-mreflection" maxlength="1000" placeholder="これから大切にしたいこと"></textarea>
+            ${starterChips('f-mreflection', ['今日の学習で気づいたのは', 'これからは', '友だちの考えを聞いて'])}`,
+          hint: reflectionHints_(false) }
       ];
     }
   }
   return [];
+}
+
+/**
+ * ふり返りの入力欄の下に出す案内。
+ * ・ボーナスの案内は、ボーナスが本当に付くとき（AI が動いているとき）だけ出します。
+ *   以前は AI が止まっていても「くわしく書くと もらえます」と出つづけていました
+ * ・AI がふり返りを読むときは、ともだちの名前を書かないよう伝えます
+ *   （名簿の名前は AI に送る前に伏せていますが、ニックネームや下の名前は伏せきれません）
+ */
+function reflectionHints_(withBonus) {
+  const d = App.data || {};
+  const hints = [];
+  if (withBonus && d.reflectionBonusAvailable) hints.push('くわしく書くと、ふり返りボーナスの けいけんちが もらえます');
+  if (d.aiReadsReflections) hints.push('ともだちの なまえは かかないでね');
+  return hints;
 }
 
 /** フォームから送信データを組み立てます */
@@ -2001,8 +2032,8 @@ function collectFormData(type) {
   return {};
 }
 
-/** いま開いている入力フォームの状態 */
-const RecordForm = { type: null, steps: [], index: 0 };
+/** いま開いている入力フォームの状態（flushDraft は書きかけをすぐ残す関数） */
+const RecordForm = { type: null, steps: [], index: 0, flushDraft: null };
 
 /** ③ 1問ずつ答えていく入力画面をひらきます */
 function openRecordForm(type) {
@@ -2027,7 +2058,7 @@ function openRecordForm(type) {
                 <span>${esc(s.question)}</span>
               </div>
               ${s.html}
-              ${s.hint ? `<div class="mq-step-hint">${esc(s.hint)}</div>` : ''}
+              ${[].concat(s.hint || []).filter(Boolean).map(h => `<div class="mq-step-hint">${esc(h)}</div>`).join('')}
             </div>`).join('')}
         </div>
         <div class="d-flex gap-2 mt-4">
@@ -2056,7 +2087,108 @@ function openRecordForm(type) {
 
   showStep(0, false);
   goPanel('p-rec-form');
+  startRecordDraft_(type, panel);
 }
+
+/* ---- 書きかけの自動保存（きろくの入力画面） ----------------------------
+ * 入力のたびに少し待ってから、書きかけを Drafts（js_core.html）に残します。
+ * 同じ種類のきろくを開きなおしたとき、書きかけがあれば「つづきから かく」をえらべます。
+ * きろくできたら消します。
+ * ---------------------------------------------------------------------- */
+
+/** 書きかけを残す名前（きろくの種類ごと） */
+function recordDraftName_(type) {
+  return `record:${type}`;
+}
+
+/** いま入力されている中身。文字を1つも書いていなければ null（残しません） */
+function readFormDraft_(panel) {
+  const fields = {};
+  let hasText = false;
+  panel.querySelectorAll('.mq-step input[id], .mq-step textarea[id], .mq-step select[id]').forEach(el => {
+    fields[el.id] = el.value;
+    if ((el.tagName === 'TEXTAREA' || el.type === 'text') && String(el.value).trim()) hasText = true;
+  });
+  panel.querySelectorAll('.mq-step .mq-choice[id]').forEach(el => {
+    fields[el.id] = { choice: el.dataset.value || '' };
+  });
+  return hasText ? { fields, step: RecordForm.index } : null;
+}
+
+/** 書きかけを入力欄にもどします */
+function applyFormDraft_(panel, draft) {
+  const fields = (draft && draft.fields) || {};
+  Object.keys(fields).forEach(id => {
+    const el = document.getElementById(id);
+    if (!el || !panel.contains(el)) return;
+    const value = fields[id];
+    if (value && typeof value === 'object') {
+      const choice = String(value.choice || '');
+      if (!el.querySelector(`.mq-choice-item[data-value="${CSS.escape(choice)}"]`)) return;
+      el.dataset.value = choice;
+      el.querySelectorAll('.mq-choice-item').forEach(b => b.classList.toggle('on', b.dataset.value === choice));
+      return;
+    }
+    el.value = String(value === null || value === undefined ? '' : value);
+    // 教科をもどしたら単元のえらびなおしが走るよう、change を出します（順番は画面の上から）
+    if (el.tagName === 'SELECT') el.dispatchEvent(new Event('change'));
+  });
+}
+
+/** きろくの入力画面に、書きかけの保存と復元をつなぎます */
+function startRecordDraft_(type, panel) {
+  const name = recordDraftName_(type);
+  const card = panel.querySelector('.mq-card');   // 開くたびに作りなおされるので、ここに付けます
+  if (!card) return;
+  let timer = null;
+  const saveNow = () => {
+    clearTimeout(timer);
+    timer = null;
+    if (RecordForm.type !== type || !document.body.contains(card)) return;
+    const draft = readFormDraft_(panel);
+    if (draft) Drafts.save(name, draft);
+  };
+  const later = () => {
+    clearTimeout(timer);
+    timer = setTimeout(saveNow, DRAFT_SAVE_DELAY_MS);
+  };
+  card.addEventListener('input', later);
+  card.addEventListener('change', later);
+  card.addEventListener('click', e => {
+    if (e.target.closest('.mq-choice-item, .mq-step-btn, #step-next, #step-prev')) later();
+  });
+  RecordForm.flushDraft = saveNow;
+
+  Drafts.load(name).then(entry => {
+    if (!entry || !entry.value || RecordForm.type !== type || !document.body.contains(card)) return;
+    if (readFormDraft_(panel)) return;   // もう書きはじめているときは、たずねません
+    Swal.fire({
+      icon: 'question',
+      title: 'かきかけの きろくが あるよ',
+      text: `${draftAgo_(entry.savedAt)}に かいていた つづきから かく？`,
+      showDenyButton: true,
+      confirmButtonText: 'つづきから かく',
+      denyButtonText: 'あたらしく かく',
+      allowOutsideClick: false
+    }).then(answer => {
+      if (RecordForm.type !== type || !document.body.contains(card)) return;
+      if (answer.isConfirmed) {
+        applyFormDraft_(panel, entry.value);
+        gotoStep(Math.min(Number(entry.value.step) || 0, RecordForm.steps.length - 1));
+      } else if (answer.isDenied) {
+        Drafts.clear(name);
+      }
+    });
+  });
+}
+
+// 画面をとじる・ほかのアプリへ切りかえるときは、待たずに書きかけを残します
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && RecordForm.flushDraft) RecordForm.flushDraft();
+});
+window.addEventListener('pagehide', () => {
+  if (RecordForm.flushDraft) RecordForm.flushDraft();
+});
 
 /** ステップを1つ表示します */
 function showStep(index, back) {
@@ -2156,19 +2288,30 @@ async function submitRecordForm(type, btn) {
   const result = await busyApi(btn, 'ほぞん中', 'saveRecord', { type, formData });
   if (!result) return;   // 処理中の二重タップ
   if (!result.success) {
+    // 書きかけは端末に残っているので、なおしてもう一度おせます
+    if (RecordForm.flushDraft) RecordForm.flushDraft();
     Swal.fire('ほぞんできません', esc(result.message), 'warning');
     return;
   }
-  App.data.records = result.records;
-  App.data.missions = result.missions;
-  renderTypingTab(result.records);
-  renderCalcTab(result.records);
-  renderReadingTab(result.records);
-  renderNotesTab(result.records);
-  renderLessonTab(result.records);
-  renderMissions(result.missions);
+  // きろくできたので、書きかけは消します
+  Drafts.clear(recordDraftName_(type));
+  RecordForm.flushDraft = null;
+  // 返事に一覧が入っていないときは（サーバーで一覧を作れなかったとき）、
+  // うしろの refreshStudentData() が新しい状態にします
+  if (result.records) {
+    App.data.records = result.records;
+    renderTypingTab(result.records);
+    renderCalcTab(result.records);
+    renderReadingTab(result.records);
+    renderNotesTab(result.records);
+    renderLessonTab(result.records);
+  }
+  if (result.missions) {
+    App.data.missions = result.missions;
+    renderMissions(result.missions);
+  }
   // 書いたきろくが課題だったときは、その場で「うけとる！」に変わります
-  renderAssignments(result.assignments);
+  if (result.assignments) renderAssignments(result.assignments);
   renderMoreCounts();
   renderGoals();
   applyProfileGains_(result);
@@ -2215,7 +2358,7 @@ function renderTypingTab(records) {
   const best = records.typingBest;
   const goalHtml = goal
     ? `<span class="badge bg-primary">${icon('target')} ${[goal.speedGoal ? `速さ ${goal.speedGoal}` : '', goal.accuracyGoal ? `正答率 ${goal.accuracyGoal}%` : ''].filter(Boolean).join(' / ')}</span>`
-    : `<button class="btn btn-sm btn-outline-primary" id="typing-tab-goal-btn">目標をセット</button>`;
+    : `<button class="btn btn-sm btn-outline-primary mq-tap" id="typing-tab-goal-btn">目標をセット</button>`;
   const achievedHtml = records.goalData.achievedGoals.length > 0
     ? `<div class="small text-muted mt-1">たっせいした目標: ${records.goalData.achievedGoals.length}こ ${icon('trophy')}</div>` : '';
 
@@ -2231,7 +2374,7 @@ function renderTypingTab(records) {
         ${best ? `<div class="ms-auto small">ベスト: <b class="text-danger">${best.bestSpeed} 打/秒</b> ／ 正答率 <b class="text-danger">${best.bestAccuracy}%</b></div>` : ''}
       </div>
     </div>
-    <div class="card record-form-card shadow-sm mb-3"><div class="card-body"><div id="typing-chart" style="width:100%;height:300px;"></div></div></div>
+    <div class="card record-form-card shadow-sm mb-3"><div class="card-body"><div id="typing-chart" style="width:100%;min-height:300px;"></div></div></div>
     <div class="card record-form-card shadow-sm"><div class="card-body p-0">${recordTable(
       ['日付', '速さ(打/秒)', '正答率(%)'],
       records.typing.map(r => [r.date, r.speed, r.accuracy]))}</div></div>`;
@@ -2252,7 +2395,7 @@ function renderCalcTab(records) {
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h6 class="fw-bold mb-0">タイムのグラフ</h6><div id="calc-chart-selector"></div>
       </div>
-      <div id="calc-chart" style="width:100%;height:300px;"></div>
+      <div id="calc-chart" style="width:100%;min-height:300px;"></div>
     </div></div>
     <div class="card record-form-card shadow-sm"><div class="card-body p-0">${recordTable(
       ['日付', 'モード', '問題数', '点数', 'タイム(秒)'],
@@ -2343,10 +2486,10 @@ function renderLessonTab(records) {
           <div class="d-flex justify-content-between align-items-center mb-1">
             <h6 class="fw-bold mb-0 small">点数と目標のグラフ</h6><div id="test-chart-selector"></div>
           </div>
-          <div id="test-chart" style="width:100%;height:260px;"></div>
+          <div id="test-chart" style="width:100%;min-height:270px;"></div>
         </div></div>
         ${testHtml}</div>
-      <div class="col-lg-4"><h6 class="fw-bold" style="color:#d63384;">${icon('heart')} どうとくノート</h6>${moralHtml}</div>
+      <div class="col-lg-4"><h6 class="fw-bold" style="color:#b02a5e;">${icon('heart')} どうとくノート</h6>${moralHtml}</div>
     </div>`;
   if (isShown_('rtab-lesson')) drawTestChart(records.test);
 }
@@ -2362,23 +2505,123 @@ function recordTable(headers, rows) {
 
 /* ---- グラフ ---- */
 
+/** グラフの線の色（白地で 4.5:1 以上。色だけで見分けなくてよいよう、目標は点線にします） */
+const CHART_COLORS = ['#1565c0', '#c62828', '#2e7d32', '#6a1b9a', '#b45309', '#00796b'];
+
+/** 目盛りにちょうどよい区切りの数（1・2・2.5・5 × 10のべき） */
+function niceStep_(raw) {
+  if (!(raw > 0)) return 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const f of [1, 2, 2.5, 5, 10]) if (f * mag >= raw) return f * mag;
+  return 10 * mag;
+}
+
+/** 数を目盛り用に短くします（小数は2けたまで） */
+function chartNum_(v) {
+  return String(Math.round(v * 100) / 100);
+}
+
+/**
+ * 折れ線グラフを SVG で描きます。
+ * @param {HTMLElement} el - 描く場所（高さは el の style で決まります）
+ * @param {{labels: string[], caption: string,
+ *          axes: Array<{title: string, min?: number, max?: number}>,
+ *          series: Array<{name: string, values: Array<number|null>, color?: string, dashed?: boolean, axis?: number}>}} spec
+ */
+function drawLineChart_(el, spec) {
+  const W = Math.max(280, Math.round(el.clientWidth || 600));
+  const H = Math.max(200, Math.round(el.clientHeight || 280) - 40);   // 下の凡例ぶんを空けます
+  const twoAxes = spec.axes.length > 1;
+  const padL = 46, padR = twoAxes ? 46 : 14, padT = 26, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const n = spec.labels.length;
+  const x = i => padL + (n <= 1 ? plotW / 2 : i * plotW / (n - 1));
+
+  // 軸ごとの目盛り
+  const scales = spec.axes.map((ax, ai) => {
+    const vals = [];
+    spec.series.filter(sr => (sr.axis || 0) === ai).forEach(sr => sr.values.forEach(v => {
+      if (v !== null && v !== undefined && isFinite(v)) vals.push(Number(v));
+    }));
+    const min = ax.min !== undefined ? ax.min : 0;
+    let max = ax.max !== undefined ? ax.max : (vals.length ? Math.max.apply(null, vals) : 1);
+    if (max <= min) max = min + 1;
+    const step = niceStep_((max - min) / 5);
+    if (ax.max === undefined) max = min + Math.ceil((max - min) / step) * step;
+    const y = v => padT + plotH - (Number(v) - min) / (max - min) * plotH;
+    const ticks = [];
+    for (let t = min; t <= max + step / 1000; t += step) ticks.push(t);
+    return { min, max, step, y, ticks };
+  });
+
+  const parts = [];
+  // 横の目盛り線と左右の目盛りの数
+  scales[0].ticks.forEach(t => {
+    const yy = scales[0].y(t);
+    parts.push(`<line x1="${padL}" x2="${W - padR}" y1="${yy}" y2="${yy}" stroke="#d5dce4" stroke-width="1"/>`);
+    parts.push(`<text x="${padL - 6}" y="${yy + 4}" text-anchor="end" font-size="12" fill="#46535f">${chartNum_(t)}</text>`);
+  });
+  if (twoAxes) {
+    scales[1].ticks.forEach(t => {
+      parts.push(`<text x="${W - padR + 6}" y="${scales[1].y(t) + 4}" text-anchor="start" font-size="12" fill="#46535f">${chartNum_(t)}</text>`);
+    });
+  }
+  // 軸の名前（上のすみ）
+  parts.push(`<text x="${padL - 40}" y="14" font-size="12" font-weight="700" fill="#26313d">${esc(spec.axes[0].title)}</text>`);
+  if (twoAxes) parts.push(`<text x="${W - 6}" y="14" text-anchor="end" font-size="12" font-weight="700" fill="#26313d">${esc(spec.axes[1].title)}</text>`);
+  // 下のラベル（重ならないよう間引き、いちばん新しいものは必ず出します）
+  const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor(plotW / 64))));
+  spec.labels.forEach((label, i) => {
+    if (i % every !== 0 && i !== n - 1) return;
+    const text = String(label);
+    const short = text.length > 7 ? `${text.slice(0, 6)}…` : text;
+    parts.push(`<text x="${x(i)}" y="${H - padB + 18}" text-anchor="middle" font-size="12" fill="#46535f"><title>${esc(text)}</title>${esc(short)}</text>`);
+  });
+  // 線と点（値が無いところは線をつなげません）
+  spec.series.forEach((sr, si) => {
+    const color = sr.color || CHART_COLORS[si % CHART_COLORS.length];
+    const sc = scales[sr.axis || 0];
+    let d = '';
+    let pen = false;
+    sr.values.forEach((v, i) => {
+      if (v === null || v === undefined || !isFinite(v)) { pen = false; return; }
+      d += `${pen ? 'L' : 'M'}${x(i).toFixed(1)},${sc.y(v).toFixed(1)} `;
+      pen = true;
+    });
+    if (d) parts.push(`<path d="${d}" fill="none" stroke="${color}" stroke-width="2.5"${sr.dashed ? ' stroke-dasharray="6 5"' : ''} stroke-linejoin="round" stroke-linecap="round"/>`);
+    sr.values.forEach((v, i) => {
+      if (v === null || v === undefined || !isFinite(v)) return;
+      parts.push(`<circle cx="${x(i).toFixed(1)}" cy="${sc.y(v).toFixed(1)}" r="${sr.dashed ? 3 : 4}" fill="${sr.dashed ? '#fff' : color}" stroke="${color}" stroke-width="2"><title>${esc(spec.labels[i])} ${esc(sr.name)}: ${chartNum_(Number(v))}</title></circle>`);
+    });
+  });
+
+  const legend = spec.series.map((sr, si) => {
+    const color = sr.color || CHART_COLORS[si % CHART_COLORS.length];
+    return `<span class="mq-chart-key"><svg width="26" height="10" aria-hidden="true" focusable="false"><line x1="1" x2="25" y1="5" y2="5" stroke="${color}" stroke-width="3"${sr.dashed ? ' stroke-dasharray="5 4"' : ''}/></svg>${esc(sr.name)}</span>`;
+  }).join('');
+  el.innerHTML = `<svg class="mq-chart" viewBox="0 0 ${W} ${H}" width="100%" height="${H}" role="img" aria-label="${esc(spec.caption)}">
+      <title>${esc(spec.caption)}</title>${parts.join('')}</svg>
+    <div class="mq-chart-legend">${legend}</div>`;
+}
+
 function drawTypingChart(chartData) {
   if (!chartData || chartData.length < 2) return;
-  if (!chartsReadyOrLoad_(() => drawTypingChart(chartData))) return;
   const el = document.getElementById('typing-chart');
   if (!el) return;
-  const data = google.visualization.arrayToDataTable(chartData);
-  new google.visualization.LineChart(el).draw(data, {
-    curveType: 'function', legend: { position: 'bottom' },
-    series: { 0: { targetAxisIndex: 0 }, 1: { targetAxisIndex: 1 } },
-    vAxes: { 0: { title: '速さ (打/秒)' }, 1: { title: '正答率 (%)', maxValue: 100 } },
-    chartArea: { width: '80%', height: '65%' }
+  const rows = chartData.slice(1);
+  drawLineChart_(el, {
+    caption: 'タイピングの速さと正答率のうつりかわり',
+    labels: rows.map(r => r[0]),
+    axes: [{ title: '速さ（打/秒）' }, { title: '正答率（%）', min: 0, max: 100 }],
+    series: [
+      { name: '速さ（打/秒）', values: rows.map(r => r[1]), axis: 0 },
+      { name: '正答率（%）', values: rows.map(r => r[2]), axis: 1, color: CHART_COLORS[2] }
+    ]
   });
 }
 
 function drawCalcChart(chartDataByQuestions) {
   if (!chartDataByQuestions) return;
-  if (!chartsReadyOrLoad_(() => drawCalcChart(chartDataByQuestions))) return;
   const el = document.getElementById('calc-chart');
   const selectorArea = document.getElementById('calc-chart-selector');
   if (!el || !selectorArea) return;
@@ -2386,22 +2629,24 @@ function drawCalcChart(chartDataByQuestions) {
   if (keys.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
 
   if (!selectorArea.querySelector('select')) {
-    selectorArea.innerHTML = `<select class="form-select form-select-sm" id="calc-q-select">
+    selectorArea.innerHTML = `<select class="form-select mq-tap" id="calc-q-select" aria-label="問題の数">
       ${keys.map(k => `<option value="${esc(k)}">${esc(k)}問</option>`).join('')}</select>`;
     document.getElementById('calc-q-select').addEventListener('change', () => drawCalcChart(chartDataByQuestions));
   }
   const selected = document.getElementById('calc-q-select').value || keys[0];
-  const data = google.visualization.arrayToDataTable(chartDataByQuestions[selected]);
-  new google.visualization.LineChart(el).draw(data, {
-    curveType: 'function', legend: { position: 'bottom' },
-    vAxis: { title: 'タイム (秒)' },
-    chartArea: { width: '80%', height: '65%' }
+  const table = chartDataByQuestions[selected] || [];
+  const header = table[0] || [];
+  const rows = table.slice(1);
+  drawLineChart_(el, {
+    caption: `100マス計算（${selected}問）のタイムのうつりかわり`,
+    labels: rows.map(r => r[0]),
+    axes: [{ title: 'タイム（秒）' }],
+    series: header.slice(1).map((mode, mi) => ({ name: String(mode), values: rows.map(r => r[mi + 1]) }))
   });
 }
 
 /** テストの点数と目標点の推移グラフ（教科ごと） */
 function drawTestChart(testRecords) {
-  if (!chartsReadyOrLoad_(() => drawTestChart(testRecords))) return;
   const el = document.getElementById('test-chart');
   const selectorArea = document.getElementById('test-chart-selector');
   if (!el || !selectorArea) return;
@@ -2410,7 +2655,7 @@ function drawTestChart(testRecords) {
   if (subjects.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
 
   if (!selectorArea.querySelector('select')) {
-    selectorArea.innerHTML = `<select class="form-select form-select-sm" id="test-subject-select">
+    selectorArea.innerHTML = `<select class="form-select mq-tap" id="test-subject-select" aria-label="教科">
       ${subjects.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('')}</select>`;
     document.getElementById('test-subject-select').addEventListener('change', () => drawTestChart(testRecords));
   }
@@ -2418,20 +2663,19 @@ function drawTestChart(testRecords) {
 
   const toNum = v => (v === '' || v === null || v === undefined || isNaN(Number(v))) ? null : Number(v);
   // records は新しい順なので、時系列（古い順）に並べ替えてプロット
-  const rows = testRecords.filter(r => r.subject === selected).slice().reverse()
-    .map(r => [r.unit, toNum(r.score1), toNum(r.expected1), toNum(r.score2), toNum(r.expected2)]);
+  const rows = testRecords.filter(r => r.subject === selected).slice().reverse();
   if (rows.length === 0) { el.innerHTML = emptyMessage('グラフにできるきろくがまだありません'); return; }
 
-  const data = google.visualization.arrayToDataTable(
-    [['単元', '点数(知識)', '目標(知識)', '点数(思考)', '目標(思考)']].concat(rows));
-  new google.visualization.LineChart(el).draw(data, {
-    curveType: 'function', legend: { position: 'bottom' }, pointSize: 5,
-    vAxis: { title: '点数', minValue: 0, maxValue: 100 },
-    series: {
-      0: { color: '#dc3545' }, 1: { color: '#dc3545', lineDashStyle: [4, 4] },
-      2: { color: '#0d6efd' }, 3: { color: '#0d6efd', lineDashStyle: [4, 4] }
-    },
-    chartArea: { width: '80%', height: '60%' }
+  drawLineChart_(el, {
+    caption: `${selected}のテストの点数と目標のうつりかわり`,
+    labels: rows.map(r => r.unit),
+    axes: [{ title: '点数', min: 0, max: 100 }],
+    series: [
+      { name: '点数（知識）', values: rows.map(r => toNum(r.score1)), color: CHART_COLORS[1] },
+      { name: '目標（知識）', values: rows.map(r => toNum(r.expected1)), color: CHART_COLORS[1], dashed: true },
+      { name: '点数（思考）', values: rows.map(r => toNum(r.score2)), color: CHART_COLORS[0] },
+      { name: '目標（思考）', values: rows.map(r => toNum(r.expected2)), color: CHART_COLORS[0], dashed: true }
+    ]
   });
 }
 
@@ -2483,8 +2727,8 @@ function renderItemGrid(data, filterCategory) {
 
   // どの部分をきせかえるか（ぼうし・ふく…）のえらび分け。1つのまとまりとして見せます
   filterArea.innerHTML = `<div class="mq-choice mb-2">
-    <button type="button" class="mq-choice-item cat-btn${!filterCategory ? ' on' : ''}" style="min-height:2.6rem;padding:.4rem .9rem;" data-cat="">すべて</button>
-    ${categories.map(c => `<button type="button" class="mq-choice-item cat-btn${filterCategory === c ? ' on' : ''}" style="min-height:2.6rem;padding:.4rem .9rem;" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+    <button type="button" class="mq-choice-item cat-btn${!filterCategory ? ' on' : ''}" style="min-height:44px;padding:.4rem .9rem;" data-cat="">すべて</button>
+    ${categories.map(c => `<button type="button" class="mq-choice-item cat-btn${filterCategory === c ? ' on' : ''}" style="min-height:44px;padding:.4rem .9rem;" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
   </div>`;
   filterArea.querySelectorAll('.cat-btn').forEach(btn => {
     btn.addEventListener('click', () => renderItemGrid(data, btn.dataset.cat || undefined));
@@ -2796,7 +3040,7 @@ function renderCheerBoard() {
               </div>
               ${item.alreadyCheered
                 ? `<span class="badge bg-light text-secondary border">今日おくりました</span>`
-                : `<button class="btn btn-sm btn-outline-danger" data-cheer-to="${esc(item.email)}" data-cheer-name="${esc(item.nickname)}">
+                : `<button class="btn btn-sm btn-outline-danger mq-tap" data-cheer-to="${esc(item.email)}" data-cheer-name="${esc(item.nickname)}">
                      おうえんする
                    </button>`}
             </div>`).join('')}

@@ -587,7 +587,7 @@ function postAssignment(data) {
 
       const id = buildAssignmentId_(sheet);
       const issued = new Date();
-      sheet.appendRow([
+      appendRow_(sheet, [
         id, issued, title, String(data.description || '').trim(),
         ASSIGNMENT_KINDS[kind].label, target, amount, unit,
         due || '', emails.join(','), reward, 'TRUE',

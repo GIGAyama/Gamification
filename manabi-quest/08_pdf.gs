@@ -231,10 +231,10 @@ function createInterviewSheet(email) {
     if (!found.data) return { success: false, message: '児童が見つかりません。' };
 
     const totalExp = Number(found.data['累計経験値'] || 0);
-    const level = calculateLevel(totalExp, config).level;
+    const level = calculateLevel_(totalExp, config).level;
     const number = found.data['出席番号'];
     const name = found.data['名前'];
-    const records = getMyRecords(target);
+    const records = getMyRecords_(target);
     const materials = readShokenMaterialsByNumber_(ss, number);
 
     const fiscalYear = getFiscalYear_();

@@ -81,6 +81,7 @@ const Portal = {
   connected: false,     // ポータルとハンドシェイクできたか
   origin: null,         // ポータルのオリジン（検証済み）
   pending: 0,           // 端末にたまっている未送信のきろく件数
+  drafts: false,        // ポータルが「書きかけの保管」に対応した版か（PORTAL_READY で知らされます）
   studentNumber: '',    // ポータルに入力されている出席番号
   sending: false,
   sendTimer: null,      // 応答がないまま待機表示が固まるのを防ぐタイマー
@@ -316,6 +317,7 @@ function initPortalBridge() {
     switch (msg.type) {
       case 'PORTAL_READY':
       case 'PENDING_CHANGED':
+        if (msg.type === 'PORTAL_READY') Portal.drafts = msg.drafts === true;
         Portal.pending = Number(msg.pending) || 0;
         Portal.studentNumber = String(msg.studentNumber || '');
         Portal.sending = false;
@@ -348,6 +350,10 @@ function initPortalBridge() {
       case 'RELAY_POST':
         // ポータルから預かった学習ログを、ログイン済みのこの画面から送る
         relayStudyLog_(msg);
+        break;
+      case 'DRAFT_DATA':
+        // ポータルに預けておいた書きかけが返ってきた
+        Drafts.receive_(msg);
         break;
     }
   });
@@ -403,6 +409,145 @@ function requestPortalSend() {
     if (Portal.onUpdate) Portal.onUpdate({ type: 'SEND_TIMEOUT' });
   }, 30000);
   return postToPortal({ type: 'REQUEST_SEND' });
+}
+
+/* ---------------------------------------------------------------------
+ * 書きかけの自動保存
+ * -------------------------------------------------------------------
+ * ふり返りを長く書いたのに、通信が切れた・「こんでいます」が出た・ログインが切れた・
+ * まちがえて「もどる」を押した……で消えてしまうのが、子どもにはいちばんつらいことです。
+ * 書いているあいだ、手を止めるたびに書きかけを残し、同じきろくを開きなおしたときに
+ * 「つづきから かく」をえらべるようにします。
+ *
+ * 置き場所（使えるものを上から順に使います）
+ *   ① 学習ポータル（親ページ）… ポータルの中で開いているとき。いちばん確実です
+ *   ② この画面の localStorage … ポータルの外で開いたとき（Apps Script の枠の中では
+ *      ブロックされることがあります）
+ *   ③ メモリ …………………………… どちらも使えないとき（画面を閉じるまでは残ります）
+ *
+ * 児童ごと（出席番号ごと）に分けて置くので、端末をかわりばんこに使っても、
+ * 前の子の書きかけは出ません。きろくできたら消し、14日たったものも消します。
+ * 書きかけは端末の中だけに置き、サーバーへは送りません。
+ * ------------------------------------------------------------------- */
+const DRAFT_MAX_AGE_MS = 14 * 24 * 60 * 60 * 1000;
+const DRAFT_LOCAL_KEY = 'mq.drafts.v1';
+/** ポータルから返事が来るのを待つ時間 */
+const DRAFT_PORTAL_WAIT_MS = 1500;
+
+const Drafts = {
+  memory: {},
+  waiting: new Map(),   // reqId → resolve
+  seq: 0,
+
+  /** 書きかけの持ち主（出席番号）。児童として開いていないときは null（保存しません） */
+  owner_() {
+    if (App.role !== 'student' || !App.data || !App.data.profile) return null;
+    const number = String(App.data.profile.number || '').trim();
+    return /^\d{1,4}$/.test(number) ? number : null;
+  },
+  key_(name) {
+    const owner = this.owner_();
+    return owner ? `${owner}:${name}` : null;
+  },
+  usePortal_() {
+    return Portal.embedded && Portal.connected && Portal.drafts && !!Portal.origin;
+  },
+  readLocal_() {
+    try {
+      const all = JSON.parse(window.localStorage.getItem(DRAFT_LOCAL_KEY) || '{}');
+      return (all && typeof all === 'object') ? all : {};
+    } catch (e) {
+      return null;   // 使えない（ブロックされている）
+    }
+  },
+  writeLocal_(all) {
+    try {
+      window.localStorage.setItem(DRAFT_LOCAL_KEY, JSON.stringify(all));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /** 書きかけを残します。value は JSON にできるもの */
+  save(name, value) {
+    const key = this.key_(name);
+    if (!key) return;
+    const entry = { value, savedAt: Date.now() };
+    this.memory[key] = entry;
+    if (this.usePortal_()) {
+      postToPortal({ type: 'DRAFT_SAVE', key, value: entry.value, savedAt: entry.savedAt });
+      return;
+    }
+    const all = this.readLocal_();
+    if (all) {
+      all[key] = entry;
+      this.writeLocal_(all);
+    }
+  },
+
+  /** 書きかけを読みます。無ければ null。{ value, savedAt } で返します */
+  load(name) {
+    const key = this.key_(name);
+    if (!key) return Promise.resolve(null);
+    const fresh = entry => (entry && entry.savedAt && Date.now() - entry.savedAt < DRAFT_MAX_AGE_MS) ? entry : null;
+    const fromMemoryOrLocal = () => {
+      const all = this.readLocal_();
+      return fresh(this.memory[key]) || fresh(all && all[key]);
+    };
+    if (!this.usePortal_()) return Promise.resolve(fromMemoryOrLocal());
+    return new Promise(resolve => {
+      const reqId = `d${Date.now()}-${++this.seq}`;
+      const timer = setTimeout(() => {
+        this.waiting.delete(reqId);
+        resolve(fromMemoryOrLocal());   // ポータルが答えないときは手元の控えで
+      }, DRAFT_PORTAL_WAIT_MS);
+      this.waiting.set(reqId, entry => {
+        clearTimeout(timer);
+        resolve(fresh(entry) || fresh(this.memory[key]));
+      });
+      if (!postToPortal({ type: 'DRAFT_LOAD', key, reqId })) {
+        clearTimeout(timer);
+        this.waiting.delete(reqId);
+        resolve(fromMemoryOrLocal());
+      }
+    });
+  },
+
+  /** 書きかけを消します（きろくできたとき・「あたらしく かく」をえらんだとき） */
+  clear(name) {
+    const key = this.key_(name);
+    if (!key) return;
+    delete this.memory[key];
+    if (this.usePortal_()) postToPortal({ type: 'DRAFT_CLEAR', key });
+    const all = this.readLocal_();
+    if (all && all[key]) {
+      delete all[key];
+      this.writeLocal_(all);
+    }
+  },
+
+  /** ポータルからの返事（initPortalBridge が呼びます） */
+  receive_(msg) {
+    const done = this.waiting.get(String(msg.reqId || ''));
+    if (!done) return;
+    this.waiting.delete(String(msg.reqId));
+    const entry = msg.entry && typeof msg.entry === 'object' ? msg.entry : null;
+    done(entry);
+  }
+};
+
+/** 書きかけを残すまで待つ時間（打っているあいだは保存しません） */
+const DRAFT_SAVE_DELAY_MS = 800;
+
+/** 「いつ書いたものか」を、子どもが分かる言い方にします */
+function draftAgo_(savedAt) {
+  const minutes = Math.max(0, Math.round((Date.now() - Number(savedAt || 0)) / 60000));
+  if (minutes < 1) return 'さっき';
+  if (minutes < 60) return `${minutes}分まえ`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}じかんまえ`;
+  return `${Math.round(hours / 24)}にちまえ`;
 }
 
 /** HTMLエスケープ */

@@ -824,17 +824,16 @@ function saveWeeklyReflection(formData) {
       const email = getCurrentEmail_();
       const ss = SpreadsheetApp.getActiveSpreadsheet();
       const config = getConfig_();
-      const learned = String((formData && formData.learned) || '').trim();
-      const hard = String((formData && formData.hard) || '').trim();
-      const nextGoal = String((formData && formData.nextGoal) || '').trim();
+      const learned = cleanText_(formData && formData.learned, TEXT_LIMITS.WEEKLY, 'できるようになったこと');
+      const hard = cleanText_(formData && formData.hard, TEXT_LIMITS.WEEKLY, 'むずかしかったこと');
+      const nextGoal = cleanText_(formData && formData.nextGoal, TEXT_LIMITS.GOAL, '来週のめあて');
       if (!learned || !nextGoal) throw new Error('「できるようになったこと」と「来週のめあて」を書いてください。');
 
       const thisWeek = weekKey_();
       const state = getWeeklyReflectionState_(ss, email);
       if (state.done) throw new Error('今週のふり返りはもう書いています。来週またふり返りましょう。');
 
-      ss.getSheetByName(SHEETS.WEEKLY_REFLECTION)
-        .appendRow([new Date(), email, thisWeek, learned, hard, nextGoal]);
+      appendRow_(ss.getSheetByName(SHEETS.WEEKLY_REFLECTION), [new Date(), email, thisWeek, learned, hard, nextGoal]);
       writeLog_(ss, email, LOG_ACTIONS.WEEKLY_REFLECTION, '今週のふり返りを書いた');
 
       // 来週のめあてを自由記述の目標として自動登録（すでに挑戦中なら置きかえません）

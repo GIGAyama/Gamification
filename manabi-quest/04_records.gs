@@ -8,108 +8,194 @@
  */
 
 /**
+ * 児童が書く文字の長さの上限（画面の入力欄の maxlength と同じ値にそろえます）。
+ *
+ * 上限が無いと、1人が長い文を貼りつけるだけで、その文を読みこむクラス全員の画面が
+ * 重くなります（プロフィールは「みんな」の画面で全員に配られます）。
+ * セルの上限（5万字）を超えると、保存そのものが失敗します。
+ */
+const TEXT_LIMITS = {
+  SHORT: 100,     // 1行の入力欄（テーマ・できるようになったこと・今日わかったこと など）
+  LONG: 1000,     // ふり返りなどの文章
+  CHOICE: 30,     // 教科・単元・自己評価など、えらぶ項目
+  PROFILE: 30,    // プロフィールの各欄（画面の maxlength="30" と同じ）
+  WEEKLY: 300,    // 週のふり返り（できるようになったこと・むずかしかったこと）
+  GOAL: 100       // めあて・来週のめあて
+};
+
+/**
+ * 児童が書いた文字を、保存できる形にそろえます。
+ * 前後の空白を落とし、上限をこえたら何文字までかを伝えて止めます（だまって切りません。
+ * 書きかけは端末に残っているので、短くして送り直せます）。
+ */
+function cleanText_(value, max, label) {
+  const text = String(value === null || value === undefined ? '' : value).trim();
+  if (text.length > max) {
+    throw new Error(`「${label}」は ${max}文字までにしてね（いまは ${text.length}文字）。`);
+  }
+  return text;
+}
+
+/** テストの点数・目標点（0〜100）。空なら ''。範囲の外なら止めます */
+function cleanScore_(value, label) {
+  if (value === '' || value === null || value === undefined) return '';
+  const n = Number(value);
+  if (!isFinite(n) || n < 0 || n > 100) throw new Error(`「${label}」は 0〜100 の数で入れてね。`);
+  return n;
+}
+
+/**
  * 学習記録を保存する統一API。
+ *
+ * 3つに分けて進めます。
+ *   ① 書きこみ（ロックの中）……行を足し、経験値・連続ボーナス・めあての判定まで
+ *   ② AI（ロックの外）……………ふり返りの所見材料・AIコーチ・ふり返り質ボーナス、道徳フィードバック
+ *   ③ 返事（ロックの外）…………画面に返す記録・ミッション・課題の一覧を読む
+ *
+ * 以前は全部を1つのロックの中で行っていたため、AIの返事を待つ数秒のあいだ
+ * クラス全員の保存が止まり、授業の終わりに一斉に書くと「こんでいます」が出ていました。
+ *
  * @param {Object} payload - { type: RECORD_TYPESのキー, formData: Object }
  * @returns {Object} { success, message, gainedExp, goalAchieved, profile }
  */
 function saveRecord(payload) {
-  return withLock_(() => {
+  const saved = withLock_(() => {
     try {
-      const { type, formData } = payload;
-      const email = getCurrentEmail_();
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const config = getConfig_();
-      const typeDef = RECORD_TYPES[type];
-      if (!typeDef) throw new Error(`不明な記録種別です: ${type}`);
-      if (typeDef.appOnly) {
-        throw new Error(`${typeDef.label}は${typeDef.app || '学習アプリ'}のきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
-      }
-
-      // 1回の保存で複数回 addExp_ が走るため、開始時のレベルを覚えておいて最後に比べます
-      const levelBefore = calculateLevel(getUserTotalExp_(ss, email), config).level;
-      let gainedExp = 0;
-      let reflectionBonus = 0;
-      let aiCoach = '';
-      // 自己ベスト更新の判定に使う「今回の値」（種目ごとに詰めます）
-      let bestContext = null;
-      // タイピングのめあて判定で使う「今回の記録そのもの」。
-      // タイピングは Typa からの受信に一本化したため、この画面からは入りません
-      // （判定は 10_studylog.gs の receiveStudyRecords_ で行います）
-      let goalContext = null;
-
-      switch (type) {
-        case 'growth': gainedExp = saveGrowthRecord_(ss, email, formData, config); break;
-        case 'study': gainedExp = saveStudyRecord_(ss, email, formData, config); break;
-        case 'lesson': {
-          const r = saveLessonRecord_(ss, email, formData, config);
-          gainedExp = r.gainedExp;
-          reflectionBonus = r.reflectionBonus;
-          aiCoach = r.aiCoach || '';
-          break;
-        }
-        case 'test': {
-          const r = saveTestRecord_(ss, email, formData, config);
-          gainedExp = r.gainedExp;
-          reflectionBonus = r.reflectionBonus;
-          aiCoach = r.aiCoach || '';
-          bestContext = { kind: 'testScore', value: r.bestScore, previous: r.previousBestScore };
-          break;
-        }
-        case 'moral': gainedExp = saveMoralRecord_(ss, email, formData, config); break;
-      }
-
-      writeLog_(ss, email, typeDef.log, `${typeDef.label}を記録`);
-      addExpBatch_(ss, email, [
-        { amount: gainedExp, label: typeDef.label },
-        { amount: reflectionBonus, label: 'ふり返り質ボーナス' }
-      ]);
-
-      // 記録シートが変わったので、集計のキャッシュを捨ててから判定を回します
-      clearRecordStoreCache_();
-      clearInsightsCache_(email);
-
-      // A-2 じこベスト更新（ボーナスとログは applyPersonalBest_ の中で付きます）
-      let personalBest = null;
-      if (bestContext) {
-        const best = applyPersonalBest_(ss, email, config, bestContext.kind, bestContext.value, bestContext.previous);
-        if (best.updated) personalBest = best;
-      }
-
-      // A-1 その日はじめてのきろくに連続ボーナス
-      const streakBonus = applyRecordStreakBonus_(ss, email, config);
-
-      // B-1/B-3 立てためあての達成判定（全種目）
-      const achieved = checkGoalsAfterRecord_(ss, email, config, goalContext);
-
-      const expResult = readExpState_(ss, email, levelBefore);
-      clearInsightsCache_(email);
-
-      return {
-        success: true,
-        message: `${typeDef.label}をきろくしました！`,
-        gainedExp: gainedExp,
-        reflectionBonus: reflectionBonus,
-        aiCoach: aiCoach,
-        personalBest: personalBest,
-        streakBonus: streakBonus.exp > 0 ? streakBonus : null,
-        achievedGoals: achieved,
-        // 旧クライアント互換（タイピング目標の達成をひとつでも含むか）
-        goalAchieved: achieved.length > 0,
-        leveledUp: expResult ? expResult.leveledUp : false,
-        newLevel: expResult ? expResult.level : null,
-        levelInfo: expResult ? expResult.levelInfo : null,
-        newExp: expResult ? expResult.exp : null,
-        newTotalExp: expResult ? expResult.totalExp : null,
-        records: getMyRecords(email),
-        missions: getMissionStatus_(ss, email),
-        // 先生からの課題も、書いたその場で進みぐあいが変わります
-        assignments: getAssignmentStatus_(ss, email)
-      };
+      return saveRecordLocked_(payload);
     } catch (e) {
       console.error(`saveRecord Error: ${e.message}, Stack: ${e.stack}`);
       return { success: false, message: e.message };
     }
   });
+  if (!saved || saved.success !== true) return saved;
+  try {
+    return finishRecordSave_(saved.ctx);
+  } catch (e) {
+    // 保存は済んでいます。一覧が作れなかっただけなので成功として返し、画面は次に開いたときに追いつきます
+    console.error(`saveRecord (after save) Error: ${e.message}, Stack: ${e.stack}`);
+    return {
+      success: true,
+      message: `${saved.ctx.label}をきろくしました！`,
+      gainedExp: saved.ctx.gainedExp,
+      reflectionBonus: 0,
+      aiCoach: '',
+      personalBest: saved.ctx.personalBest,
+      streakBonus: saved.ctx.streakBonus.exp > 0 ? saved.ctx.streakBonus : null,
+      achievedGoals: saved.ctx.achieved,
+      goalAchieved: saved.ctx.achieved.length > 0
+    };
+  }
+}
+
+/** ① 書きこみ。ロックの中で呼ばれます。AI は呼びません */
+function saveRecordLocked_(payload) {
+  const type = payload && payload.type;
+  const formData = (payload && payload.formData) || {};
+  const email = getCurrentEmail_();
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const config = getConfig_();
+  const typeDef = RECORD_TYPES[type];
+  if (!typeDef) throw new Error(`不明な記録種別です: ${type}`);
+  if (typeDef.appOnly) {
+    throw new Error(`${typeDef.label}は${typeDef.app || '学習アプリ'}のきろくから自動で記録されます。アプリで学習したあと「きろくをおくる」ボタンからおくってください。`);
+  }
+
+  // 1回の保存で複数回 addExp_ が走るため、開始時のレベルを覚えておいて最後に比べます
+  const levelBefore = calculateLevel_(getUserTotalExp_(ss, email), config).level;
+  // 自己ベスト更新の判定に使う「今回の値」（種目ごとに詰めます）
+  let bestContext = null;
+  let saved;
+  switch (type) {
+    case 'growth': saved = { gainedExp: saveGrowthRecord_(ss, email, formData, config) }; break;
+    case 'study': saved = { gainedExp: saveStudyRecord_(ss, email, formData, config) }; break;
+    case 'lesson': saved = saveLessonRecord_(ss, email, formData, config); break;
+    case 'test':
+      saved = saveTestRecord_(ss, email, formData, config);
+      bestContext = { kind: 'testScore', value: saved.bestScore, previous: saved.previousBestScore };
+      break;
+    case 'moral': saved = saveMoralRecord_(ss, email, formData, config); break;
+  }
+
+  writeLog_(ss, email, typeDef.log, `${typeDef.label}を記録`);
+  // ふり返り質ボーナスは ② で AI の結果が出てから足します
+  addExpBatch_(ss, email, [{ amount: saved.gainedExp, label: typeDef.label }]);
+
+  // 記録シートが変わったので、集計のキャッシュを捨ててから判定を回します
+  clearRecordStoreCache_();
+  clearInsightsCache_(email);
+
+  // A-2 じこベスト更新（ボーナスとログは applyPersonalBest_ の中で付きます）
+  let personalBest = null;
+  if (bestContext) {
+    const best = applyPersonalBest_(ss, email, config, bestContext.kind, bestContext.value, bestContext.previous);
+    if (best.updated) personalBest = best;
+  }
+
+  // A-1 その日はじめてのきろくに連続ボーナス
+  const streakBonus = applyRecordStreakBonus_(ss, email, config);
+
+  // B-1/B-3 立てためあての達成判定（全種目）。
+  // タイピングは Typa からの受信に一本化したため、この画面から入る記録はありません
+  // （判定は 10_studylog.gs の receiveStudyRecords_ で行います）
+  const achieved = checkGoalsAfterRecord_(ss, email, config, null);
+
+  return {
+    success: true,
+    ctx: {
+      type, email, label: typeDef.label, levelBefore,
+      gainedExp: saved.gainedExp,
+      aiRow: saved.aiRow || null,
+      moralRow: saved.moralRow || null,
+      personalBest, streakBonus, achieved
+    }
+  };
+}
+
+/** ② と ③。ロックの外で呼ばれます */
+function finishRecordSave_(ctx) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const config = getConfig_();
+
+  let reflectionBonus = 0;
+  let aiCoach = '';
+  if (ctx.aiRow) {
+    const ai = runReflectionAiAfterSave_(ss, config, ctx.type, ctx.aiRow, ctx.email);
+    reflectionBonus = ai.reflectionBonus;
+    aiCoach = ai.studentComment;
+  }
+  if (ctx.moralRow) {
+    // 失敗しても保存は成功させます
+    try {
+      generateMoralFeedback_(ss, ctx.moralRow);
+    } catch (e) {
+      console.error(`道徳AIフィードバック生成エラー: ${e.message}`);
+    }
+  }
+
+  clearRecordStoreCache_();
+  clearInsightsCache_(ctx.email);
+  const expResult = readExpState_(ss, ctx.email, ctx.levelBefore);
+  return {
+    success: true,
+    message: `${ctx.label}をきろくしました！`,
+    gainedExp: ctx.gainedExp,
+    reflectionBonus: reflectionBonus,
+    aiCoach: aiCoach,
+    personalBest: ctx.personalBest,
+    streakBonus: ctx.streakBonus.exp > 0 ? ctx.streakBonus : null,
+    achievedGoals: ctx.achieved,
+    // 旧クライアント互換（タイピング目標の達成をひとつでも含むか）
+    goalAchieved: ctx.achieved.length > 0,
+    leveledUp: expResult ? expResult.leveledUp : false,
+    newLevel: expResult ? expResult.level : null,
+    levelInfo: expResult ? expResult.levelInfo : null,
+    newExp: expResult ? expResult.exp : null,
+    newTotalExp: expResult ? expResult.totalExp : null,
+    records: getMyRecords_(ctx.email),
+    missions: getMissionStatus_(ss, ctx.email),
+    // 先生からの課題も、書いたその場で進みぐあいが変わります
+    assignments: getAssignmentStatus_(ss, ctx.email)
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -122,28 +208,44 @@ function saveRecord(payload) {
 //    タイピングの自己ベスト（速さ）と、めあての達成判定も受信時に行います。
 
 function saveGrowthRecord_(ss, email, data, config) {
-  if (!data.content) throw new Error('「どんなことができるようになった？」を入力してください。');
-  ss.getSheetByName(SHEETS.GROWTH).appendRow([new Date(), email, data.content, data.comment || '']);
+  const content = cleanText_(data.content, TEXT_LIMITS.SHORT, 'できるようになったこと');
+  const comment = cleanText_(data.comment, TEXT_LIMITS.LONG, 'どうやって できるようになった？');
+  if (!content) throw new Error('「どんなことができるようになった？」を入力してください。');
+  appendRow_(ss.getSheetByName(SHEETS.GROWTH), [new Date(), email, content, comment]);
   return getConfigNumber_(config, '成長記録経験値', 30);
 }
 
 function saveStudyRecord_(ss, email, data, config) {
-  if (!data.theme || !data.summary) throw new Error('「テーマ」と「わかったこと」を入力してください。');
-  ss.getSheetByName(SHEETS.STUDY).appendRow([new Date(), email, data.theme, data.summary, data.next || '']);
+  const theme = cleanText_(data.theme, TEXT_LIMITS.SHORT, 'テーマ');
+  const summary = cleanText_(data.summary, TEXT_LIMITS.LONG, 'わかったこと');
+  const next = cleanText_(data.next, TEXT_LIMITS.SHORT, 'つぎにやりたいこと');
+  if (!theme || !summary) throw new Error('「テーマ」と「わかったこと」を入力してください。');
+  appendRow_(ss.getSheetByName(SHEETS.STUDY), [new Date(), email, theme, summary, next]);
   return getConfigNumber_(config, '自主学習記録経験値', 50);
 }
 
+/**
+ * 授業のふり返り。AI（所見材料・AIコーチ・ふり返り質ボーナス）はここでは呼ばず、
+ * 足した行の番号を aiRow として返します（saveRecord がロックの外で処理します）。
+ * @returns {{gainedExp:number, aiRow:number|null}}
+ */
 function saveLessonRecord_(ss, email, data, config) {
-  if (!data.subject || !data.reflection) throw new Error('「教科」と「ふり返り」を入力してください。');
+  const subject = cleanText_(data.subject, TEXT_LIMITS.CHOICE, '教科');
+  const reflection = cleanText_(data.reflection, TEXT_LIMITS.LONG, 'ふり返り');
+  if (!subject || !reflection) throw new Error('「教科」と「ふり返り」を入力してください。');
+  const hands = Math.min(99, Math.max(0, parseInt(data.handRaises, 10) || 0));
   const sheet = ss.getSheetByName(SHEETS.LESSON);
-  sheet.appendRow([
-    new Date(), email, data.subject,
-    data.q1 || '', data.q2 || '', data.selfEval || '',
-    parseInt(data.handRaises, 10) || 0, data.reflection, '', ''
+  appendRow_(sheet, [
+    new Date(), email, subject,
+    cleanText_(data.q1, TEXT_LIMITS.CHOICE, 'めあての達成'),
+    cleanText_(data.q2, TEXT_LIMITS.SHORT, '今日わかったこと'),
+    cleanText_(data.selfEval, TEXT_LIMITS.CHOICE, 'すすんで学べた？'),
+    hands, reflection, '', ''
   ]);
-  const base = getConfigNumber_(config, '授業ふり返り経験値', 20);
-  const ai = autoExtractShokenMaterial_(ss, config, 'lesson', sheet.getLastRow());
-  return applyReflectionBonus_(ss, email, config, base, ai.depth, ai.studentComment);
+  return {
+    gainedExp: getConfigNumber_(config, '授業ふり返り経験値', 20),
+    aiRow: isAutoExtractEnabled_(config) ? sheet.getLastRow() : null
+  };
 }
 
 /**
@@ -164,28 +266,37 @@ function calcTestExp_(config, score) {
   return cap > 0 ? Math.min(exp, Math.floor(cap)) : exp;
 }
 
+/**
+ * テストのふり返り。点数は 0〜100 だけを受けつけます
+ * （以前は上限が無く、点数をとても大きくすると経験値と「じこベスト」がいくらでも増えました）。
+ * @returns {{gainedExp:number, aiRow:number|null, bestScore:number|null, previousBestScore:number|null}}
+ */
 function saveTestRecord_(ss, email, data, config) {
-  if (!data.subject || !data.unit) throw new Error('「教科」と「単元」を入力してください。');
-  const score1 = data.score1 === '' ? '' : Number(data.score1);
-  const score2 = data.score2 === '' ? '' : Number(data.score2);
+  const subject = cleanText_(data.subject, TEXT_LIMITS.CHOICE, '教科');
+  const unit = cleanText_(data.unit, TEXT_LIMITS.SHORT, '単元');
+  if (!subject || !unit) throw new Error('「教科」と「単元」を入力してください。');
+  const expected1 = cleanScore_(data.expected1, '目標点（知識）');
+  const expected2 = cleanScore_(data.expected2, '目標点（思考）');
+  const score1 = cleanScore_(data.score1, '点数（知識）');
+  const score2 = cleanScore_(data.score2, '点数（思考）');
+  const reflection = cleanText_(data.reflection, TEXT_LIMITS.LONG, 'ふり返り');
 
   // 自己ベスト（教科ごとではなく「テストの点数」全体の最高点）は追記の前に読みます
   const previousBestScore = getBestTestScore_(ss, email);
 
   const sheet = ss.getSheetByName(SHEETS.TEST);
-  sheet.appendRow([
-    new Date(), email, data.subject, data.unit,
-    data.expected1 || '', data.expected2 || '',
-    score1, score2, data.reflection || '', '', ''
+  appendRow_(sheet, [
+    new Date(), email, subject, unit,
+    expected1, expected2,
+    score1, score2, reflection, '', ''
   ]);
-  const ai = autoExtractShokenMaterial_(ss, config, 'test', sheet.getLastRow());
-  const base = calcTestExp_(config, score1) + calcTestExp_(config, score2);
-  const result = applyReflectionBonus_(ss, email, config, base, ai.depth, ai.studentComment);
-
   const scores = [score1, score2].map(Number).filter(n => !isNaN(n) && n > 0);
-  result.bestScore = scores.length > 0 ? Math.max.apply(null, scores) : null;
-  result.previousBestScore = previousBestScore;
-  return result;
+  return {
+    gainedExp: calcTestExp_(config, score1) + calcTestExp_(config, score2),
+    aiRow: isAutoExtractEnabled_(config) ? sheet.getLastRow() : null,
+    bestScore: scores.length > 0 ? Math.max.apply(null, scores) : null,
+    previousBestScore: previousBestScore
+  };
 }
 
 /** これまでのテストの最高点（知識・思考のどちらも対象）。1件もなければ null */
@@ -201,20 +312,6 @@ function getBestTestScore_(ss, email) {
 }
 
 /**
- * 基本経験値とふり返り質ボーナスを分けて返します（付与は saveRecord 側で別々に行い、
- * 経験値ログ・MVP集計・最近のできごとで基本分とボーナス分がそれぞれ明確に表示されます）。
- * AIコーチのコメントは、所見材料抽出と同じ1回のAI応答から取り出したものです。
- * @returns {{gainedExp:number, reflectionBonus:number, aiCoach:string}}
- */
-function applyReflectionBonus_(ss, email, config, baseExp, depth, studentComment) {
-  return {
-    gainedExp: baseExp,
-    reflectionBonus: calcReflectionBonus_(config, depth),
-    aiCoach: String(studentComment || '')
-  };
-}
-
-/**
  * 児童マスタから今の経験値・レベルを読み直します。
  * 1回の保存で「基本EXP＋ふり返り質ボーナス＋じこベスト＋連続きろく＋めあて達成」と
  * 複数回 addExp_ が走るため、最後にまとめて読み直して levelBefore と比べます。
@@ -225,24 +322,26 @@ function readExpState_(ss, email, levelBefore) {
   const totalExp = Number(found.data['累計経験値'] || 0);
   const exp = Number(found.data['経験値'] || 0);
   // つぎのレベルまでのバーも、この結果だけで引き直せるように levelInfo ごと返します
-  const levelInfo = calculateLevel(totalExp, getConfig_());
+  const levelInfo = calculateLevel_(totalExp, getConfig_());
   return { totalExp, exp, level: levelInfo.level, levelInfo, leveledUp: levelInfo.level > levelBefore };
 }
 
+/**
+ * 道徳ノート。AIフィードバックはここでは呼ばず、行の番号を moralRow として返します。
+ * @returns {{gainedExp:number, moralRow:number|null}}
+ */
 function saveMoralRecord_(ss, email, data, config) {
-  if (!data.materialNumber || !data.myThought) throw new Error('「教材」と「自分の考え」を入力してください。');
+  const materialNumber = cleanText_(data.materialNumber, TEXT_LIMITS.CHOICE, '教材');
+  const myThought = cleanText_(data.myThought, TEXT_LIMITS.LONG, '自分の考え');
+  const reflection = cleanText_(data.reflection, TEXT_LIMITS.LONG, '気づいたこと');
+  if (!materialNumber || !myThought) throw new Error('「教材」と「自分の考え」を入力してください。');
   const sheet = ss.getSheetByName(SHEETS.MORAL);
-  sheet.appendRow([new Date(), email, data.materialNumber, data.myThought, data.reflection || '', '']);
-
-  // AIフィードバック（設定でONの場合のみ・失敗しても保存は成功させる）
-  if (String(config['道徳AIフィードバック']).toUpperCase() === 'ON') {
-    try {
-      generateMoralFeedback_(ss, sheet.getLastRow());
-    } catch (e) {
-      console.error(`道徳AIフィードバック生成エラー: ${e.message}`);
-    }
-  }
-  return getConfigNumber_(config, '道徳ノート経験値', 30);
+  appendRow_(sheet, [new Date(), email, materialNumber, myThought, reflection, '']);
+  const feedbackOn = String(config['道徳AIフィードバック']).toUpperCase() === 'ON' && isAiEnabled_();
+  return {
+    gainedExp: getConfigNumber_(config, '道徳ノート経験値', 30),
+    moralRow: feedbackOn ? sheet.getLastRow() : null
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -297,7 +396,7 @@ function saveGoal(formData) {
         if (target > 100000) throw new Error('めあての数が大きすぎます。');
       }
 
-      ss.getSheetByName(SHEETS.GOAL).appendRow([
+      appendRow_(ss.getSheetByName(SHEETS.GOAL), [
         email, speedGoal, accuracyGoal, GOAL_STATUS.ACTIVE, new Date(), '',
         kind, period, target, memo
       ]);
@@ -326,7 +425,7 @@ function registerFreeGoal_(ss, email, text) {
   if (!memo) return false;
   const existing = getGoalData_(ss, email);
   if (existing.activeGoals.some(goal => goal.kind === 'free')) return false;
-  ss.getSheetByName(SHEETS.GOAL).appendRow([
+  appendRow_(ss.getSheetByName(SHEETS.GOAL), [
     email, '', '', GOAL_STATUS.ACTIVE, new Date(), '',
     'free', GOAL_PERIODS.WEEK, '', memo
   ]);
@@ -499,8 +598,12 @@ function completeManualGoal(goalRow) {
 /**
  * 指定ユーザーの全記録（表示用に整形済み）をまとめて取得します。
  * 児童本人の画面と、教員の児童詳細画面の両方で使用します。
+ *
+ * ⚠️ 末尾の _ を外さないこと。以前は公開関数で、引数のメールアドレスをそのまま使っていたため、
+ *   同じ組織のアカウントなら（名簿に無い人でも）誰の記録でも読めました。
+ *   呼ぶ側（getStudentAppData・getStudentDetails・面談メモPDF）が本人／先生を確かめてから渡します。
  */
-function getMyRecords(email) {
+function getMyRecords_(email) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const target = String(email).toLowerCase().trim();
   return {
@@ -527,8 +630,7 @@ function getMyRecords(email) {
 function getUserRows_(ss, sheetName, email, numCols, limit) {
   const sheet = ss.getSheetByName(sheetName);
   if (!sheet || sheet.getLastRow() < 2) return [];
-  const cols = Math.min(numCols, sheet.getMaxColumns());
-  const all = sheet.getRange(2, 1, sheet.getLastRow() - 1, cols).getValues();
+  const all = readDataRows_(sheet, numCols);
   const rows = [];
   for (let i = all.length - 1; i >= 0; i--) {
     if (String(all[i][1]).toLowerCase().trim() === email) {
@@ -536,6 +638,44 @@ function getUserRows_(ss, sheetName, email, numCols, limit) {
       if (limit && rows.length >= limit) break;
     }
   }
+  return rows;
+}
+
+/** 実行中だけ使う、シートの行の読みこみ置き場（同じシートを何度も読まないため） */
+let SHEET_ROWS_CACHE_ = {};
+
+/**
+ * 読みこみ置き場を捨てます。シート名を渡せばそのシートだけ、省けば全部。
+ * 行を足す処理（appendRow_ / appendRows_）は自分で呼びます。
+ * 行の中身をその場で書きかえる処理（AI の「済」印など）は、書いたあとに呼ぶこと。
+ */
+function clearSheetRowsCache_(sheetName) {
+  if (sheetName) delete SHEET_ROWS_CACHE_[sheetName];
+  else SHEET_ROWS_CACHE_ = {};
+}
+
+/**
+ * シートの2行目から最後の行までを読みます。同じ実行の中では1回だけ読みます。
+ *
+ * アプリを開くたびに、同じ記録シートを機能ごとに何度も読んでいました
+ * （タイピング記録は5回、100マス計算記録は3回）。1回の読みこみはスプレッドシートとの
+ * 往復1回ぶんの時間がかかり、起動が遅くなります。
+ *
+ * 読む列数は「定義の列数」と「求められた列数」の大きいほう（ただしシートの実際の列数まで）です。
+ * 行が足されると最後の行の番号が変わるので、そのときは読み直します。
+ */
+function readDataRows_(sheet, numCols) {
+  const name = sheet.getName();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  const maxCols = sheet.getMaxColumns();
+  const need = Math.min(numCols, maxCols);
+  const cached = SHEET_ROWS_CACHE_[name];
+  if (cached && cached.lastRow === lastRow && cached.cols >= need) return cached.rows;
+  const defined = (getSheetDefinitions_()[name] || []).length;
+  const cols = Math.min(Math.max(numCols, defined), maxCols);
+  const rows = sheet.getRange(2, 1, lastRow - 1, cols).getValues();
+  SHEET_ROWS_CACHE_[name] = { lastRow, cols, rows };
   return rows;
 }
 
@@ -571,7 +711,9 @@ function ensureCapacity_(sheet, startRow, numRows, numCols) {
 function appendRows_(sheet, values, numCols) {
   if (!values || values.length === 0) return;
   const cols = numCols || values[0].length;
-  ensureCapacity_(sheet, sheet.getLastRow() + 1, values.length, cols).setValues(values);
+  // 数式にならないようにしてから書きます（sheetText_ を見ること）
+  ensureCapacity_(sheet, sheet.getLastRow() + 1, values.length, cols).setValues(values.map(sheetRow_));
+  clearSheetRowsCache_(sheet.getName());
 }
 
 function formatDate_(value, pattern) {

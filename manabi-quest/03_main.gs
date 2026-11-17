@@ -98,17 +98,25 @@ function getStudentAppData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const config = getConfig_();
 
-  const { user, bonusApplied, bonusPoints } = processLoginBonus_(ss, email, config);
-  const levelInfo = calculateLevel(user.totalExp, config);
-  user.level = levelInfo.level;
-  user.progress = levelInfo.progress;
-  user.nextLevelExp = levelInfo.nextLevelExp;
-  user.currentLevelExp = levelInfo.currentLevelExp;
-
+  // ログインボーナスとバッジの付与は「ログ」などへ行を足すので、ロックの中で行います。
+  // 行の足し方（appendRows_）は「最後の行を数えて、その次に書く」形なので、
+  // ロックの外で書くと、朝の一斉起動で同時に書いた行が上書きされます。
+  // ロックが取れないほど混んでいるときは、付与を次に開いたときへ回して画面は出します。
   const allItems = getAllItems_(ss);
   const badgesMaster = getBadges_(ss);
-  const earnedBadges = getEarnedBadges_(ss, email);
-  const { updatedEarnedBadges, newlyAwarded } = checkAndAwardBadges_(ss, email, user, config, badgesMaster, earnedBadges);
+  const locked = tryWithLock_(() => {
+    const login = processLoginBonus_(ss, email, config);
+    // レベルのバッジ（CURRENT_LEVEL）は user.level を見るので、判定の前にレベルを付けます
+    applyLevelInfo_(login.user, config);
+    const earnedBadges = getEarnedBadges_(ss, email);
+    const badges = checkAndAwardBadges_(ss, email, login.user, config, badgesMaster, earnedBadges);
+    return { login, badges };
+  }, null);
+  const { user, bonusApplied, bonusPoints } = locked ? locked.login : readLoginUser_(ss, email);
+  const { updatedEarnedBadges, newlyAwarded } = locked
+    ? locked.badges
+    : { updatedEarnedBadges: earnedBadgeList_(badgesMaster, getEarnedBadges_(ss, email)), newlyAwarded: [] };
+  applyLevelInfo_(user, config);
 
   return {
     success: true,
@@ -130,7 +138,7 @@ function getStudentAppData() {
     newlyAwardedBadges: newlyAwarded,
     plazaData: getPlazaData_(ss, config),
     recentActivity: getRecentLogs_(ss, email),
-    records: getMyRecords(email),
+    records: getMyRecords_(email),
     moralMaterials: getMoralMaterials_(ss),
     testUnits: getTestUnits_(ss),
     studyApp: getStudyAppPanelData_(ss, email, config),
@@ -139,8 +147,44 @@ function getStudentAppData() {
     // 仲間とのつながり（クラス共同目標・応援スタンプ・みんなの本だな）
     social: getStudentSocialData_(ss, email, config),
     goalKinds: getGoalKindOptions_(),
+    // 「くわしく書くと ふり返りボーナス」の案内は、ボーナスが本当に付くときだけ出します
+    // （AIが使えないときに約束だけが残らないように）
+    reflectionBonusAvailable: isReflectionBonusAvailable_(config),
+    // ふり返り・道徳ノートを AI が読むか（入力画面に「ともだちの なまえは かかないでね」を出すため）
+    aiReadsReflections: isAutoExtractEnabled_(config)
+      || (String(config['道徳AIフィードバック']).toUpperCase() === 'ON' && isAiEnabled_()),
     bonusApplied,
     bonusPoints
+  };
+}
+
+/** 累計経験値からレベル・つぎのレベルまでの進みぐあいを user に書きこみます */
+function applyLevelInfo_(user, config) {
+  const levelInfo = calculateLevel_(user.totalExp, config);
+  user.level = levelInfo.level;
+  user.progress = levelInfo.progress;
+  user.nextLevelExp = levelInfo.nextLevelExp;
+  user.currentLevelExp = levelInfo.currentLevelExp;
+  return user;
+}
+
+/** ログインボーナスを付けずに、児童の基本情報だけを読みます（ロックが取れなかったとき用） */
+function readLoginUser_(ss, email) {
+  const found = findUserRow_(ss, email);
+  if (!found.data) throw new Error('児童マスタに登録されていません。');
+  return {
+    user: {
+      number: found.data['出席番号'],
+      name: found.data['名前'],
+      nickname: found.data['ニックネーム'] || found.data['名前'],
+      email: email,
+      totalExp: Number(found.data['累計経験値'] || 0),
+      exp: Number(found.data['経験値'] || 0),
+      exchangePoints: Number(found.data['交換ポイント'] || 0),
+      row: found.row
+    },
+    bonusApplied: false,
+    bonusPoints: 0
   };
 }
 
@@ -193,6 +237,39 @@ function assertTeacher_() {
   return user;
 }
 
+/** ログイン中のアカウントが担任かどうか（例外を投げずに答えます） */
+function isSignedInTeacher_() {
+  try {
+    const email = String(Session.getActiveUser().getEmail() || '').toLowerCase().trim();
+    if (!email) return false;
+    const user = findUserByEmail_(email);
+    return !!user && user['出席番号'] == TEACHER_ROLE_ID;
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * スプレッドシートのメニュー・時間主導トリガーから使う関数の入口で呼びます。
+ *
+ * Webアプリは「実行ユーザー＝先生」のデプロイなので、末尾に _ の無い関数は
+ * 児童のブラウザからも google.script.run で呼べてしまいます
+ * （以前は児童が週次サマリーメールを何通でも送れ、自動送信のトリガーを消せました）。
+ *
+ * 通すのは次のどちらかだけです。
+ *   ① スクリプトを動かしている本人が、ログイン中の本人と同じとき
+ *      （メニューを押した先生・先生が作ったトリガー。Webアプリを開いた児童は
+ *        「動かしているのは先生、ログインしているのは児童」なので通りません）
+ *   ② 児童マスタの担任
+ */
+function assertOperator_() {
+  let active = '', effective = '';
+  try { active = String(Session.getActiveUser().getEmail() || '').toLowerCase().trim(); } catch (e) { /* 取れない環境 */ }
+  try { effective = String(Session.getEffectiveUser().getEmail() || '').toLowerCase().trim(); } catch (e) { /* 取れない環境 */ }
+  if (active && effective && active === effective) return;
+  assertTeacher_();
+}
+
 /**
  * ログインボーナスを処理し、ユーザーの基本情報を返します。
  */
@@ -234,24 +311,37 @@ function processLoginBonus_(ss, email, config) {
 // 経験値・レベル
 // =====================================================================
 
+/** レベルの上限。これより先は数えません（計算が終わらなくならないための歯止め） */
+const MAX_LEVEL = 999;
+
 /**
  * 累計経験値からレベル・進捗率を計算します。
  * レベルnに必要な経験値 = 基本 + 加算 ×(n−2) の累積。
+ *
+ * ⚠️ 以前は末尾に _ の無い公開関数で、設定（config）を引数で受け取っていました。
+ *   「基本 0・加算 0」や「加算がマイナス」を渡すとループが終わらず、
+ *   Apps Script の上限（6分）まで固まります。先生が「初期設定」で打ちまちがえても
+ *   全員の起動が固まり、児童が開発者ツールから呼ぶこともできました。
+ *   いまは非公開にし、基本は 1 以上・加算は 0 以上に丸め、レベルにも上限を置いています。
  */
-function calculateLevel(totalExp, config) {
-  const baseExp = getConfigNumber_(config, 'レベルアップ基本経験値', 100);
-  const incrementalExp = getConfigNumber_(config, 'レベルアップ加算経験値', 50);
+function calculateLevel_(totalExp, config) {
+  const baseExp = Math.max(1, getConfigNumber_(config, 'レベルアップ基本経験値', 100));
+  const incrementalExp = Math.max(0, getConfigNumber_(config, 'レベルアップ加算経験値', 50));
+  const exp = Math.max(0, Number(totalExp) || 0);
 
   let level = 1;
   let totalExpForLevelUp = baseExp;
   let expForThisLevel = baseExp;
-  while (totalExp >= totalExpForLevelUp) {
+  while (exp >= totalExpForLevelUp && level < MAX_LEVEL) {
     level++;
     expForThisLevel += incrementalExp;
     totalExpForLevelUp += expForThisLevel;
   }
+  if (level >= MAX_LEVEL) {
+    return { level: MAX_LEVEL, progress: 100, currentLevelExp: expForThisLevel, nextLevelExp: expForThisLevel };
+  }
   const expForPreviousLevel = totalExpForLevelUp - expForThisLevel;
-  const expInCurrentLevel = totalExp - expForPreviousLevel;
+  const expInCurrentLevel = exp - expForPreviousLevel;
   const progress = expForThisLevel > 0 ? Math.floor((expInCurrentLevel / expForThisLevel) * 100) : 100;
   return {
     level,
@@ -324,7 +414,7 @@ function addExpBatch_(ss, email, entries) {
 
   const leveledUp = checkLevelUp_(ss, email, oldTotal, newTotal, config);
   // つぎのレベルまでのバーも、この結果だけで引き直せるように levelInfo ごと返します
-  const levelInfo = calculateLevel(newTotal, config);
+  const levelInfo = calculateLevel_(newTotal, config);
   return { totalExp: newTotal, exp: newExp, level: levelInfo.level, levelInfo, leveledUp };
 }
 
@@ -350,8 +440,8 @@ function getUserTotalExp_(ss, email) {
 
 /** レベルアップしていればログに記録します */
 function checkLevelUp_(ss, email, oldTotalExp, newTotalExp, config) {
-  const oldLevel = calculateLevel(oldTotalExp, config).level;
-  const newLevel = calculateLevel(newTotalExp, config).level;
+  const oldLevel = calculateLevel_(oldTotalExp, config).level;
+  const newLevel = calculateLevel_(newTotalExp, config).level;
   if (newLevel > oldLevel) {
     writeLog_(ss, email, LOG_ACTIONS.LEVEL_UP, `レベル${newLevel}にアップ！`);
     return true;
@@ -413,18 +503,90 @@ function writeLog_(ss, email, actionType, details) {
   writeLogs_(ss, [[new Date(), email, actionType, details]]);
 }
 
+// =====================================================================
+// シートへの書きこみ（数式にしない）
+// =====================================================================
+
+/**
+ * スプレッドシートに書く文字を、計算されない「ただの文字」にします。
+ *
+ * セルに書いた文字が `=` `+` `-` `@` で始まると、スプレッドシートはそれを数式として
+ * 計算します（appendRow / setValue / setValues のどれでも同じです）。
+ * 児童が「ひとこと」に `=TEXTJOIN(",",TRUE,'児童マスタ'!B2:D41)` と書けば、
+ * クラス全員の名前とメールアドレスが「みんな」の画面に出てしまいます。
+ *
+ * 先頭に ' を付けると、セルには文字のまま入り、getValues() は ' を除いた元の文字を
+ * 返します（表示も変わりません）。もとから ' で始まる文字も、消えないように同じく守ります。
+ * 数値・日付・真偽値はそのまま通します。
+ */
+function sheetText_(value) {
+  return (typeof value === 'string' && /^[=+\-@']/.test(value)) ? `'${value}` : value;
+}
+
+/** 1行ぶんの値を sheetText_ に通します */
+function sheetRow_(row) {
+  return (row || []).map(sheetText_);
+}
+
+/**
+ * Sheet.appendRow の代わりに使います。
+ * 数式にならないようにしてから、1行を「割りこまれずに」末尾へ足します
+ * （appendRow は最後の行の数えなおしと書きこみを1回で行うので、同時に書いても重なりません）。
+ */
+function appendRow_(sheet, row) {
+  sheet.appendRow(sheetRow_(row));
+  clearSheetRowsCache_(sheet.getName());
+}
+
+// =====================================================================
+// 排他ロック
+// =====================================================================
+
+/** この実行がいまロックを持っているか（入れ子で呼ばれても二重に取らないため） */
+let LOCK_DEPTH_ = 0;
+
+/** ロックを待つ時間（ミリ秒） */
+const LOCK_WAIT_MS = 10000;
+
+/** ロックが取れなかったときに児童へ返すことば */
+const LOCK_BUSY_MESSAGE = 'こんでいます。少しまってからもう一度ためしてください。';
+
 /**
  * 排他ロックの下で処理を実行する共通ラッパー。
  * すべての書き込み系APIで使用し、同時アクセスによるデータ破損を防ぎます。
+ *
+ * ロックの中では、スプレッドシートへの書きこみと、それに要る読み取りだけを行います。
+ * AI の呼び出しや、返事に添える一覧の読みこみのような時間のかかる処理は外で行うこと
+ * （ロックはスクリプト全体で1つなので、握っているあいだクラス全員が待たされます）。
  */
 function withLock_(fn) {
+  if (LOCK_DEPTH_ > 0) return fn();   // すでにこの実行がロックを持っている
   const lock = LockService.getScriptLock();
-  if (!lock.tryLock(10000)) {
-    return { success: false, message: 'こんでいます。少しまってからもう一度ためしてください。' };
+  if (!lock.tryLock(LOCK_WAIT_MS)) {
+    return { success: false, busy: true, message: LOCK_BUSY_MESSAGE };
   }
+  LOCK_DEPTH_++;
   try {
     return fn();
   } finally {
+    LOCK_DEPTH_--;
+    lock.releaseLock();
+  }
+}
+
+/**
+ * ロックが取れたときだけ fn を実行します。取れなければ onBusy を返します
+ * （起動時のログインボーナスのように「今回はあきらめて次に回せばよい」処理用）。
+ */
+function tryWithLock_(fn, onBusy) {
+  if (LOCK_DEPTH_ > 0) return fn();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(LOCK_WAIT_MS)) return onBusy;
+  LOCK_DEPTH_++;
+  try {
+    return fn();
+  } finally {
+    LOCK_DEPTH_--;
     lock.releaseLock();
   }
 }

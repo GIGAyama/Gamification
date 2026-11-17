@@ -23,21 +23,141 @@ function isAiEnabled_() {
 }
 
 /**
+ * AI に使うモデルの既定値。
+ *
+ * ⚠️ 特定の版（gemini-2.0-flash など）を既定にしないこと。Google は版を順に提供終了し、
+ *   gemini-2.0-flash は 2026-06-01 に終わりました。既定のままの学校では、そこから
+ *   「ふり返り質ボーナス」「AIコーチ」「所見材料の自動ストック」がだまって止まり、
+ *   先生の画面は「利用可能」と出たままでした。
+ *   gemini-flash-latest は「その時点の最新の Flash」を指す公式の別名で、
+ *   中身が切りかわる前には予告のメールが届きます（提供終了で使えなくなることがありません）。
+ *   特定の版を使いたい学校は「初期設定」の「Geminiモデル」に書けます。
+ */
+const AI_DEFAULT_MODEL = 'gemini-flash-latest';
+
+/**
+ * 提供が終わったモデル名。「初期設定」にこれが残っていたら、問い合わせる前に既定へ読み替えます
+ * （先生が設定を直さなくても AI が動き続けるように）。
+ */
+const AI_RETIRED_MODEL_RE = /^gemini-(1\.0|1\.5|2\.0)(-|$)/i;
+
+/** 先生の画面に出す「AI のようす」を置くスクリプトプロパティのキー */
+const AI_STATUS_KEY = 'AI_STATUS_V1';
+
+/** 「初期設定」の Geminiモデル から、実際に使うモデル名を決めます */
+function aiModelFromConfig_(config) {
+  const raw = String((config && config['Geminiモデル']) || '').trim();
+  if (!raw || AI_RETIRED_MODEL_RE.test(raw)) return AI_DEFAULT_MODEL;
+  return raw;
+}
+
+/** モデルが見つからない・提供が終わったことを表すエラーか */
+function isModelUnavailableError_(e) {
+  const message = String((e && e.message) || '');
+  return /HTTP 404/.test(message) || /(not found|is not supported|no longer available)/i.test(message);
+}
+
+/**
+ * AI を呼んだ結果を控えます（先生の画面の「AI所見機能」に出すため）。
+ * 失敗はこれまで console.error に出るだけで、先生には見えていませんでした。
+ */
+function noteAiResult_(ok, model, note) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const now = new Date().toISOString();
+    let status = {};
+    try { status = JSON.parse(props.getProperty(AI_STATUS_KEY) || '{}') || {}; } catch (e) { status = {}; }
+    status.model = model;
+    status.note = note || '';
+    if (ok) {
+      status.lastOkAt = now;
+    } else {
+      status.lastErrorAt = now;
+      status.lastError = String(note || '').slice(0, 200);
+    }
+    props.setProperty(AI_STATUS_KEY, JSON.stringify(status));
+  } catch (e) {
+    console.warn(`AIのようすを控えられませんでした: ${e.message}`);
+  }
+}
+
+/**
+ * 先生の画面に出す「AI のようす」。
+ * @returns {{enabled:boolean, ok:boolean|null, lastOkAt:string, lastErrorAt:string, lastError:string,
+ *            model:string, configuredModel:string, note:string}}
+ */
+function getAiStatus_(config) {
+  const enabled = isAiEnabled_();
+  let status = {};
+  try { status = JSON.parse(PropertiesService.getScriptProperties().getProperty(AI_STATUS_KEY) || '{}') || {}; } catch (e) { status = {}; }
+  const lastOk = status.lastOkAt ? new Date(status.lastOkAt).getTime() : 0;
+  const lastErr = status.lastErrorAt ? new Date(status.lastErrorAt).getTime() : 0;
+  const configured = String((config && config['Geminiモデル']) || '').trim();
+  return {
+    enabled,
+    // まだ一度も呼んでいなければ null（「利用可能（まだ使っていません）」と出します）
+    ok: enabled ? ((lastOk || lastErr) ? lastOk >= lastErr : null) : false,
+    lastOkAt: status.lastOkAt || '',
+    lastErrorAt: status.lastErrorAt || '',
+    lastError: status.lastError || '',
+    model: aiModelFromConfig_(config),
+    configuredModel: configured,
+    note: AI_RETIRED_MODEL_RE.test(configured)
+      ? `「初期設定」の Geminiモデル（${configured}）は提供が終わっているため、${AI_DEFAULT_MODEL} を使っています。`
+      : (status.note || '')
+  };
+}
+
+/**
+ * ふり返り質ボーナスが、いま本当に付くか。
+ * 児童の入力画面の「くわしく書くと ボーナス」の案内は、これが true のときだけ出します。
+ */
+function isReflectionBonusAvailable_(config) {
+  if (String(config['ふり返り質ボーナス']).toUpperCase() !== 'ON') return false;
+  if (!isAutoExtractEnabled_(config)) return false;
+  return getAiStatus_(config).ok !== false;
+}
+
+/** ふり返りを保存したときに、AI で所見材料を取り出すか */
+function isAutoExtractEnabled_(config) {
+  return String(config['AI所見材料の自動抽出']).toUpperCase() === 'ON' && isAiEnabled_();
+}
+
+/**
  * Gemini API を呼び出してテキストを生成します。
  * 一時的なエラー（429=レート制限 / 500 / 503=過負荷）は指数バックオフで
  * 最大3回まで自動再試行します。これにより一括処理の取りこぼしを減らします。
+ *
+ * 「初期設定」のモデルが見つからない（提供終了など）ときは、既定のモデルで1回だけ呼び直します。
  */
 function callGeminiApi_(prompt) {
   const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!apiKey) throw new Error('Gemini APIキーがスクリプトプロパティ（GEMINI_API_KEY）に設定されていません。');
   const config = getConfig_();
+  const model = aiModelFromConfig_(config);
+  const note = AI_RETIRED_MODEL_RE.test(String(config['Geminiモデル'] || '').trim())
+    ? `「初期設定」の Geminiモデル（${String(config['Geminiモデル']).trim()}）は提供が終わっているため、${AI_DEFAULT_MODEL} を使っています。`
+    : '';
   // 呼び出しの作法（ヘッダでキーを渡す・429/5xx の再試行・空応答を成功にしない）は
   // 正本 Gemini.gs（GigaGemini）に集約した。ここはこのアプリ固有の値を渡すだけ。
-  return GigaGemini.call({
-    apiKey: apiKey,
-    prompt: prompt,
-    model: config['Geminiモデル'] || 'gemini-2.0-flash',
-  });
+  try {
+    const text = GigaGemini.call({ apiKey: apiKey, prompt: prompt, model: model });
+    noteAiResult_(true, model, note);
+    return text;
+  } catch (e) {
+    if (model !== AI_DEFAULT_MODEL && isModelUnavailableError_(e)) {
+      try {
+        const text = GigaGemini.call({ apiKey: apiKey, prompt: prompt, model: AI_DEFAULT_MODEL });
+        noteAiResult_(true, AI_DEFAULT_MODEL, `「初期設定」の Geminiモデル（${model}）が使えなかったため、${AI_DEFAULT_MODEL} を使いました。`);
+        return text;
+      } catch (e2) {
+        noteAiResult_(false, AI_DEFAULT_MODEL, e2.message);
+        throw e2;
+      }
+    }
+    noteAiResult_(false, model, e.message);
+    throw e;
+  }
 }
 
 /** Gemini にJSONで回答させ、コードフェンス等を取り除いてパースします */
@@ -63,8 +183,17 @@ function escapeRegExp_(value) {
 }
 
 /**
- * 児童マスタの「名前」→ 仮名（児童A・児童B…）の対応表を作ります。
- * 1文字の名前は普通の言葉と衝突するため対象外にします。
+ * 児童マスタの名前・ニックネーム → 仮名（児童A・児童B…）の対応表を作ります。
+ *
+ * 子どもはふり返りに友だちを「ゆうとくん」「山田さん」のように書きます。
+ * 以前は氏名の全体だけを置きかえていたので、下の名前・名字・ニックネームは
+ * そのまま AI（外部のサービス）へ出ていました。いまは次も置きかえます。
+ *   ・氏名の全体（空白を詰めた書き方も）……………… 2文字以上
+ *   ・名字・名前のそれぞれ ……………………………… 2文字以上で、漢字を含むもの
+ *   ・ニックネーム …………………………………………… 3文字以上で、ひらがなだけではないもの、または4文字以上
+ * ひらがなだけの短い名前・ニックネームは「そら」「はな」のような普通のことばと
+ * 同じ形になりやすく、置きかえるとふり返りの意味がこわれるため対象外にしています
+ * （入力画面で「ともだちの なまえは かかないでね」と伝えています）。
  */
 function getAiNameAliases_(ss) {
   if (aiNameAliasCache_) return aiNameAliasCache_;
@@ -73,11 +202,24 @@ function getAiNameAliases_(ss) {
     const sheet = (ss || SpreadsheetApp.getActiveSpreadsheet()).getSheetByName(SHEETS.USERS);
     if (sheet && sheet.getLastRow() >= 2) {
       let seq = 0;
-      sheet.getRange(2, USER_COLS.NAME, sheet.getLastRow() - 1, 1).getValues().forEach(row => {
-        const name = String(row[0] || '').trim();
-        if (name.length < 2 || aliases[name]) return;
-        aliases[name] = `児童${String.fromCharCode(65 + (seq % 26))}${seq >= 26 ? Math.floor(seq / 26) : ''}`;
-        seq++;
+      const hasKanji = t => /[\u3400-\u9fff\uf900-\ufaff]/.test(t);
+      const onlyHiragana = t => /^[\u3041-\u309f\u30fc]+$/.test(t);
+      sheet.getRange(2, USER_COLS.NUMBER, sheet.getLastRow() - 1, 3).getValues().forEach(row => {
+        const name = String(row[1] || '').trim();
+        const nickname = String(row[2] || '').trim();
+        if (name.length < 2 && nickname.length < 3) return;
+        // 先生の名前も外に出しません（「〇〇先生」と書かれることがあるため）
+        let alias = '先生';
+        if (row[0] != TEACHER_ROLE_ID) {
+          alias = `児童${String.fromCharCode(65 + (seq % 26))}${seq >= 26 ? Math.floor(seq / 26) : ''}`;
+          seq++;
+        }
+        const add = key => { if (key && !aliases[key]) aliases[key] = alias; };
+        if (name.length >= 2) {
+          add(name);
+          name.split(/[\s　]+/).forEach(part => { if (part.length >= 2 && hasKanji(part)) add(part); });
+        }
+        if ((nickname.length >= 3 && !onlyHiragana(nickname)) || nickname.length >= 4) add(nickname);
       });
     }
   } catch (e) {
@@ -161,63 +303,111 @@ function findTeachingPoint_(teachingPoints, subject, date, unit) {
 // ---------------------------------------------------------------------
 
 /**
- * ふり返り保存直後に呼ばれる自動抽出フック。
- * 設定OFF・APIキー未設定なら何もせず、失敗しても保存処理には影響しません
- * （フラグが空のまま残るので、後の一括抽出が再処理します）。
- * @returns {{stocked:boolean, depth:number, studentComment:string}} 抽出結果
- *   （depth は保存側のボーナス計算、studentComment は児童へ返すAIコーチの一言に使用）
+ * ふり返りを保存したあとに、AI で所見材料・AIコーチ・ふり返り質ボーナスを付けます。
+ * saveRecord から**ロックの外で**呼ばれます。
+ *
+ *   読む（ロック無し）→ AI を呼ぶ（ロック無し・数秒かかる）→ 書く（短いロックの中）
+ *
+ * 失敗しても保存そのものは成功のままにします。「所見抽出」の印は空のまま残るので、
+ * あとの一括抽出（先生の「今すぐAI抽出」・メニュー）が拾い直します。
+ * @returns {{reflectionBonus:number, studentComment:string}}
  */
-function autoExtractShokenMaterial_(ss, config, type, rowNum) {
-  const empty = { stocked: false, depth: 0, studentComment: '' };
+function runReflectionAiAfterSave_(ss, config, type, rowNum, email) {
+  const none = { reflectionBonus: 0, studentComment: '' };
+  if (!isAutoExtractEnabled_(config)) return none;
+  let prep = null;
+  let ai = null;
   try {
-    if (String(config['AI所見材料の自動抽出']).toUpperCase() !== 'ON') return empty;
-    if (!isAiEnabled_()) return empty;
-    return processReflectionRow_(ss, type, rowNum, null);
+    prep = prepareReflectionAi_(ss, type, rowNum, null);
+    if (!prep) return none;
+    if (prep.prompt) ai = callGeminiJson_(prep.prompt);
   } catch (e) {
     console.error(`所見材料の自動抽出エラー(${type} 行${rowNum}): ${e.message}`);
-    return empty;
+    return none;
   }
+  const applied = withLock_(() => {
+    try {
+      const result = applyReflectionAi_(ss, prep, ai);
+      if (!result) return { ok: false };
+      const bonus = calcReflectionBonus_(config, result.depth);
+      if (bonus > 0) addExpBatch_(ss, email, [{ amount: bonus, label: 'ふり返り質ボーナス' }]);
+      return { ok: true, reflectionBonus: bonus, studentComment: result.studentComment };
+    } catch (e) {
+      console.error(`所見材料の書きこみエラー(${type} 行${rowNum}): ${e.message}`);
+      return { ok: false };
+    }
+  });
+  if (!applied || applied.ok !== true) return none;
+  return { reflectionBonus: applied.reflectionBonus, studentComment: applied.studentComment };
 }
 
 /**
  * ふり返り1行をAIで分析し、採用なら「所見材料」へストックして
- * 「所見抽出」フラグを「済」にします。
+ * 「所見抽出」フラグを「済」にします（一括抽出用。保存直後は runReflectionAiAfterSave_）。
  * @returns {{stocked:boolean, depth:number, studentComment:string}}
  *   材料をストックしたか・記述の深さ(0〜3)・児童へ返す応援コメント
  */
 function processReflectionRow_(ss, type, rowNum, context) {
+  const done = { stocked: false, depth: 0, studentComment: '' };
+  const prep = prepareReflectionAi_(ss, type, rowNum, context);
+  if (!prep) return done;
+  const ai = prep.prompt ? callGeminiJson_(prep.prompt) : null;
+  // 書くところだけロックを取ります（保存直後の処理と同じ行を二重に書かないため）
+  const result = withLock_(() => applyReflectionAi_(ss, prep, ai));
+  return (result && result.busy !== true && result.success !== false && result) ? result : done;
+}
+
+/**
+ * 読む: ふり返り1行と、照合する指導事項を読み、AI へ送る文を組み立てます。
+ * すでに処理ずみ（「済」）なら null。AI に送るまでもない短い記述なら prompt は null です。
+ */
+function prepareReflectionAi_(ss, type, rowNum, context) {
   const sheetName = type === 'test' ? SHEETS.TEST : SHEETS.LESSON;
   const flagCol = SHOKEN_FLAG_COLS[type];
-  const coachCol = AI_COACH_COLS[type];
   const sheet = ss.getSheetByName(sheetName);
   const row = sheet.getRange(rowNum, 1, 1, flagCol).getValues()[0];
-  if (row[flagCol - 1] === '済') return { stocked: false, depth: 0, studentComment: '' };
+  if (row[flagCol - 1] === '済') return null;
 
   const source = buildReflectionSource_(type, row);
   const ctx = context || { userMap: getUserNumberMap_(ss), teachingPoints: getTeachingPoints_(ss) };
   const studentNumber = ctx.userMap[source.email];
+  let tp = null;
+  let prompt = null;
+  if (studentNumber && source.reflection.length > 5) {
+    tp = findTeachingPoint_(ctx.teachingPoints, source.subject, source.date, source.unit);
+    prompt = buildExtractionPrompt_(source, tp);
+  }
+  return { type, rowNum, sheetName, source, studentNumber, tp, prompt };
+}
+
+/**
+ * 書く: AI の答えをシートへ書きます。ロックの中で呼ぶこと。
+ * 読んでから書くまでのあいだに別の処理が同じ行を「済」にしていたら、何も書きません。
+ * @returns {{stocked:boolean, depth:number, studentComment:string}|null}
+ */
+function applyReflectionAi_(ss, prep, ai) {
+  const flagCol = SHOKEN_FLAG_COLS[prep.type];
+  const coachCol = AI_COACH_COLS[prep.type];
+  const sheet = ss.getSheetByName(prep.sheetName);
+  if (sheet.getRange(prep.rowNum, flagCol).getValue() === '済') return null;
 
   let stocked = false;
-  let ai = null;
-  if (studentNumber && source.reflection.length > 5) {
-    const tp = findTeachingPoint_(ctx.teachingPoints, source.subject, source.date, source.unit);
-    ai = callGeminiJson_(buildExtractionPrompt_(source, tp));
-    if (ai && ai.adopt === true && ai.episode) {
-      stockShokenMaterial_(ss, source, studentNumber, tp, ai);
-      stocked = true;
-    }
+  if (ai && ai.adopt === true && ai.episode) {
+    stockShokenMaterial_(ss, prep.source, prep.studentNumber, prep.tp, ai);
+    stocked = true;
   }
   // 授業のふり返りは「学びに向かう力スコア」も同時に蓄積
   // （AI採点は所見抽出と同じ1回の呼び出しに相乗りするため追加コストなし）
   const depth = ai ? Math.min(3, Math.max(0, Number(ai.depth) || 0)) : 0;
-  if (type === 'lesson' && studentNumber) {
-    recordAttitudeScore_(ss, source, depth);
+  if (prep.type === 'lesson' && prep.studentNumber) {
+    recordAttitudeScore_(ss, prep.source, depth);
   }
 
   // 児童へ返すAIコーチの一言。同じ1回の応答に相乗りしているのでAPI呼び出しは増えません
   const studentComment = buildCoachComment_(ai);
-  sheet.getRange(rowNum, flagCol).setValue('済');
-  if (studentComment) sheet.getRange(rowNum, coachCol).setValue(studentComment);
+  sheet.getRange(prep.rowNum, flagCol).setValue('済');
+  if (studentComment) sheet.getRange(prep.rowNum, coachCol).setValue(sheetText_(studentComment));
+  clearSheetRowsCache_(prep.sheetName);
   return { stocked, depth, studentComment };
 }
 
@@ -326,7 +516,7 @@ function stockShokenMaterial_(ss, source, studentNumber, tp, ai) {
   const viewpoint = SHOKEN_VIEWPOINTS.includes(ai.viewpoint) ? ai.viewpoint : '';
   const quality = Math.min(3, Math.max(1, Number(ai.quality) || 2));
   const sourceLabel = `${source.type === 'test' ? 'テストのふり返り' : '授業のふり返り'} ${Utilities.formatDate(source.date, 'JST', 'yyyy/MM/dd')}`;
-  ss.getSheetByName(SHEETS.SHOKEN_MATERIALS).appendRow([
+  appendRow_(ss.getSheetByName(SHEETS.SHOKEN_MATERIALS), [
     source.date, studentNumber,
     source.type === 'test' ? `テスト(${source.subject})` : `学習(${source.subject})`,
     String(ai.episode).trim(),
@@ -359,7 +549,7 @@ function recordAttitudeScore_(ss, source, aiDepth) {
   mechanical += Math.min(parseInt(source.extra.handRaises, 10) || 0, points.handsMax);
 
   const depth = Math.min(points.aiMax, Math.max(0, Number(aiDepth) || 0));
-  sheet.appendRow([source.date, source.email, source.subject, mechanical, depth, mechanical + depth]);
+  appendRow_(sheet, [source.date, source.email, source.subject, mechanical, depth, mechanical + depth]);
 }
 
 /**
@@ -415,6 +605,7 @@ function countPendingReflections_(ss) {
  * 未処理のふり返りから所見材料をAI抽出します（シートメニューから実行）。
  */
 function extractShokenMaterials() {
+  assertOperator_();
   const ui = SpreadsheetApp.getUi();
   if (!isAiEnabled_()) {
     ui.alert('Gemini APIキーがスクリプトプロパティ（GEMINI_API_KEY）に設定されていません。');
@@ -459,6 +650,7 @@ function getShokenStudio() {
     return {
       success: true,
       aiEnabled: isAiEnabled_(),
+      aiStatus: getAiStatus_(getConfig_()),
       autoExtract: String(config['AI所見材料の自動抽出']).toUpperCase() === 'ON',
       pending: countPendingReflections_(ss),
       teachingPoints: getTeachingPoints_(ss).map(tp => ({
@@ -490,8 +682,8 @@ function saveTeachingPoint(data) {
         return { success: false, message: '教科と、単元名または指導事項・ねらいを入力してください。' };
       }
       const date = data.date ? parseTimestamp_(data.date) : new Date();
-      SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.TEACHING_POINTS)
-        .appendRow([date || new Date(), subject, unit, points, String(data.evalPoints || '').trim()]);
+      appendRow_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.TEACHING_POINTS),
+        [date || new Date(), subject, unit, points, String(data.evalPoints || '').trim()]);
       return { success: true, message: '指導事項を登録しました。' };
     } catch (e) {
       return { success: false, message: e.message };
@@ -769,9 +961,9 @@ function upsertMoralShoken_(ss, studentNumber, materialName, text) {
     }
   }
   if (targetRow) {
-    sheet.getRange(targetRow, 3).setValue(text);
+    sheet.getRange(targetRow, 3).setValue(sheetText_(text));
   } else {
-    sheet.appendRow([studentNumber, materialName, text, '', false]);
+    appendRow_(sheet, [studentNumber, materialName, text, '', false]);
     targetRow = sheet.getLastRow();
   }
   sheet.getRange(targetRow, 4).setFormula(`=LEN(C${targetRow})`);
@@ -892,8 +1084,10 @@ function exportAttitudeSummary(term) {
         });
         return row;
       });
-      sheet.getRange(1, 1, 1, header.length).setValues([header]).setFontWeight('bold');
-      if (rows.length > 0) sheet.getRange(2, 1, rows.length, header.length).setValues(rows);
+      // 教科が多いと 26 列を超えます。新しいシートは 26 列しかないので、先に広げます
+      ensureCapacity_(sheet, 1, 1 + rows.length, header.length);
+      sheet.getRange(1, 1, 1, header.length).setValues([sheetRow_(header)]).setFontWeight('bold');
+      if (rows.length > 0) sheet.getRange(2, 1, rows.length, header.length).setValues(rows.map(sheetRow_));
       sheet.setFrozenRows(1);
       return { success: true, message: `「${SHEETS.ATTITUDE_SUMMARY}」シートに${summary.term}学期の評価案を出力しました（A≧${summary.thresholdA}, B≧${summary.thresholdB}）。` };
     } catch (e) {
@@ -915,9 +1109,9 @@ function upsertGeneralShoken_(ss, studentNumber, text) {
     }
   }
   if (targetRow) {
-    sheet.getRange(targetRow, 2).setValue(text);
+    sheet.getRange(targetRow, 2).setValue(sheetText_(text));
   } else {
-    sheet.appendRow([studentNumber, text, '', false]);
+    appendRow_(sheet, [studentNumber, text, '', false]);
     targetRow = sheet.getLastRow();
   }
   sheet.getRange(targetRow, 3).setFormula(`=LEN(B${targetRow})`);
@@ -931,6 +1125,7 @@ function upsertGeneralShoken_(ss, studentNumber, text) {
  * 「全体所見」シートで「生成」列にチェックが入った行の所見をAI生成します。
  */
 function generateCheckedGeneralShoken() {
+  assertOperator_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.GENERAL_SHOKEN);
   if (!sheet || sheet.getLastRow() < 2) return;
@@ -940,13 +1135,13 @@ function generateCheckedGeneralShoken() {
     if (row[3] === true && row[0]) {
       try {
         const text = generateGeneralShokenFor_(ss, row[0]);
-        sheet.getRange(i + 2, 2).setValue(text);
+        sheet.getRange(i + 2, 2).setValue(sheetText_(text));
         sheet.getRange(i + 2, 3).setFormula(`=LEN(B${i + 2})`);
         sheet.getRange(i + 2, 4).setValue(false);
         generated++;
         Utilities.sleep(1200);
       } catch (e) {
-        sheet.getRange(i + 2, 2).setValue(`【エラー】${e.message}`);
+        sheet.getRange(i + 2, 2).setValue(sheetText_(`【エラー】${e.message}`));
         sheet.getRange(i + 2, 4).setValue(false);
       }
     }
@@ -990,6 +1185,7 @@ ${materials}
  * 「道徳所見」シートで「生成」列にチェックが入った行の所見をAI生成します。
  */
 function generateCheckedMoralShoken() {
+  assertOperator_();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(SHEETS.MORAL_SHOKEN);
   if (!sheet || sheet.getLastRow() < 2) return;
@@ -999,13 +1195,13 @@ function generateCheckedMoralShoken() {
     if (row[4] === true && row[0] && row[1]) {
       try {
         const text = generateMoralShokenFor_(ss, row[0], row[1]);
-        sheet.getRange(i + 2, 3).setValue(text);
+        sheet.getRange(i + 2, 3).setValue(sheetText_(text));
         sheet.getRange(i + 2, 4).setFormula(`=LEN(C${i + 2})`);
         sheet.getRange(i + 2, 5).setValue(false);
         generated++;
         Utilities.sleep(1200);
       } catch (e) {
-        sheet.getRange(i + 2, 3).setValue(`【エラー】${e.message}`);
+        sheet.getRange(i + 2, 3).setValue(sheetText_(`【エラー】${e.message}`));
         sheet.getRange(i + 2, 5).setValue(false);
       }
     }
@@ -1076,7 +1272,8 @@ ${materialInfo}
 - 児童の記述内容に具体的に触れて良い点を褒め、前向きな言葉で締めくくってください。
 - 生成するのはコメントの文章のみとしてください。`);
 
-  sheet.getRange(rowNum, 6).setValue(feedback);
+  sheet.getRange(rowNum, 6).setValue(sheetText_(feedback));
+  clearSheetRowsCache_(sheet.getName());
 
   // Classroom への個別投稿（設定されている場合のみ）
   const config = getConfig_();

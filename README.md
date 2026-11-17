@@ -349,6 +349,7 @@ Apps Script エディタに貼り直さないかぎり本番は古いままで�
   | `studySender.installHint.v1` | 案内バーを閉じたか |
   | `studySender.sent.v1` | 送信ずみレコードの id（同じ記録を送り直さないための控え） |
   | `studySender.swept.v1` / `studySender.lastSweep.v1` | アプリごと・全体の、最後に取り寄せた時刻 |
+  | `studySender.drafts.v1` | まなびクエスト本体から預かった**きろくの書きかけ**（鍵は `出席番号:種類`。14日で消え、30件まで） |
 
   記録ハブ（同一オリジン）は `study.records.v1`（写し）、`study.hub.seen.v1`
   （どのアプリから、いつ写しが届いたか）、`study.hub.quota.v1`（保存領域が尽きた目印）を作ります。
@@ -363,6 +364,10 @@ Apps Script エディタに貼り直さないかぎり本番は古いままで�
 - ポータルは `localStorage.clear()` を使いません。書き込むのは上のキーと、
   **記録ハブの `study.records.v1` から「送信ずみのレコードだけを取り除いて書き戻す」処理**（`removeRecords()`）だけです。
   **学習アプリ側の原本には一切触れません**（受け渡し口は読み取り専用で、消す口がありません）
+- **きろくの書きかけ**は、ポータルの中で開いているときはポータル（`studySender.drafts.v1`）に、
+  ポータルの外で開いたときは本体の画面の `localStorage`（`mq.drafts.v1`）に残します。
+  どちらも端末の中だけで、サーバーへは送りません。きろくできたら消し、14日で消えます
+  （[`js_core.html`](./manabi-quest/js_core.html) の `Drafts`）
 - 学習ログに残す開始時刻の細かさは「初期設定」の `学習ログ時刻精度` で決まります。
   **標準は「時間帯」**で、`午前` / `午後` / `夕方以降` の3つにまるめて保存します
   （`分` にすると `HH:mm` まで残ります／`10_studylog.gs` の `studyTimeSlot_()`）
@@ -381,6 +386,21 @@ Service Worker は `localStorage` に一切触れません。
   **端末の `localStorage` にだけ**保存されます。リポジトリには含まれません。
   URLで渡した場合も、保存後すぐ `history.replaceState()` でURLから消します
 - [`.gitignore`](./.gitignore) で `.clasp.json` `.env` の混入を止めています
+
+### 入力をそのまま信じない（2026-11 の点検で直したもの）
+
+| 守り | どこで | 何を防ぐか |
+|---|---|---|
+| ポータルの本体URL・受信用URLは `https://script.google.com/…/exec` の形だけ | `manabi-portal/index.html` の `normalizeAppUrl()`（URLパラメータ・せってい・読み出しの3か所） | `?app=javascript:…` のリンクで、ポータルの中によそのスクリプトを動かされる／偽のログイン画面を出される |
+| シートへ書く文字は `sheetText_()` を通す | `03_main.gs`（`appendRow_` / `appendRows_` / AI の結果） | `=TEXTJOIN(…'児童マスタ'!…)` のような文字が数式として計算され、名簿などが画面に出る |
+| 末尾に `_` の無い関数は、役割ごとに確かめる | 本人は `getCurrentEmail_()`、先生は `assertTeacher_()`、メニュー・トリガーは `assertOperator_()` | 児童が開発者ツールから、他人の記録を読む・週次メールを送る／止める |
+| 学習ログの上限 | `10_studylog.gs`（1件2時間・1さつ1000ページ・タイピング20打/秒・100マス1問0.3秒、学習した日1日あたりの経験値の上限、14日より前は経験値なし） | 端末で作った記録で、経験値・ランキング・自己ベストをいくらでも動かす。こえた記録は先生の「見なおしたい記録」に出ます |
+| 出席番号での送信は先生だけ | `10_studylog.gs` の `receiveStudyRecords_` | 名簿に無い同じ組織のアカウントが、ほかの児童として記録を足す |
+| 入力の長さ・範囲 | `04_records.gs` の `cleanText_()`・`cleanScore_()`、`05_game.gs`（プロフィール30文字・持っているアイテムだけ） | 長い文で全員の画面を重くする／点数を大きくして経験値を増やす |
+| AI に送る前の仮名化 | `07_ai.gs` の `getAiNameAliases_()`（氏名・名字・名前・ニックネーム） | 友だちの名前が外部のサービスへ出る |
+
+**公開関数を足したときは** [`tools/check-server-guards.js`](./tools/check-server-guards.js) の
+`PUBLIC_FUNCTIONS` に役割を書き足してください。台帳に無い公開関数があると `npm test` が落ちます。
 
 ### OAuth スコープについて
 
@@ -465,7 +485,13 @@ npm test        # 中身のテスト
 npm run quality # 両方
 ```
 
-外部サービスにつながないので数秒で終わります。npm パッケージも使いません（`npm ci` 不要）。
+外部サービスにつながないので数秒で終わります。`npm run check` と `npm test` は npm パッケージを使いません
+（`npm ci` が要るのは、同梱ライブラリを作り直す `npm run build` と、その検査 `npm run verify` だけです）。
+
+`npm test` には、偽の Apps Script の上で公開関数を実際に呼ぶ
+[`tools/check-server-guards.js`](./tools/check-server-guards.js)（権限・数式・学習ログの上限・ロック・AI）と、
+ポータルの設定URLと書きかけの保管を確かめる [`tools/check-portal-config.js`](./tools/check-portal-config.js) も入っています。
+CI は PR のたびに `node tools/build-sw.mjs --check`（SW の版の刻み忘れ）も走らせます。
 
 ### `npm run check` が見ているもの
 
@@ -511,7 +537,8 @@ npm run quality # 両方
 > 埋め込み元を絞る設定ではありません（GAS には特定オリジンだけを許す設定がありません）。
 > 絞っているのは**本体からポータルへ返す `postMessage` の宛先**のほうで、
 > `sanitizePortalOrigin_()` が URLパラメータ `portalOrigin` を
-> `https://〇〇.github.io` の形にだけ通し、合わなければ空にして既定値を使います。
+> `https://giga-school.com`（とそのサブドメイン）か `https://〇〇.github.io` の形にだけ通し、
+> 合わなければ空にして既定値（`https://gamification.giga-school.com`）を使います。
 > 宛先を偽られても、ブラウザは宛先オリジンが実際に一致するときしかメッセージを届けないため、
 > 別のサイトに埋め込まれても中身は読み取られません。
 > 加えて、サーバー側の判定はすべて `Session.getActiveUser().getEmail()` に依っているので、
@@ -527,31 +554,28 @@ npm run quality # 両方
 | Gmail 送信 | 1日 **100通**（無償）/ **1,500通**（Workspace） | 週次メールが届かない | 宛先は児童マスタの `担任` 行のアドレス。数を絞る |
 | `UrlFetchApp`（AI） | 1日 **20,000回** | AI所見が失敗する | APIキー未設定でもAI以外は動作 |
 | 同時アクセス | 1クラス40人の一斉送信を想定 | 行がずれる | 書き込み系APIは `withLock_()`（`LockService`）で1人ずつ通す。10秒待って取れなければ「こんでいます」を返します |
-| 初回ロード（ポータル） | **80KB**（うちインラインJS 51KB）・**外部依存ゼロ** | — | — |
-| 初回JS（本体・外部） | **約157KB**（Bootstrap 約79KB + SweetAlert2 約78KB。CDN配信時のめやす） | 校内Wi-Fi混雑時に初回表示が遅い | kuroshiro 111KB と Google Charts は**必要になってから**読み込む方式に変更済み（下記） |
-| 初回JS（本体・自前） | **285KB**（js_core 53 + js_student 144 + js_teacher 87） | 同上 | 役割ごとの出し分けは未実施。`index.html` は3つとも常に `include()` しています。`doGet` の段階で先生／児童を判定して切り分ける案があります |
+| 初回ロード（ポータル） | **約113KB**・**外部依存ゼロ** | — | — |
+| 初回ロード（本体） | **約1.2MB**（転送時は圧縮されて約0.42MB）。ライブラリ・アイコン・書体はすべて同梱 | 校内Wi-Fi混雑時に初回表示が遅い | 内訳は Bootstrap CSS 228KB・書体 240KB・Bootstrap JS＋SweetAlert2 157KB・ふりがな 110KB・自前のJS 313KB（js_core 61 + js_student 160 + js_teacher 92）。役割ごとの出し分けは未実施で、`doGet` の段階で先生／児童を判定して切り分ける案があります |
+| 起動1回の読み取り | スプレッドシートの読み取り **約38回**（2026-11 に約59回から減らしました） | 年度の後半ほど起動が遅くなる | 同じシートは1回の実行で1回だけ読む（`readDataRows_` / `readStudyLogRaw_`） |
 
-> 本体は上に加えて CSS も CDN から読みます（Bootstrap CSS・Bootstrap Icons・Google Fonts の Zen Maru Gothic）。
+> 本体が外から取りにいくのは、**ふりがなの辞書だけ**です（下記）。
 > ポータル側は HTML・CSS・JS がすべて1ファイルに入っており、外部から取りにいくものはありません。
 
-### あとから読み込むもの（初回表示を軽くするため）
+### 外から取りにいくもの（ふりがなの辞書だけ）
 
-次の 3 つは `<head>` に並べず、**必要になった時点で** `loadScriptOnce_()` が取りにいきます。
-読み込めなかったときは、その機能だけ無しで通常どおり使えます。
+ライブラリ（Bootstrap・Bootstrap Icons・SweetAlert2・kuroshiro）と書体は、
+`npm run build` / `npm run build:fonts` で `manabi-quest/vendor_*.html` / `fonts.html` に同梱しています。
+版は [`package.json`](./package.json) で固定し、Dependabot（npm）が更新を知らせます。
+**更新したら `npm run build` を走らせて、作り直した `vendor_*.html` もいっしょにコミット**してください
+（CI の `npm run verify` が、作り直し忘れを止めます）。
 
-| ライブラリ | 大きさ | いつ読み込むか |
-|---|--:|---|
-| kuroshiro | 34KB | 児童画面で `initFurigana()` が呼ばれたとき（**先生の画面では一切読み込みません**） |
-| kuroshiro-analyzer-kuromoji | 77KB | 同上（辞書 約6MB は、さらにその後） |
-| Google Charts ローダー | — | グラフを実際に描くとき（記録タブを開かない児童は読み込みません） |
+実行時に外へ取りにいくのは、ふりがな（kuromoji）の**辞書**だけです（約6MB、`cdn.jsdelivr.net`）。
+児童画面で `initFurigana()` が呼ばれたときだけ読みにいき、読めないときはふりがな無しでそのまま使えます
+（`quality.config.json` の `securityExceptions` に理由つきで宣言しています）。
 
-CDN の版数は URL に直接書いているため、Dependabot では追えません。更新するときは次の3か所を直してください。
-
-| ファイル | 場所 | 中身 |
-|---|---|---|
-| [`manabi-quest/index.html`](./manabi-quest/index.html) | `<head>` と `</body>` の直前 | Bootstrap CSS / Bootstrap Icons / Google Fonts / SweetAlert2 / Bootstrap JS |
-| [`manabi-quest/js_core.html`](./manabi-quest/js_core.html) | `initFurigana()` / `patchKuromojiDictUrl_()` | kuroshiro・kuromoji アナライザ・kuromoji 辞書 |
-| [`manabi-quest/js_student.html`](./manabi-quest/js_student.html) | 先頭の `chartsLoading` | Google Charts ローダー |
+グラフは自前の SVG（[`js_student.html`](./manabi-quest/js_student.html) の `drawLineChart_`）で描いています。
+以前は Google Charts を `www.gstatic.com` から読んでいましたが、学校のフィルタで止まるとグラフが出ず、
+外部CDNを使わない決まりにも反していたのでやめました。
 
 ## セットアップ
 

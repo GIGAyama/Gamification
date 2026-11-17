@@ -25,7 +25,7 @@ function getTeacherData() {
         nickname: row[2] || row[1],
         email: String(row[3]).toLowerCase().trim(),
         totalExp: Number(row[4] || 0),
-        level: calculateLevel(Number(row[4] || 0), config).level,
+        level: calculateLevel_(Number(row[4] || 0), config).level,
         lastLogin: row[7] instanceof Date ? Utilities.formatDate(row[7], 'JST', 'yyyy-MM-dd') : String(row[7] || '')
       }))
       .sort((a, b) => Number(a.number) - Number(b.number));
@@ -42,7 +42,11 @@ function getTeacherData() {
       assignmentSummary: getAssignmentSummary_(ss, students),
       // 「先生からのひとこと」で使う定型スタンプ
       praiseStamps: getPraiseStamps_(),
-      aiEnabled: !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')
+      aiEnabled: isAiEnabled_(),
+      // 鍵があるかだけでなく、最後に成功・失敗したのはいつか（失敗は先生に見えるように）
+      aiStatus: getAiStatus_(config),
+      // 「初期設定」の値が範囲の外で、既定値に戻して動かしているもの
+      configWarnings: getConfigWarnings_(config)
     };
   } catch (e) {
     console.error(`getTeacherData Error: ${e.message}`);
@@ -215,7 +219,7 @@ function getStudentDetails(email) {
     if (!found.data) return { success: false, message: '児童が見つかりません。' };
 
     const totalExp = Number(found.data['累計経験値'] || 0);
-    const levelInfo = calculateLevel(totalExp, config);
+    const levelInfo = calculateLevel_(totalExp, config);
     return {
       success: true,
       data: {
@@ -228,7 +232,7 @@ function getStudentDetails(email) {
           totalExp,
           exchangePoints: Number(found.data['交換ポイント'] || 0)
         },
-        records: getMyRecords(target),
+        records: getMyRecords_(target),
         studyLog: getStudyLogForUser_(ss, target, 12),
         missions: getMissionStatus_(ss, target),
         recentActivity: getRecentLogs_(ss, target),
@@ -273,8 +277,8 @@ function grantPoints(data) {
           row[4] = oldTotal + amount;
           row[5] = Number(row[5] || 0) + amount;
           logsToAdd.push([new Date(), email, LOG_ACTIONS.GRANT_POINT, `経験値 +${amount}EXP (${reason || '先生から'})`]);
-          const oldLevel = calculateLevel(oldTotal, config).level;
-          const newLevel = calculateLevel(oldTotal + amount, config).level;
+          const oldLevel = calculateLevel_(oldTotal, config).level;
+          const newLevel = calculateLevel_(oldTotal + amount, config).level;
           if (newLevel > oldLevel) {
             logsToAdd.push([new Date(), email, LOG_ACTIONS.LEVEL_UP, `レベル${newLevel}にアップ！`]);
           }
@@ -306,8 +310,8 @@ function postAnnouncement(data) {
       const teacher = assertTeacher_();
       if (!data.message) return { success: false, message: 'お知らせの内容を入力してください。' };
       const ss = SpreadsheetApp.getActiveSpreadsheet();
-      ss.getSheetByName(SHEETS.ANNOUNCEMENTS)
-        .appendRow([new Date(), data.message, teacher['ニックネーム'] || teacher['名前'], data.endDate || null]);
+      appendRow_(ss.getSheetByName(SHEETS.ANNOUNCEMENTS),
+        [new Date(), String(data.message).slice(0, 2000), teacher['ニックネーム'] || teacher['名前'], data.endDate || null]);
       return { success: true, announcements: getAnnouncements_(true) };
     } catch (e) {
       return { success: false, message: e.message };
@@ -423,8 +427,8 @@ function saveShokenMaterial(data) {
       assertTeacher_();
       const { studentNumber, category, episode } = data;
       if (!studentNumber || !episode) return { success: false, message: '児童とエピソードを入力してください。' };
-      SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SHOKEN_MATERIALS)
-        .appendRow([new Date(), studentNumber, category || 'その他', episode, '', '', '', '', '先生の気づき']);
+      appendRow_(SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.SHOKEN_MATERIALS),
+        [new Date(), studentNumber, category || 'その他', episode, '', '', '', '', '先生の気づき']);
       return { success: true, message: '所見材料を保存しました。' };
     } catch (e) {
       return { success: false, message: e.message };
