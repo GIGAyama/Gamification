@@ -31,10 +31,10 @@
     "url": "https://github.com/GIGAyama/Gamification.git"
   },
   "dependencies": {
-    "bootstrap": "5.3.3",
+    "bootstrap": "5.3.9",
     "bootstrap-icons": "1.13.2",
     "sweetalert2": "11.26.25",
-    "kuroshiro": "1.2.0",
+    "kuroshiro": "1.2.1",
     "kuroshiro-analyzer-kuromoji": "1.1.0"
   }
 }
